@@ -200,7 +200,8 @@ const DEFAULT_SPEAKER_LANGUAGE =
   supportedLanguages[0]?.code ?? ("fr" as LanguageCode);
 const INPUT_SENSITIVITY_STORAGE_KEY = "voice-capture-studio.input-sensitivity";
 const INPUT_SENSITIVITY_MIN = 0.5;
-const INPUT_SENSITIVITY_MAX = 2.5;
+const INPUT_SENSITIVITY_MAX = 3;
+const DEFAULT_INPUT_SENSITIVITY = 1.6;
 const REVIEW_WAVEFORM_BAR_COUNT = 92;
 
 function readStoredInputSensitivity(): number {
@@ -210,9 +211,9 @@ function readStoredInputSensitivity(): number {
 
     return Number.isFinite(value)
       ? Math.min(INPUT_SENSITIVITY_MAX, Math.max(INPUT_SENSITIVITY_MIN, value))
-      : 1;
+      : DEFAULT_INPUT_SENSITIVITY;
   } catch {
-    return 1;
+    return DEFAULT_INPUT_SENSITIVITY;
   }
 }
 
@@ -226,18 +227,18 @@ function voiceActivationThreshold(
   roomTone: RoomToneCalibration | null,
 ): number {
   if (roomTone === null) {
-    return 0.045;
+    return 0.06;
   }
 
   if (roomTone.noiseFloorDbfs >= -46) {
-    return 0.075;
+    return 0.1;
   }
 
   if (roomTone.noiseFloorDbfs >= -56) {
-    return 0.058;
+    return 0.078;
   }
 
-  return 0.045;
+  return 0.06;
 }
 
 type CreateSpeakerInput = {
@@ -817,7 +818,7 @@ export function App() {
       smoothedLevel += (rms - smoothedLevel) * 0.12;
 
       if (pcmRecorderRef.current === null && !isPersistingRef.current) {
-        updateVisualAudioLevel(Math.min(1, smoothedLevel * 4.8));
+        updateVisualAudioLevel(Math.min(1, smoothedLevel * 7));
       }
 
       frameId = window.requestAnimationFrame(updateAmbientLevel);
@@ -2099,14 +2100,6 @@ export function App() {
               <strong>Voice Capture Studio</strong>
             </button>
             <div className="header-actions">
-              <a
-                className="site-signature"
-                href="https://www.electronicartefacts.com"
-                rel="noreferrer"
-                target="_blank"
-              >
-                www.electronicartefacts.com
-              </a>
               <button
                 className="quiet-button"
                 aria-label="Qualité et exports"
@@ -2264,9 +2257,52 @@ export function App() {
               )}
             </section>
           )}
+
+          {!isCapturing && <SiteFooter />}
         </>
       )}
     </main>
+  );
+}
+
+function SiteFooter() {
+  return (
+    <footer className="site-footer">
+      <div className="site-footer-brand">
+        <span>
+          <em>electronic</em>
+          <b>Artefacts</b>
+        </span>
+        <small>Voice Capture Studio — capture vocale locale et précise.</small>
+      </div>
+      <nav className="site-footer-links" aria-label="Liens externes">
+        <a
+          href="https://www.electronicartefacts.com"
+          rel="noreferrer"
+          target="_blank"
+        >
+          www.electronicartefacts.com
+        </a>
+        <a
+          href="https://github.com/electronicartefacts/voice-capture-studio"
+          rel="noreferrer"
+          target="_blank"
+        >
+          GitHub
+        </a>
+        <a
+          href="https://github.com/electronicartefacts/voice-capture-studio/blob/main/LICENSE"
+          rel="noreferrer"
+          target="_blank"
+        >
+          Licence MIT
+        </a>
+      </nav>
+      <p className="site-footer-note">
+        100 % local — aucune donnée n'est envoyée en ligne. ©{" "}
+        {new Date().getFullYear()} electronicArtefacts.
+      </p>
+    </footer>
   );
 }
 
@@ -2402,7 +2438,13 @@ function VoiceWaveformSurface(input: {
       const position = index / Math.max(1, WAVEFORM_DISPLAY_SAMPLES - 1);
       const phase = position * Math.PI * 2;
       const recordingGain =
-        state === "karaoke" ? 1 : state === "calibration" ? 0.42 : 0.22;
+        state === "karaoke"
+          ? 1
+          : state === "calibration"
+            ? 0.42
+            : state === "technical"
+              ? 0.68
+              : 0.22;
       const reviewGain = state === "done" ? 0.52 : 0;
       const quietMotion = 0.018 + (state === "home" ? 0.012 : 0);
       const gain = quietMotion + level * (recordingGain + reviewGain);
@@ -2499,6 +2541,7 @@ function VoiceWaveformSurface(input: {
       const centerRatio = getWaveCenterRatio(state, width);
       const centerY = height * centerRatio;
       const isCaptureSurface = state === "calibration" || state === "karaoke";
+      const isLiveSurface = isCaptureSurface || state === "technical";
       const isQuietSurface = ["home", "permission", "technical"].includes(
         state,
       );
@@ -2518,7 +2561,7 @@ function VoiceWaveformSurface(input: {
           0.5 - 0.5 * Math.cos(Math.PI * Math.max(0, 1 - edge)),
           1.8,
         );
-        const pointLevel = isCaptureSurface
+        const pointLevel = isLiveSurface
           ? levelHistory[(levelHistoryHead + index) % WAVEFORM_DISPLAY_SAMPLES]
           : level;
         const targetSample = createWaveSample(
@@ -2551,7 +2594,12 @@ function VoiceWaveformSurface(input: {
         ctx.restore();
       }
 
-      const quietAlpha = isQuietSurface ? 0.24 : 1;
+      const quietAlpha =
+        state === "technical"
+          ? Math.min(0.85, 0.46 + level * 0.4)
+          : isQuietSurface
+            ? 0.24
+            : 1;
       const captureAlpha = isCaptureSurface ? 0.56 : 1;
       const alpha = waveAlpha * quietAlpha * captureAlpha;
       const primaryWidth = state === "karaoke" ? 3.1 : 2.8;
@@ -2565,6 +2613,16 @@ function VoiceWaveformSurface(input: {
       drawSpline(points, 1.1, 0.74, alpha * 0.18, waveColor);
       drawSpline(points, 2.4, 0.42, alpha * 0.09, waveColor);
       drawSpline(points, 4, 0.26, alpha * 0.04, waveColor);
+
+      if (isLiveSurface) {
+        drawSpline(
+          points,
+          0,
+          primaryWidth * 0.55,
+          alpha * Math.min(0.6, 0.12 + level * 0.55),
+          playheadColor,
+        );
+      }
 
       if (state === "done") {
         const progress = Math.max(0, Math.min(1, playbackProgressRef.current));
@@ -5295,20 +5353,13 @@ function MicrophoneControlPanel(input: {
   readonly sensitivity: number;
 }) {
   const level = clampUnit(input.audioLevel);
-  const levelTone = !input.active
-    ? "idle"
-    : level < 0.04
-      ? "low"
-      : level > 0.82
-        ? "hot"
-        : "good";
   const levelHint = !input.active
-    ? "Active le micro depuis l'accueil pour voir le niveau en direct."
-    : levelTone === "low"
-      ? "Parle normalement : la jauge et la courbe en fond d'écran doivent réagir immédiatement."
-      : levelTone === "hot"
-        ? "Niveau très fort. Éloigne-toi légèrement du micro ou baisse la sensibilité."
-        : "Niveau correct. La capture sera propre à cette distance.";
+    ? "Active le micro depuis l'accueil : la courbe en fond d'écran devient ton repère."
+    : level < 0.07
+      ? "Parle : la courbe en fond d'écran doit réagir immédiatement."
+      : level > 0.85
+        ? "Trop fort. Recule légèrement ou baisse la sensibilité."
+        : "Niveau correct. La courbe suit ta voix en temps réel.";
 
   return (
     <section className="microphone-panel" aria-label="Microphone actif">
@@ -5321,22 +5372,6 @@ function MicrophoneControlPanel(input: {
           <Mic aria-hidden="true" size={15} />
           {input.active ? "Actif" : "En veille"}
         </span>
-      </div>
-      <div
-        aria-label={`Niveau du micro ${formatPercent(level * 100)}`}
-        className={`microphone-level is-${levelTone}`}
-      >
-        <Volume2 aria-hidden="true" size={18} />
-        <span>
-          <i
-            style={
-              {
-                "--meter-scale": formatMeterScale(level),
-              } as CSSProperties
-            }
-          />
-        </span>
-        <strong>{formatPercent(level * 100)}</strong>
       </div>
       <label className="microphone-sensitivity">
         <span>Sensibilité</span>
@@ -5353,10 +5388,8 @@ function MicrophoneControlPanel(input: {
         />
         <strong>{Math.round(input.sensitivity * 100)}%</strong>
       </label>
-      <p className="coach-note">{levelHint}</p>
-      <p className="microphone-note">
-        Réglage logiciel appliqué au suivi vocal et à l'affichage. Le WAV
-        exporté reste la capture brute du micro.
+      <p className="microphone-hint" aria-live="polite">
+        {levelHint}
       </p>
     </section>
   );

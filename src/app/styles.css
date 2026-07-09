@@ -260,26 +260,6 @@ textarea:focus-visible {
   gap: 10px;
 }
 
-.site-signature {
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 760;
-  padding: 8px 11px;
-  text-decoration: none;
-  transition:
-    border-color 140ms ease,
-    color 140ms ease,
-    background 140ms ease;
-}
-
-.site-signature:hover {
-  background: var(--panel);
-  border-color: var(--line-strong);
-  color: var(--text);
-}
-
 .quiet-button {
   border: 1px solid transparent;
   border-radius: var(--radius);
@@ -2082,51 +2062,6 @@ textarea:focus-visible {
   color: color-mix(in srgb, var(--accent-a) 72%, var(--text));
 }
 
-.microphone-level {
-  align-items: center;
-  display: flex;
-  gap: 12px;
-}
-
-.microphone-level svg {
-  color: var(--muted);
-  flex: 0 0 auto;
-}
-
-.microphone-level > span {
-  background: color-mix(in srgb, var(--muted) 18%, transparent);
-  border-radius: 999px;
-  display: block;
-  flex: 1;
-  height: 10px;
-  overflow: hidden;
-}
-
-.microphone-level i {
-  background: linear-gradient(90deg, var(--accent-a), var(--brand));
-  border-radius: inherit;
-  display: block;
-  height: 100%;
-  transform: scaleX(var(--meter-scale, 0.035));
-  transform-origin: left center;
-  transition: transform var(--motion-fast) var(--ease-standard);
-  width: 100%;
-  will-change: transform;
-}
-
-.microphone-level.is-hot i {
-  background: linear-gradient(90deg, var(--accent-b), var(--accent-c));
-}
-
-.microphone-level > strong,
-.microphone-sensitivity strong {
-  color: var(--text);
-  font-size: 14px;
-  font-variant-numeric: tabular-nums;
-  min-width: 4ch;
-  text-align: right;
-}
-
 .microphone-sensitivity {
   align-items: center;
   color: var(--muted);
@@ -2142,11 +2077,79 @@ textarea:focus-visible {
   width: 100%;
 }
 
-.microphone-panel .coach-note {
+.microphone-sensitivity strong {
+  color: var(--text);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  min-width: 4ch;
+  text-align: right;
+}
+
+.microphone-hint {
+  color: var(--soft);
+  font-size: 13px;
+  line-height: 1.5;
   margin: 0;
 }
 
-.microphone-note {
+.site-footer {
+  align-items: center;
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px 28px;
+  justify-content: space-between;
+  margin-top: 12px;
+  padding: 24px clamp(20px, 4vw, 44px) 32px;
+}
+
+.site-footer-brand {
+  display: grid;
+  gap: 4px;
+}
+
+.site-footer-brand span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.site-footer-brand em {
+  color: var(--soft);
+  font-style: normal;
+  font-weight: 500;
+}
+
+.site-footer-brand small {
+  color: var(--soft);
+  font-size: 12px;
+}
+
+.site-footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.site-footer-links a {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 760;
+  padding: 8px 13px;
+  text-decoration: none;
+}
+
+.site-footer-links a:hover {
+  background: var(--panel);
+  border-color: var(--line-strong);
+  color: var(--text);
+}
+
+.site-footer-note {
   color: var(--soft);
   font-size: 12px;
   line-height: 1.5;
@@ -2436,10 +2439,6 @@ textarea:focus-visible {
   }
 
   .simple-header .quiet-button span {
-    display: none;
-  }
-
-  .site-signature {
     display: none;
   }
 
@@ -2926,8 +2925,7 @@ body,
 }
 
 .simple-header,
-.session-stage,
-.technical-page {
+.site-footer {
   animation: materialize var(--motion-slow) var(--ease-emphasized) both;
 }
 
@@ -2940,6 +2938,28 @@ body,
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+/* Foreground screens rise out of the persistent waveform surface. */
+.home-card,
+.director-panel,
+.room-tone-screen,
+.karaoke-screen,
+.focus-card,
+.technical-page {
+  animation: screen-enter 520ms var(--ease-emphasized) both;
+}
+
+@keyframes screen-enter {
+  from {
+    opacity: 0;
+    transform: translateY(22px) scale(0.985);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
   }
 }
 
@@ -2965,11 +2985,6 @@ body,
 .brand-button strong,
 .soft-label {
   color: var(--soft);
-}
-
-.site-signature {
-  border-color: transparent;
-  background: transparent;
 }
 
 .quiet-button,
@@ -3365,7 +3380,7 @@ body,
 .capture-mode-option,
 .recordings-list a,
 .review-word,
-.site-signature,
+.site-footer-links a,
 .ritual-button {
   transition:
     background var(--motion-fast) var(--ease-standard),
@@ -3524,11 +3539,66 @@ body,
   }
 }
 
+@media (max-width: 720px) {
+  .karaoke-visual-line {
+    flex-wrap: wrap;
+    row-gap: 0.1em;
+    white-space: normal;
+  }
+
+  .karaoke-line {
+    font-size: clamp(24px, 8.4vw, 38px);
+    line-height: 1.14;
+    min-height: clamp(170px, 30vh, 300px);
+  }
+
+  .karaoke-screen,
+  .room-tone-screen {
+    gap: 18px;
+    width: 100%;
+  }
+
+  .recording-topbar {
+    gap: 8px;
+  }
+
+  .recording-dot,
+  .recording-cue,
+  .recording-meter,
+  .stop-button {
+    font-size: 13px;
+    min-height: 38px;
+    padding: 7px 10px;
+  }
+
+  .recording-meter > span {
+    flex: 1;
+    max-width: 100%;
+    width: auto;
+  }
+
+  .room-tone-readout {
+    width: 100%;
+  }
+
+  .site-footer {
+    align-items: flex-start;
+    flex-direction: column;
+    padding: 22px 20px 30px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .voice-halo,
   .opening-ritual > div,
   .simple-header,
   .session-stage,
+  .home-card,
+  .director-panel,
+  .room-tone-screen,
+  .karaoke-screen,
+  .focus-card,
+  .site-footer,
   .technical-page {
     animation: none !important;
   }
