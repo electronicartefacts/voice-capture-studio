@@ -272,7 +272,7 @@ function createPrimaryAction(input: {
   }
 
   if (input.folderExport) {
-    return "Choisis un dossier local, puis lance une prise courte de calibration.";
+    return "Choisis un dossier local pour automatiser l'export, ou lance avec téléchargement.";
   }
 
   if (!input.canPersistRecordings || !input.workspaceStorage) {

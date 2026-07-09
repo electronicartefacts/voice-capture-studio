@@ -56,6 +56,7 @@ import {
 } from "@domains/sessions";
 import { initialSpeakers, type SpeakerId } from "@domains/speakers";
 import {
+  DEFAULT_CAPTURE_PROFILE,
   createEmptyWorkspace,
   reconcileWorkspaceProgress,
   type CaptureProfile,
@@ -1747,17 +1748,6 @@ function formatCaptureMode(mode: CaptureMode): string {
   return "Master audio";
 }
 
-function formatWorkspaceLocation(
-  folderName: string | null,
-  durability: WorkspaceDurability | null,
-): string {
-  if (durability === "memory-only") {
-    return "Session temporaire";
-  }
-
-  return folderName ?? "Stockage navigateur";
-}
-
 function explainPromptChoice(
   prompt: PromptDefinition,
   coverage: CoverageSummary,
@@ -2159,12 +2149,23 @@ function HomeScreen(input: {
   const ModeIcon = modeContent.icon;
   const localCorpusReady =
     input.captureMode === "training" || input.localCorpusSummary !== null;
-  const setupComplete =
-    input.diagnostics.canRecord &&
-    input.folderName !== null &&
-    localCorpusReady;
+  const recordingReady = input.diagnostics.canRecord && localCorpusReady;
+  const folderSelected = input.folderName !== null;
+  const setupLabel = !input.diagnostics.canRecord
+    ? "Micro à corriger"
+    : !localCorpusReady
+      ? "Texte attendu"
+      : folderSelected
+        ? "Prêt"
+        : "Export manuel";
+  const setupTone = recordingReady
+    ? folderSelected
+      ? "ready"
+      : "limited"
+    : "blocked";
   const coveragePercent = input.coverage?.percent ?? 0;
   const readiness = formatDatasetReadiness(input.coverage?.datasetReadiness);
+  const storageStatus = input.folderName ?? "Exports à télécharger";
   const corpusStatus =
     input.captureMode === "training"
       ? readiness
@@ -2195,17 +2196,14 @@ function HomeScreen(input: {
         <div>
           <p className="soft-label">{modeContent.kicker}</p>
           <h1 id="home-title">{modeContent.headline}</h1>
-          <p className="plain-text">{input.message}</p>
+          <p className="plain-text" aria-live="polite">
+            {input.message}
+          </p>
         </div>
         <div className="status-strip" aria-label="État de la session">
           <div>
             <HardDrive aria-hidden="true" size={18} />
-            <span>
-              {formatWorkspaceLocation(
-                input.folderName,
-                input.workspaceDurability,
-              )}
-            </span>
+            <span>{storageStatus}</span>
           </div>
           <div>
             <Timer aria-hidden="true" size={18} />
@@ -2233,15 +2231,23 @@ function HomeScreen(input: {
             <p className="soft-label">Démarrage</p>
             <h2>{modeContent.workbenchTitle}</h2>
           </div>
-          <span className={`setup-pill${setupComplete ? " is-ready" : ""}`}>
+          <span className={`setup-pill is-${setupTone}`}>
             <BadgeCheck aria-hidden="true" size={16} />
-            {setupComplete ? "Prêt" : "À compléter"}
+            {setupLabel}
           </span>
         </div>
 
         <CaptureModeSelector
           mode={input.captureMode}
           onChange={input.onCaptureModeChange}
+        />
+
+        <SessionFlowGuide
+          captureMode={input.captureMode}
+          diagnostics={input.diagnostics}
+          folderName={input.folderName}
+          localCorpusReady={localCorpusReady}
+          localCorpusSummary={input.localCorpusSummary}
         />
 
         <div className="coverage-console">
@@ -2353,7 +2359,7 @@ function HomeScreen(input: {
             type="button"
           >
             <FolderOpen aria-hidden="true" size={19} />
-            <span>{input.folderName ?? "Choisir un dossier"}</span>
+            <span>{input.folderName ?? "Choisir un dossier d'export"}</span>
           </button>
 
           <button
@@ -2368,18 +2374,33 @@ function HomeScreen(input: {
                 ? "Enregistrement indisponible"
                 : !localCorpusReady
                   ? "Ajouter un texte"
-                  : setupComplete
+                  : folderSelected
                     ? "Lancer la session"
-                    : "Lancer sans dossier"}
+                    : "Lancer avec téléchargement"}
             </span>
           </button>
         </div>
 
+        <p className={`action-hint${folderSelected ? " is-ready" : ""}`}>
+          {folderSelected
+            ? `Les WAV et JSON seront enregistrés dans ${input.folderName}.`
+            : "Sans dossier local, garde les boutons WAV et JSON après chaque prise."}
+        </p>
+
         {input.captureProfile !== undefined && (
-          <CaptureProfileEditor
-            onChange={input.onProfileChange}
-            profile={input.captureProfile}
-          />
+          <details className="capture-profile-details">
+            <summary>
+              <span>
+                <SlidersHorizontal aria-hidden="true" size={18} />
+                <strong>Profil audio</strong>
+              </span>
+              <em>{formatCaptureProfileStatus(input.captureProfile)}</em>
+            </summary>
+            <CaptureProfileEditor
+              onChange={input.onProfileChange}
+              profile={input.captureProfile}
+            />
+          </details>
         )}
       </section>
     </div>
@@ -2459,6 +2480,86 @@ function CaptureModeSelector(input: {
               <small>{option.summary}</small>
             </span>
           </button>
+        );
+      })}
+    </section>
+  );
+}
+
+type SessionFlowStepStatus = "done" | "current" | "blocked";
+
+function SessionFlowGuide(input: {
+  readonly captureMode: CaptureMode;
+  readonly diagnostics: RuntimeDiagnostics;
+  readonly folderName: string | null;
+  readonly localCorpusReady: boolean;
+  readonly localCorpusSummary: LocalTextCorpusSummary | null;
+}) {
+  const modeContent = getCaptureModeContent(input.captureMode);
+  const corpusDetail =
+    input.captureMode === "training"
+      ? "Corpus intégré prêt"
+      : input.localCorpusReady && input.localCorpusSummary !== null
+        ? `${input.localCorpusSummary.promptCount} segment${
+            input.localCorpusSummary.promptCount > 1 ? "s" : ""
+          } prêt${input.localCorpusSummary.promptCount > 1 ? "s" : ""}`
+        : "Colle un texte ou charge un fichier";
+  const exportDetail =
+    input.folderName ??
+    (input.diagnostics.canExportFolder
+      ? "Dossier conseillé ou WAV/JSON"
+      : "Téléchargement WAV/JSON");
+  const steps: readonly {
+    readonly detail: string;
+    readonly icon: typeof Mic;
+    readonly label: string;
+    readonly status: SessionFlowStepStatus;
+  }[] = [
+    {
+      detail: formatCaptureMode(input.captureMode),
+      icon: modeContent.icon,
+      label: "Mode",
+      status: "done",
+    },
+    {
+      detail: corpusDetail,
+      icon: FileText,
+      label: input.captureMode === "training" ? "Corpus" : "Texte",
+      status: input.localCorpusReady ? "done" : "blocked",
+    },
+    {
+      detail: exportDetail,
+      icon: FolderOpen,
+      label: "Export",
+      status:
+        input.folderName !== null || !input.diagnostics.canExportFolder
+          ? "done"
+          : "current",
+    },
+    {
+      detail: input.diagnostics.canRecord
+        ? "Silence 3 s, puis lecture"
+        : input.diagnostics.primaryAction,
+      icon: Mic,
+      label: "Prise",
+      status: input.diagnostics.canRecord ? "current" : "blocked",
+    },
+  ];
+
+  return (
+    <section className="session-flow-guide" aria-label="Déroulé de session">
+      {steps.map((step, index) => {
+        const Icon = step.icon;
+
+        return (
+          <div className={`flow-step is-${step.status}`} key={step.label}>
+            <span className="flow-index">{index + 1}</span>
+            <Icon aria-hidden="true" size={17} />
+            <span>
+              <strong>{step.label}</strong>
+              <small>{step.detail}</small>
+            </span>
+          </div>
         );
       })}
     </section>
@@ -2716,14 +2817,6 @@ function CaptureProfileEditor(input: {
 
   return (
     <div className="capture-profile">
-      <div className="capture-profile-header">
-        <strong>Profil audio</strong>
-        <span>
-          {input.profile.roomToneCaptured
-            ? "Salle calibrée"
-            : "Calibration au lancement"}
-        </span>
-      </div>
       <section
         className="room-tone-summary"
         aria-label="Dernier silence de pièce"
@@ -2762,9 +2855,17 @@ function CaptureProfileEditor(input: {
         <input
           aria-label="Nom du micro"
           placeholder="Ex. Shure SM7B"
-          value={input.profile.microphoneName}
+          value={formatProfileInputValue(
+            input.profile.microphoneName,
+            DEFAULT_CAPTURE_PROFILE.microphoneName,
+          )}
           onChange={(event) =>
-            patchProfile({ microphoneName: event.target.value })
+            patchProfile({
+              microphoneName: normalizeProfileInputValue(
+                event.target.value,
+                DEFAULT_CAPTURE_PROFILE.microphoneName,
+              ),
+            })
           }
         />
       </label>
@@ -2773,9 +2874,17 @@ function CaptureProfileEditor(input: {
         <input
           aria-label="Nom de l'interface audio"
           placeholder="Ex. Scarlett 2i2"
-          value={input.profile.audioInterface}
+          value={formatProfileInputValue(
+            input.profile.audioInterface,
+            DEFAULT_CAPTURE_PROFILE.audioInterface,
+          )}
           onChange={(event) =>
-            patchProfile({ audioInterface: event.target.value })
+            patchProfile({
+              audioInterface: normalizeProfileInputValue(
+                event.target.value,
+                DEFAULT_CAPTURE_PROFILE.audioInterface,
+              ),
+            })
           }
         />
       </label>
@@ -2797,14 +2906,37 @@ function CaptureProfileEditor(input: {
         <input
           aria-label="Description de la pièce"
           placeholder="Ex. bureau traité, fenêtre fermée"
-          value={input.profile.roomDescription}
+          value={formatProfileInputValue(
+            input.profile.roomDescription,
+            DEFAULT_CAPTURE_PROFILE.roomDescription,
+          )}
           onChange={(event) =>
-            patchProfile({ roomDescription: event.target.value })
+            patchProfile({
+              roomDescription: normalizeProfileInputValue(
+                event.target.value,
+                DEFAULT_CAPTURE_PROFILE.roomDescription,
+              ),
+            })
           }
         />
       </label>
     </div>
   );
+}
+
+function formatCaptureProfileStatus(profile: CaptureProfile): string {
+  return profile.roomToneCaptured ? "Salle calibrée" : "Optionnel";
+}
+
+function formatProfileInputValue(value: string, defaultValue: string): string {
+  return value === defaultValue ? "" : value;
+}
+
+function normalizeProfileInputValue(
+  value: string,
+  defaultValue: string,
+): string {
+  return value.trim().length === 0 ? defaultValue : value;
 }
 
 function PermissionScreen(input: {
@@ -2828,7 +2960,7 @@ function PermissionScreen(input: {
           <h1>Prépare la phrase, puis lance la prise.</h1>
         </div>
       </div>
-      <p>{input.message}</p>
+      <p aria-live="polite">{input.message}</p>
       {!input.diagnostics.canRecord && (
         <p className="coach-note danger">{input.diagnostics.primaryAction}</p>
       )}
@@ -2869,6 +3001,22 @@ function PermissionScreen(input: {
           </dl>
         </article>
       )}
+      <ul className="prep-checklist" aria-label="Avant de lancer">
+        <li>
+          <ShieldCheck aria-hidden="true" size={17} />
+          <span>Garde trois secondes de silence pour mesurer la pièce.</span>
+        </li>
+        <li>
+          <Mic aria-hidden="true" size={17} />
+          <span>
+            Reste à la même distance du micro pendant toute la phrase.
+          </span>
+        </li>
+        <li>
+          <Download aria-hidden="true" size={17} />
+          <span>Vérifie les liens WAV et JSON dès que la prise est finie.</span>
+        </li>
+      </ul>
       <div className="stacked-actions">
         <button
           className="folder-button"
@@ -2890,7 +3038,7 @@ function PermissionScreen(input: {
           type="button"
         >
           <Mic aria-hidden="true" size={20} />
-          <span>Lancer la session</span>
+          <span>Démarrer la prise</span>
         </button>
         <button
           className="quiet-button standalone"
@@ -2916,7 +3064,7 @@ function RoomToneCalibrationScreen(input: {
   );
 
   return (
-    <div className="room-tone-screen">
+    <div className="room-tone-screen" aria-live="polite">
       <div className="recording-topbar">
         <div className="recording-dot">Calibration salle</div>
         <div className="recording-meter" aria-label="Niveau de salle">
@@ -2948,7 +3096,11 @@ function RoomToneCalibrationScreen(input: {
       </dl>
       <div
         className="read-progress"
-        aria-label={`Calibration ${formatPercent(input.progress * 100)}`}
+        aria-label="Progression de la calibration"
+        aria-valuemax={100}
+        aria-valuemin={0}
+        aria-valuenow={Math.round(input.progress * 100)}
+        role="progressbar"
       >
         <span style={{ width: formatPercent(input.progress * 100) }} />
       </div>
@@ -2979,11 +3131,11 @@ function KaraokeScreen(input: {
       : "Suivi vocal";
 
   return (
-    <div className="karaoke-screen">
+    <div className="karaoke-screen" aria-busy={input.isFinalizing}>
       <div className="recording-topbar">
-        <div className="recording-dot">
-          Phrase {input.currentPromptIndex + 1}/
-          {Math.max(input.totalPrompts, 1)}
+        <div className="recording-dot" aria-live="polite">
+          {input.isFinalizing ? "Finalisation" : "REC"} · Phrase{" "}
+          {input.currentPromptIndex + 1}/{Math.max(input.totalPrompts, 1)}
         </div>
         <div className="recording-meter" aria-label="Niveau micro">
           <Volume2 aria-hidden="true" size={18} />
@@ -3008,7 +3160,7 @@ function KaraokeScreen(input: {
           type="button"
         >
           <Square aria-hidden="true" size={16} />
-          <span>{input.isFinalizing ? "Finalisation" : "Stop"}</span>
+          <span>{input.isFinalizing ? "Finalisation..." : "Stop"}</span>
         </button>
       </div>
       {input.prompt !== undefined && (
@@ -3021,13 +3173,25 @@ function KaraokeScreen(input: {
         activeWordIndex={input.activeWordIndex}
         words={input.words}
       />
+      <p className="recording-assist" aria-live="polite">
+        {input.isFinalizing
+          ? "Ne ferme pas l'onglet. Le WAV et les métadonnées sont en préparation."
+          : "Lis naturellement. La prise se ferme automatiquement à la fin de la phrase."}
+      </p>
       {input.readingGuideMode === "speech-recognition" &&
         input.recognizedTranscript.trim().length > 0 && (
           <p className="speech-follow-line">
             {createTranscriptPreview(input.recognizedTranscript)}
           </p>
         )}
-      <div className="read-progress" aria-hidden="true">
+      <div
+        className="read-progress"
+        aria-label="Progression de lecture"
+        aria-valuemax={100}
+        aria-valuemin={0}
+        aria-valuenow={Math.round(progress)}
+        role="progressbar"
+      >
         <span style={{ width: formatPercent(progress) }} />
       </div>
     </div>
@@ -3243,15 +3407,19 @@ function DoneScreen(input: {
   const isKeeper = input.take?.quality.verdict === "pass";
 
   return (
-    <div className="focus-card">
+    <div className="focus-card" aria-live="polite">
       <div className={`result-mark${isKeeper ? " is-keeper" : ""}`}>
-        <Check aria-hidden="true" size={28} />
+        {isKeeper ? (
+          <Check aria-hidden="true" size={28} />
+        ) : (
+          <AlertTriangle aria-hidden="true" size={28} />
+        )}
       </div>
       <div className="result-heading">
         {input.progressLabel !== null && (
           <p className="soft-label">{input.progressLabel}</p>
         )}
-        <h1>Prise finalisée.</h1>
+        <h1>{isKeeper ? "Prise utilisable." : "Prise à reprendre."}</h1>
       </div>
       <p>{input.message}</p>
       {input.take !== null && (
@@ -3305,57 +3473,125 @@ function DoneScreen(input: {
           </div>
         </div>
       )}
-      <div className="stacked-actions">
-        {input.downloadUrl !== null && input.fileName !== null && (
-          <a
-            className="download-action"
-            download={input.fileName}
-            href={input.downloadUrl}
-          >
-            <Download aria-hidden="true" size={18} />
-            <span>Télécharger le WAV</span>
-          </a>
-        )}
-        {input.metadataDownloadUrl !== null && (
-          <a
-            className="folder-button"
-            download="voice.capture_session.json"
-            href={input.metadataDownloadUrl}
-          >
-            <Download aria-hidden="true" size={18} />
-            <span>Télécharger le JSON</span>
-          </a>
-        )}
-        <button
-          className="folder-button"
-          onClick={input.onRetake}
-          type="button"
-        >
-          <RotateCcw aria-hidden="true" size={19} />
-          <span>Refaire cette prise</span>
-        </button>
-        {input.hasNextPrompt && (
-          <button
-            className="launch-button"
-            onClick={input.onNext}
-            type="button"
-          >
-            <StepForward aria-hidden="true" size={19} />
-            <span>Phrase suivante</span>
-          </button>
-        )}
-        <button className="launch-button" onClick={input.onAgain} type="button">
-          <Play aria-hidden="true" size={19} />
-          <span>Nouvelle session</span>
-        </button>
-        <button
-          className="quiet-button standalone"
-          onClick={input.onHome}
-          type="button"
-        >
-          <Home aria-hidden="true" size={17} />
-          <span>Accueil</span>
-        </button>
+      <div className="result-action-grid">
+        <section className="next-step-panel" aria-label="Prochaine action">
+          <div>
+            <p className="soft-label">Prochaine action</p>
+            <p>
+              {isKeeper
+                ? input.hasNextPrompt
+                  ? "Continue avec la phrase suivante tant que la posture et le niveau sont stables."
+                  : "La session est prête à être clôturée ou relancée."
+                : "Refais cette phrase avant de continuer la collecte."}
+            </p>
+          </div>
+          <div className="stacked-actions">
+            {isKeeper && input.hasNextPrompt && (
+              <button
+                className="launch-button"
+                onClick={input.onNext}
+                type="button"
+              >
+                <StepForward aria-hidden="true" size={19} />
+                <span>Phrase suivante</span>
+              </button>
+            )}
+            {isKeeper && !input.hasNextPrompt && (
+              <button
+                className="launch-button"
+                onClick={input.onAgain}
+                type="button"
+              >
+                <Play aria-hidden="true" size={19} />
+                <span>Nouvelle session</span>
+              </button>
+            )}
+            {!isKeeper && (
+              <button
+                className="launch-button"
+                onClick={input.onRetake}
+                type="button"
+              >
+                <RotateCcw aria-hidden="true" size={19} />
+                <span>Refaire cette prise</span>
+              </button>
+            )}
+            {isKeeper && (
+              <button
+                className="folder-button"
+                onClick={input.onRetake}
+                type="button"
+              >
+                <RotateCcw aria-hidden="true" size={19} />
+                <span>Refaire cette prise</span>
+              </button>
+            )}
+            {input.hasNextPrompt && (
+              <button
+                className="folder-button"
+                onClick={input.onAgain}
+                type="button"
+              >
+                <Play aria-hidden="true" size={19} />
+                <span>Nouvelle session</span>
+              </button>
+            )}
+            {!isKeeper && (
+              <button
+                className="folder-button"
+                onClick={input.onAgain}
+                type="button"
+              >
+                <Play aria-hidden="true" size={19} />
+                <span>Nouvelle session</span>
+              </button>
+            )}
+            <button
+              className="quiet-button standalone"
+              onClick={input.onHome}
+              type="button"
+            >
+              <Home aria-hidden="true" size={17} />
+              <span>Accueil</span>
+            </button>
+          </div>
+        </section>
+
+        <section className="export-panel" aria-label="Exports de la prise">
+          <div>
+            <p className="soft-label">Exports</p>
+            <p>Conserve le WAV et le JSON ensemble pour retrouver la prise.</p>
+          </div>
+          <div className="export-actions">
+            {input.downloadUrl !== null && input.fileName !== null && (
+              <a
+                className="download-action"
+                download={input.fileName}
+                href={input.downloadUrl}
+              >
+                <Download aria-hidden="true" size={18} />
+                <span>Télécharger le WAV</span>
+              </a>
+            )}
+            {input.metadataDownloadUrl !== null && (
+              <a
+                className="folder-button"
+                download="voice.capture_session.json"
+                href={input.metadataDownloadUrl}
+              >
+                <Download aria-hidden="true" size={18} />
+                <span>Télécharger le JSON</span>
+              </a>
+            )}
+            {input.downloadUrl === null &&
+              input.metadataDownloadUrl === null && (
+                <p className="empty-export-state">
+                  Les liens de téléchargement apparaissent ici quand le
+                  navigateur ne peut pas écrire directement dans le dossier.
+                </p>
+              )}
+          </div>
+        </section>
       </div>
     </div>
   );
@@ -3462,7 +3698,9 @@ function TechnicalPage(input: {
           </div>
         </div>
       )}
-      <p>Rien n'est envoyé en ligne. Les prises restent sur cet appareil.</p>
+      <p className="technical-note">
+        Rien n'est envoyé en ligne. Les prises restent sur cet appareil.
+      </p>
       {input.storageMode === "browser-downloads" && (
         <p className="coach-note">
           Sur mobile, utilise les boutons de téléchargement après chaque prise.
@@ -3470,10 +3708,13 @@ function TechnicalPage(input: {
           de fichiers.
         </p>
       )}
-      {input.recordings.length > 0 && (
-        <div className="recordings-list">
+      <div className="recordings-list">
+        <div className="recordings-list-header">
           <h2>Audio disponible</h2>
-          {input.recordings.map((recording) => (
+          <span>{input.recordings.length} WAV</span>
+        </div>
+        {input.recordings.length > 0 ? (
+          input.recordings.map((recording) => (
             <a
               download={recording.fileName}
               href={recording.url}
@@ -3482,9 +3723,21 @@ function TechnicalPage(input: {
               <span>{recording.fileName}</span>
               <strong>Télécharger</strong>
             </a>
-          ))}
-        </div>
-      )}
+          ))
+        ) : (
+          <div className="recordings-empty">
+            <Database aria-hidden="true" size={20} />
+            <div>
+              <strong>Aucune prise en cache</strong>
+              <p>
+                Termine une prise pour voir les WAV conservés par le navigateur.
+                Les exports directs restent aussi disponibles sur l'écran de fin
+                de prise.
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
     </section>
   );
 }
