@@ -381,6 +381,67 @@ function softLimitWaveSample(
   return Math.sign(value) * (threshold + (absoluteValue - threshold) / ratio);
 }
 
+// Shared real-time waveform bus: microphone samples land here every frame and
+// the canvas reads them directly, bypassing React state entirely.
+const liveAudioSignal = {
+  samples: new Float32Array(WAVEFORM_DISPLAY_SAMPLES),
+  updatedAt: 0,
+};
+
+function writeLiveWaveform(
+  readSample: (index: number) => number,
+  sourceLength: number,
+  gain: number,
+): void {
+  const target = liveAudioSignal.samples;
+  const bucketSize = sourceLength / target.length;
+
+  for (let index = 0; index < target.length; index += 1) {
+    const start = Math.floor(index * bucketSize);
+    const end = Math.min(
+      sourceLength,
+      Math.max(start + 1, Math.floor((index + 1) * bucketSize)),
+    );
+    let peak = 0;
+
+    for (let sourceIndex = start; sourceIndex < end; sourceIndex += 1) {
+      const value = readSample(sourceIndex);
+
+      if (Math.abs(value) > Math.abs(peak)) {
+        peak = value;
+      }
+    }
+
+    target[index] = softLimitWaveSample(peak * gain, 0.9, 3.6);
+  }
+
+  liveAudioSignal.updatedAt = performance.now();
+}
+
+function getLiveWaveGain(state: Screen): number {
+  if (state === "karaoke") {
+    return 1;
+  }
+
+  if (state === "technical") {
+    return 0.85;
+  }
+
+  if (state === "calibration") {
+    return 0.8;
+  }
+
+  if (state === "home") {
+    return 0.55;
+  }
+
+  if (state === "permission") {
+    return 0.4;
+  }
+
+  return 0;
+}
+
 export function App() {
   const [studioAwake, setStudioAwake] = useState(false);
   const [ritualStatus, setRitualStatus] = useState<RitualStatus>("idle");
@@ -787,8 +848,6 @@ export function App() {
     const audioContext = new AudioContextConstructor();
     const source = audioContext.createMediaStreamSource(stream);
     const analyser = audioContext.createAnalyser();
-    const frequencyData = new Uint8Array(analyser.frequencyBinCount);
-    const timeData = new Uint8Array(analyser.fftSize);
     let frameId = 0;
     let smoothedLevel = 0;
 
@@ -798,12 +857,13 @@ export function App() {
     analyser.smoothingTimeConstant = 0.42;
     source.connect(analyser);
 
+    const timeData = new Uint8Array(analyser.fftSize);
+
     if (audioContext.state === "suspended") {
       await audioContext.resume();
     }
 
     function updateAmbientLevel() {
-      analyser.getByteFrequencyData(frequencyData);
       analyser.getByteTimeDomainData(timeData);
 
       let sumSquares = 0;
@@ -815,9 +875,14 @@ export function App() {
       }
 
       const rms = Math.sqrt(sumSquares / Math.max(1, timeData.length));
-      smoothedLevel += (rms - smoothedLevel) * 0.12;
+      smoothedLevel += (rms - smoothedLevel) * 0.3;
 
       if (pcmRecorderRef.current === null && !isPersistingRef.current) {
+        writeLiveWaveform(
+          (index) => (timeData[index] - 128) / 128,
+          timeData.length,
+          1.5 * inputSensitivityRef.current,
+        );
         updateVisualAudioLevel(Math.min(1, smoothedLevel * 7));
       }
 
@@ -1357,6 +1422,7 @@ export function App() {
 
       const recorder = await createPcmRecorder(stream, {
         onLevel: updateVisualAudioLevel,
+        onSamples: pushLiveWaveform,
       });
 
       isPersistingRef.current = false;
@@ -1675,6 +1741,7 @@ export function App() {
 
       const nextRecorder = await createPcmRecorder(stream, {
         onLevel: updateVisualAudioLevel,
+        onSamples: pushLiveWaveform,
       });
 
       startPromptRecording(
@@ -1967,6 +2034,14 @@ export function App() {
   function revokeStoredRecordingUrls() {
     storedRecordingUrlsRef.current.forEach(revokeObjectUrl);
     storedRecordingUrlsRef.current = [];
+  }
+
+  function pushLiveWaveform(samples: Float32Array) {
+    writeLiveWaveform(
+      (index) => samples[index],
+      samples.length,
+      1.5 * inputSensitivityRef.current,
+    );
   }
 
   function updateVisualAudioLevel(level: number) {
@@ -2377,8 +2452,6 @@ function VoiceWaveformSurface(input: {
     const surfaceCanvas = canvas;
     const ctx = context;
     const previousWaveform = new Float32Array(WAVEFORM_DISPLAY_SAMPLES).fill(0);
-    const levelHistory = new Float32Array(WAVEFORM_DISPLAY_SAMPLES).fill(0);
-    let levelHistoryHead = 0;
     let frameId = 0;
 
     function resize() {
@@ -2541,18 +2614,17 @@ function VoiceWaveformSurface(input: {
       const centerRatio = getWaveCenterRatio(state, width);
       const centerY = height * centerRatio;
       const isCaptureSurface = state === "calibration" || state === "karaoke";
-      const isLiveSurface = isCaptureSurface || state === "technical";
       const isQuietSurface = ["home", "permission", "technical"].includes(
         state,
       );
+      const signalIsFresh = performance.now() - liveAudioSignal.updatedAt < 260;
+      const liveGain = signalIsFresh ? getLiveWaveGain(state) : 0;
+      const isLiveSurface = liveGain > 0;
       const visualHeight = Math.min(
         isQuietSurface ? 180 : 260,
         height * (isQuietSurface ? 0.16 : 0.25),
       );
       const points: { x: number; y: number }[] = [];
-
-      levelHistory[levelHistoryHead] = level;
-      levelHistoryHead = (levelHistoryHead + 1) % WAVEFORM_DISPLAY_SAMPLES;
 
       for (let index = 0; index < WAVEFORM_DISPLAY_SAMPLES; index += 1) {
         const position = index / Math.max(1, WAVEFORM_DISPLAY_SAMPLES - 1);
@@ -2561,16 +2633,20 @@ function VoiceWaveformSurface(input: {
           0.5 - 0.5 * Math.cos(Math.PI * Math.max(0, 1 - edge)),
           1.8,
         );
-        const pointLevel = isLiveSurface
-          ? levelHistory[(levelHistoryHead + index) % WAVEFORM_DISPLAY_SAMPLES]
-          : level;
-        const targetSample = createWaveSample(
-          index,
-          timeSeconds,
-          pointLevel,
-          state,
-        );
-        const smoothing = state === "karaoke" ? 0.48 : 0.22;
+        const breath =
+          Math.sin(timeSeconds * 0.85 + index * 0.037) * (0.02 + level * 0.05);
+        const targetSample = isLiveSurface
+          ? softLimitWaveSample(
+              liveAudioSignal.samples[index] * liveGain + breath,
+              0.88,
+              4.8,
+            )
+          : createWaveSample(index, timeSeconds, level, state);
+        const smoothing = isLiveSurface
+          ? 0.6
+          : state === "karaoke"
+            ? 0.48
+            : 0.22;
         const sample =
           previousWaveform[index] +
           (targetSample - previousWaveform[index]) * smoothing;

@@ -21,6 +21,7 @@ export type PcmRecorder = {
 };
 export type PcmRecorderOptions = {
   readonly onLevel?: (level: number) => void;
+  readonly onSamples?: (samples: Float32Array) => void;
   readonly maxDurationMs?: number;
 };
 
@@ -63,6 +64,7 @@ export async function createPcmRecorder(
       const input = event.inputBuffer.getChannelData(0);
       sampleBuffer.append(input);
       options.onLevel?.(computeLevel(input));
+      options.onSamples?.(input);
     };
 
     source.connect(processor);
