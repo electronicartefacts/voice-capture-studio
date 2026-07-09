@@ -51,8 +51,12 @@ import {
   type PromptDefinition,
 } from "@domains/corpus";
 import { summarizeCoverage, type CoverageSummary } from "@domains/coverage";
-import { alignPromptToPhonemes } from "@domains/phonetics";
 import {
+  alignPromptToPhonemes,
+  importForcedAlignment,
+} from "@domains/phonetics";
+import {
+  applyForcedAlignment,
   findPrompt,
   findPromptText,
   planSession,
@@ -457,6 +461,7 @@ export function App() {
   const renderedAudioLevelRef = useRef(0);
   const lastAudioUiUpdateAtRef = useRef(-Infinity);
   const workspaceRef = useRef<VoiceWorkspace | null>(null);
+  const hasRestoredLocalCorpusRef = useRef(false);
   const screenRef = useRef<Screen>("home");
   const activeWordIndexRef = useRef(0);
   const visualAudioLevelRef = useRef(0);
@@ -468,6 +473,7 @@ export function App() {
   const downloadUrlRef = useRef<string | null>(null);
   const metadataDownloadUrlRef = useRef<string | null>(null);
   const workspaceBackupUrlRef = useRef<string | null>(null);
+  const localCorpusPersistTimerRef = useRef<number | null>(null);
   const backingTrackUrlRef = useRef<string | null>(null);
   const storedRecordingUrlsRef = useRef<readonly string[]>([]);
   const datasetZipUrlRef = useRef<string | null>(null);
@@ -669,6 +675,9 @@ export function App() {
 
       releaseRecordingWakeLock();
       stopAmbientMicrophoneMonitor();
+      if (localCorpusPersistTimerRef.current !== null) {
+        window.clearTimeout(localCorpusPersistTimerRef.current);
+      }
       revokeObjectUrl(downloadUrlRef.current);
       revokeObjectUrl(metadataDownloadUrlRef.current);
       revokeObjectUrl(workspaceBackupUrlRef.current);
@@ -925,6 +934,17 @@ export function App() {
     setWorkspaceDurability(receipt.durability);
     setWorkspaceOpenBlocker(null);
 
+    if (
+      !hasRestoredLocalCorpusRef.current &&
+      nextWorkspace.localCorpusSnapshot !== null
+    ) {
+      hasRestoredLocalCorpusRef.current = true;
+      setCaptureMode(nextWorkspace.localCorpusSnapshot.mode);
+      setCustomCorpusText(nextWorkspace.localCorpusSnapshot.text);
+      setCustomCorpusSourceName(nextWorkspace.localCorpusSnapshot.sourceName);
+      setSelectedLanguage(nextWorkspace.localCorpusSnapshot.language);
+    }
+
     return nextWorkspace;
   }
 
@@ -1060,17 +1080,83 @@ export function App() {
       stopBackingTrackPlayback(true);
     }
 
+    if (mode !== "training" && customCorpusText.trim().length > 0) {
+      const generatedCorpus = createLocalTextCorpus({
+        mode,
+        text: customCorpusText,
+        language: selectedLanguage,
+        sourceName: customCorpusSourceName,
+      });
+
+      if (generatedCorpus !== null) {
+        scheduleLocalCorpusSnapshot({
+          corpusId: generatedCorpus.corpus.id,
+          mode,
+          language: selectedLanguage,
+          sourceName: generatedCorpus.summary.sourceName,
+          text: customCorpusText,
+        });
+      }
+    }
+
     setMessage(createModeMessage(mode));
+  }
+
+  function selectLanguage(language: LanguageCode) {
+    setSelectedLanguage(language);
+
+    if (captureMode === "training" || customCorpusText.trim().length === 0) {
+      return;
+    }
+
+    const generatedCorpus = createLocalTextCorpus({
+      mode: captureMode,
+      text: customCorpusText,
+      language,
+      sourceName: customCorpusSourceName,
+    });
+
+    if (generatedCorpus !== null) {
+      scheduleLocalCorpusSnapshot({
+        corpusId: generatedCorpus.corpus.id,
+        mode: captureMode,
+        language,
+        sourceName: generatedCorpus.summary.sourceName,
+        text: customCorpusText,
+      });
+    }
   }
 
   function updateCustomCorpusText(
     text: string,
     sourceName = customCorpusSourceName,
+    mode: LocalCorpusMode = captureMode === "training"
+      ? "dubbing"
+      : captureMode,
   ) {
     setCustomCorpusText(text);
     setCustomCorpusSourceName(text.trim().length === 0 ? null : sourceName);
     setSession(null);
     resetTakeOutputState();
+
+    const generatedCorpus = createLocalTextCorpus({
+      mode,
+      text,
+      language: selectedLanguage,
+      sourceName,
+    });
+
+    scheduleLocalCorpusSnapshot(
+      generatedCorpus === null
+        ? null
+        : {
+            corpusId: generatedCorpus.corpus.id,
+            mode,
+            language: selectedLanguage,
+            sourceName: generatedCorpus.summary.sourceName,
+            text,
+          },
+    );
   }
 
   async function loadCustomCorpusFile(file: File) {
@@ -1087,14 +1173,111 @@ export function App() {
         return;
       }
 
+      const mode = captureMode === "training" ? "dubbing" : captureMode;
+
       if (captureMode === "training") {
-        setCaptureMode("dubbing");
+        setCaptureMode(mode);
       }
 
-      updateCustomCorpusText(text, file.name);
+      updateCustomCorpusText(text, file.name, mode);
       setMessage(`Corpus local chargé : ${file.name}.`);
     } catch {
       setMessage("Impossible de lire ce fichier texte.");
+    }
+  }
+
+  function scheduleLocalCorpusSnapshot(
+    snapshot: VoiceWorkspace["localCorpusSnapshot"],
+  ) {
+    if (localCorpusPersistTimerRef.current !== null) {
+      window.clearTimeout(localCorpusPersistTimerRef.current);
+    }
+
+    localCorpusPersistTimerRef.current = window.setTimeout(() => {
+      localCorpusPersistTimerRef.current = null;
+      void persistLocalCorpusSnapshot(snapshot);
+    }, 250);
+  }
+
+  async function persistLocalCorpusSnapshot(
+    snapshot: VoiceWorkspace["localCorpusSnapshot"],
+  ) {
+    const currentWorkspace = workspaceRef.current ?? workspace;
+
+    if (currentWorkspace === null) {
+      return;
+    }
+
+    const nextWorkspace: VoiceWorkspace = {
+      ...currentWorkspace,
+      localCorpusSnapshot: snapshot,
+      updatedAt: new Date().toISOString() as VoiceWorkspace["updatedAt"],
+    };
+    const result = await workspaceRepository.save(nextWorkspace);
+
+    if (result.ok) {
+      applyWorkspaceReceipt(result.value);
+    }
+  }
+
+  async function loadForcedAlignmentFile(file: File) {
+    try {
+      const currentWorkspace = await ensureWorkspace();
+      const target = currentWorkspace.capturedSessions
+        .flatMap((capturedSession) =>
+          capturedSession.takes.map((take) => ({ capturedSession, take })),
+        )
+        .at(-1);
+
+      if (target === undefined) {
+        setMessage("Aucune prise disponible pour cet alignement forcé.");
+        return;
+      }
+
+      const alignment = importForcedAlignment(JSON.parse(await file.text()));
+
+      if (alignment.language !== target.capturedSession.language) {
+        setMessage("La langue de l'alignement ne correspond pas à la prise.");
+        return;
+      }
+
+      if (Math.abs(alignment.durationMs - target.take.durationMs) > 250) {
+        setMessage("La durée de l'alignement ne correspond pas à la prise.");
+        return;
+      }
+
+      const updatedTake = applyForcedAlignment(target.take, alignment);
+      const nextWorkspace: VoiceWorkspace = {
+        ...currentWorkspace,
+        updatedAt: new Date().toISOString() as VoiceWorkspace["updatedAt"],
+        capturedSessions: currentWorkspace.capturedSessions.map(
+          (capturedSession) =>
+            capturedSession.id !== target.capturedSession.id
+              ? capturedSession
+              : {
+                  ...capturedSession,
+                  takes: capturedSession.takes.map((take) =>
+                    take.id === updatedTake.id ? updatedTake : take,
+                  ),
+                },
+        ),
+      };
+      const result = await workspaceRepository.save(nextWorkspace);
+
+      if (!result.ok) {
+        setMessage(result.message);
+        return;
+      }
+
+      applyWorkspaceReceipt(result.value);
+      setLastTake(updatedTake);
+      setMessage(`Alignement forcé importé avec ${alignment.aligner}.`);
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Impossible d'importer cet alignement forcé.",
+      );
     }
   }
 
@@ -2187,6 +2370,7 @@ export function App() {
               microphoneLabel={microphoneLabel}
               onBack={() => setScreen("home")}
               onDownloadDataset={downloadDatasetPackage}
+              onImportForcedAlignment={loadForcedAlignmentFile}
               onInputSensitivityChange={updateInputSensitivity}
               onWriteDatasetToFolder={writeDatasetPackageToFolder}
               recordings={storedRecordings}
@@ -2226,7 +2410,7 @@ export function App() {
                       customCorpusSourceName ?? "Texte libre",
                     )
                   }
-                  onLanguageChange={setSelectedLanguage}
+                  onLanguageChange={selectLanguage}
                   onProfileChange={updateCaptureProfile}
                   onRefreshDiagnostics={() => void refreshDiagnostics()}
                   onSpeakerChange={selectSpeaker}
@@ -2576,6 +2760,10 @@ function createTakeCoachNote(
 
   if (reviewGate !== undefined && reviewGate.id !== "transcript_match") {
     return `${reviewGate.message} Garde-la en réserve, mais refais une prise plus propre.`;
+  }
+
+  if (reviewGate?.id === "transcript_match") {
+    return "Le texte n'a pas été vérifié par l'ASR. Active la reconnaissance vocale ou importe une transcription avant de garder cette prise.";
   }
 
   return nextRecommendation ?? "Prise utilisable. Passe à la phrase suivante.";
@@ -5122,6 +5310,7 @@ function TechnicalPage(input: {
   readonly microphoneLabel: string | null;
   readonly onBack: () => void;
   readonly onDownloadDataset: () => void;
+  readonly onImportForcedAlignment: (file: File) => void;
   readonly onInputSensitivityChange: (value: number) => void;
   readonly onWriteDatasetToFolder: () => void;
   readonly recordings: readonly DownloadableRecording[];
@@ -5193,11 +5382,15 @@ function TechnicalPage(input: {
         <div className="dataset-score">
           <h2>Qualité vocale</h2>
           <div className="score-grid">
-            <Score label="Audio" value={input.coverage.technicalQuality} />
-            <Score label="Texte" value={input.coverage.transcriptAccuracy} />
+            <Score label="Prompts" value={input.coverage.promptCoverage} />
+            <Score label="Audio" value={input.coverage.audioQuality} />
+            <Score label="ASR" value={input.coverage.transcriptAccuracy} />
             <Score label="Intentions" value={input.coverage.intentCoverage} />
-            <Score label="Rythme" value={input.coverage.prosodyDiversity} />
-            <Score label="Sons" value={input.coverage.phoneticCoverage} />
+            <Score label="Prosodie" value={input.coverage.prosodyDiversity} />
+            <Score
+              label="Alignement"
+              value={input.coverage.forcedAlignmentCoverage}
+            />
           </div>
           <strong>
             {formatDatasetReadiness(input.coverage.datasetReadiness)}
@@ -5226,6 +5419,7 @@ function TechnicalPage(input: {
       <p className="technical-note">
         Rien n'est envoyé en ligne. Les prises restent sur cet appareil.
       </p>
+      <ForcedAlignmentImport onFile={input.onImportForcedAlignment} />
       {input.storageMode === "browser-downloads" && (
         <p className="coach-note">
           Sur mobile, utilise les boutons de téléchargement après chaque prise.
@@ -5314,6 +5508,48 @@ function TechnicalPage(input: {
           </div>
         )}
       </div>
+    </section>
+  );
+}
+
+function ForcedAlignmentImport(input: {
+  readonly onFile: (file: File) => void;
+}) {
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  function handleFileSelection(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = "";
+
+    if (file !== undefined) {
+      input.onFile(file);
+    }
+  }
+
+  return (
+    <section className="forced-alignment-panel">
+      <div>
+        <p className="soft-label">Alignement acoustique</p>
+        <strong>Remplacer l'estimation texte</strong>
+        <span>
+          Importe le JSON produit par MFA, WhisperX ou un autre aligneur.
+        </span>
+      </div>
+      <button
+        className="folder-button compact"
+        onClick={() => fileInputRef.current?.click()}
+        type="button"
+      >
+        <Upload aria-hidden="true" size={17} />
+        <span>Importer JSON</span>
+      </button>
+      <input
+        accept=".json,application/json"
+        className="sr-only"
+        onChange={handleFileSelection}
+        ref={fileInputRef}
+        type="file"
+      />
     </section>
   );
 }

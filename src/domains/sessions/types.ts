@@ -5,6 +5,7 @@ import type {
   TranscriptMatchEstimate,
   TranscriptToken,
   WordPhonemeAlignment,
+  ForcedAlignment,
 } from "@domains/phonetics";
 import type {
   CorpusId,
@@ -103,6 +104,7 @@ export type TakeTiming = {
   readonly phonemes?: readonly PhonemeInterval[];
   readonly phrases: readonly PhraseTiming[];
   readonly alignment?: PromptPhonemeAlignment;
+  readonly forcedAlignment?: ForcedAlignment;
 };
 
 export type WordTiming = {
@@ -161,6 +163,11 @@ export type TechnicalQualityMetrics = {
   readonly clippingRate: number;
   readonly activeSpeechRatio: number;
   readonly silenceRatio: number;
+  readonly voicedFrameRatio: number;
+  readonly meanPitchHz: number | null;
+  readonly pitchRangeSemitones: number | null;
+  readonly pitchVariationSemitones: number | null;
+  readonly energyVariationDb: number;
   readonly reverbScore: number;
   readonly plosiveScore: number;
   readonly mouthNoiseScore: number;
@@ -168,13 +175,26 @@ export type TechnicalQualityMetrics = {
 
 export type PerformanceQualityMetrics = {
   readonly transcriptMatch: number;
-  readonly alignmentConfidence?: number;
-  readonly phonemeInventoryCount?: number;
-  readonly wordPhonemeLinkRate?: number;
-  readonly intentMatch: number;
-  readonly prosodyVariation: number;
+  readonly alignmentConfidence?: number | null;
+  readonly phonemeInventoryCount?: number | null;
+  readonly wordPhonemeLinkRate?: number | null;
+  readonly intentMatch: number | null;
+  readonly prosody?: TakeProsodyMetrics;
+  /** @deprecated Use `prosody` for measured audio features. */
+  readonly prosodyVariation?: number;
   readonly naturalnessHumanReview: number | null;
   readonly keeper: boolean;
+};
+
+export type TakeProsodyMetrics = {
+  readonly schemaVersion: "voice.prosody.v1";
+  readonly source: "audio_signal";
+  readonly voicedFrameRatio: number;
+  readonly meanPitchHz: number | null;
+  readonly pitchRangeSemitones: number | null;
+  readonly pitchVariationSemitones: number | null;
+  readonly energyVariationDb: number;
+  readonly speakingRateWpm: number | null;
 };
 
 export type TakeQualityGateResult = {

@@ -194,6 +194,7 @@ export function VoiceWaveformSurface(input: {
       const level = getLiveAudioLevel();
       const width = renderWidth;
       const height = renderHeight;
+      const isCompactSurface = width < 720;
 
       ctx.clearRect(0, 0, width, height);
 
@@ -205,8 +206,21 @@ export function VoiceWaveformSurface(input: {
       const liveGain = signalIsFresh ? getLiveWaveGain(state) : 0;
       const isLiveSurface = liveGain > 0;
       const visualHeight = Math.min(
-        isQuietSurface ? 180 : 260,
-        height * (isQuietSurface ? 0.16 : 0.25),
+        isQuietSurface
+          ? isCompactSurface
+            ? 220
+            : 180
+          : isCompactSurface
+            ? 300
+            : 260,
+        height *
+          (isQuietSurface
+            ? isCompactSurface
+              ? 0.2
+              : 0.16
+            : isCompactSurface
+              ? 0.28
+              : 0.25),
       );
 
       for (let index = 0; index < DISPLAY_SAMPLES; index += 1) {
@@ -255,11 +269,21 @@ export function VoiceWaveformSurface(input: {
         state === "technical"
           ? Math.min(0.85, 0.46 + level * 0.4)
           : isQuietSurface
-            ? 0.24
+            ? isCompactSurface
+              ? 0.58
+              : 0.24
             : 1;
       const alpha =
-        theme.waveAlpha * quietAlpha * (isCaptureSurface ? 0.56 : 1);
-      const primaryWidth = state === "karaoke" ? 3.1 : 2.8;
+        theme.waveAlpha *
+        quietAlpha *
+        (isCaptureSurface ? (isCompactSurface ? 0.82 : 0.56) : 1);
+      const primaryWidth = isCompactSurface
+        ? state === "karaoke"
+          ? 3.8
+          : 3.4
+        : state === "karaoke"
+          ? 3.1
+          : 2.8;
 
       drawSpline(-4, 0.26, alpha * 0.04, waveColor);
       drawSpline(-2.4, 0.42, alpha * 0.09, waveColor);

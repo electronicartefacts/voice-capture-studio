@@ -29,6 +29,7 @@ test("recorded take becomes keeper when technical gates and room tone pass", () 
     profile: createCaptureProfile({ roomToneCaptured: true }),
     prompt,
     recordedAt,
+    recognizedTranscript: prompt.text,
     session,
     takeId,
   });
@@ -44,7 +45,7 @@ test("recorded take becomes keeper when technical gates and room tone pass", () 
   assert.equal(take.timing.words.at(-1)?.endMs, 3200);
   assert.ok((take.timing.phonemes?.length ?? 0) > take.timing.words.length);
   assert.equal(take.timing.alignment?.forcedAlignmentRequired, true);
-  assert.equal(take.quality.performance.wordPhonemeLinkRate, 1);
+  assert.equal(take.quality.performance.wordPhonemeLinkRate, null);
 });
 
 test("recorded take rejects clear transcript mismatch from speech recognition", () => {
@@ -65,6 +66,26 @@ test("recorded take rejects clear transcript mismatch from speech recognition", 
   assert.equal(take.quality.verdict, "reject");
   assert.equal(findGateStatus(take, "transcript_match"), "fail");
   assert.equal(take.transcript.matchEstimate?.source, "web_speech");
+});
+
+test("recorded take cannot become keeper without observed ASR", () => {
+  const { prompt, session } = createPlannedPrompt();
+  const take = createRecordedTake({
+    durationMs: 3200,
+    fileName: "take.wav",
+    media: createMedia(),
+    metrics: createMetrics(),
+    profile: createCaptureProfile({ roomToneCaptured: true }),
+    prompt,
+    recordedAt,
+    session,
+    takeId,
+  });
+
+  assert.equal(take.quality.verdict, "review");
+  assert.equal(take.review.rating, "maybe");
+  assert.equal(findGateStatus(take, "transcript_match"), "review");
+  assert.equal(take.transcript.matchEstimate?.source, "prompt_only");
 });
 
 test("recorded take is rejected when clipping is detected", () => {
@@ -228,6 +249,11 @@ function createMetrics(
     clippingRate: 0,
     activeSpeechRatio: 0.8,
     silenceRatio: 0.1,
+    voicedFrameRatio: 0.72,
+    meanPitchHz: 155,
+    pitchRangeSemitones: 5.2,
+    pitchVariationSemitones: 1.8,
+    energyVariationDb: 4.2,
     reverbScore: 0.1,
     plosiveScore: 0.02,
     mouthNoiseScore: 0.02,

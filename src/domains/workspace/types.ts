@@ -1,5 +1,10 @@
 import type { Brand, IsoDateTime, LanguageCode, Semver } from "@shared/index";
-import type { CorpusId, PromptId, ScenarioId } from "@domains/corpus";
+import type {
+  CorpusId,
+  LocalCorpusSnapshot,
+  PromptId,
+  ScenarioId,
+} from "@domains/corpus";
 import type { SpeakerId } from "@domains/speakers";
 import type { CaptureSession, SessionId } from "@domains/sessions";
 
@@ -13,6 +18,7 @@ export type VoiceWorkspace = {
   readonly updatedAt: IsoDateTime;
   readonly speakers: readonly WorkspaceSpeaker[];
   readonly corpusProgress: readonly CorpusProgressSnapshot[];
+  readonly localCorpusSnapshot: LocalCorpusSnapshot | null;
   readonly sessions: readonly SessionId[];
   readonly capturedSessions: readonly CaptureSession[];
   readonly settings: WorkspaceSettings;

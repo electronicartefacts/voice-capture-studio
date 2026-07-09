@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   alignPromptToPhonemes,
   estimateTranscriptMatch,
+  importForcedAlignment,
   tokenizeTranscript,
 } from "../src/domains/phonetics";
 import type { LanguageCode } from "../src/shared";
@@ -65,7 +66,7 @@ test("transcript token matching distinguishes prompt-only and observed speech", 
   });
 
   assert.equal(promptOnly.source, "prompt_only");
-  assert.equal(promptOnly.score, 0.96);
+  assert.equal(promptOnly.score, 0);
   assert.equal(observed.source, "web_speech");
   assert.equal(observed.score, 1);
   assert.ok(mismatch.score < 0.5);
@@ -74,5 +75,65 @@ test("transcript token matching distinguishes prompt-only and observed speech", 
       (token) => token.normalized,
     ),
     ["l'audio", "reste", "stable"],
+  );
+});
+
+test("forced alignment import keeps acoustic provenance and rejects invalid intervals", () => {
+  const alignment = importForcedAlignment(
+    {
+      aligner: "WhisperX",
+      language: "fr",
+      durationMs: 1200,
+      confidence: 0.91,
+      words: [
+        {
+          word: "Bonjour",
+          startMs: 0,
+          endMs: 1200,
+          confidence: 0.91,
+          phonemes: [],
+        },
+      ],
+      phonemes: [
+        {
+          phoneme: "b",
+          startMs: 0,
+          endMs: 500,
+          confidence: 0.9,
+          wordIndex: 0,
+        },
+      ],
+    },
+    { now: new Date("2026-07-10T10:00:00.000Z") },
+  );
+
+  assert.equal(alignment.source, "external_acoustic_forced_alignment");
+  assert.equal(alignment.aligner, "WhisperX");
+  assert.equal(alignment.importedAt, "2026-07-10T10:00:00.000Z");
+  assert.throws(() =>
+    importForcedAlignment({
+      aligner: "WhisperX",
+      language: "fr",
+      durationMs: 1200,
+      confidence: 0.91,
+      words: [
+        {
+          word: "Bonjour",
+          startMs: 900,
+          endMs: 400,
+          confidence: 0.91,
+          phonemes: [],
+        },
+      ],
+      phonemes: [
+        {
+          phoneme: "b",
+          startMs: 0,
+          endMs: 500,
+          confidence: 0.9,
+          wordIndex: 0,
+        },
+      ],
+    }),
   );
 });

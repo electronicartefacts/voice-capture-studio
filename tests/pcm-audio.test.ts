@@ -77,6 +77,27 @@ test("PCM analysis preserves detailed, finite signal provenance metrics", () => 
   assert.ok(Number.isFinite(metrics.crestFactorDb));
   assert.ok(Number.isFinite(metrics.dcOffset));
   assert.equal(metrics.clippingRate, 0);
+  assert.equal(metrics.voicedFrameRatio, 0);
+  assert.equal(metrics.meanPitchHz, null);
+  assert.equal(metrics.pitchRangeSemitones, null);
+  assert.equal(metrics.pitchVariationSemitones, null);
+  assert.equal(metrics.energyVariationDb, 0);
+});
+
+test("PCM analysis extracts measured pitch and energy variation for prosody", () => {
+  const samples = new Float32Array(48_000);
+
+  for (let index = 0; index < samples.length; index += 1) {
+    samples[index] = 0.2 * Math.sin((2 * Math.PI * 150 * index) / 48_000);
+  }
+
+  const metrics = analyzePcmSamples(samples, 48_000);
+
+  assert.ok(metrics.meanPitchHz !== null);
+  assert.ok(Math.abs(metrics.meanPitchHz - 150) < 5);
+  assert.equal(metrics.voicedFrameRatio, 1);
+  assert.ok((metrics.pitchVariationSemitones ?? 0) < 0.2);
+  assert.ok(metrics.energyVariationDb < 0.5);
 });
 
 test("linear resampling keeps endpoints stable", () => {

@@ -22,6 +22,11 @@ export type PcmRecordingMetrics = {
   readonly clippingRate: number;
   readonly activeSpeechRatio: number;
   readonly silenceRatio: number;
+  readonly voicedFrameRatio: number;
+  readonly meanPitchHz: number | null;
+  readonly pitchRangeSemitones: number | null;
+  readonly pitchVariationSemitones: number | null;
+  readonly energyVariationDb: number;
   readonly reverbScore: number;
   readonly plosiveScore: number;
   readonly mouthNoiseScore: number;
@@ -174,6 +179,7 @@ export function analyzePcmSamples(
 
   const rms = Math.sqrt(sumSquares / Math.max(samples.length, 1));
   const frameRmsDbfs = computeFrameRmsDbfs(samples);
+  const prosody = analyzeProsody(samples, normalizedSampleRate, frameRmsDbfs);
   const noiseFloorDbfs = percentile(frameRmsDbfs, 0.1) ?? MIN_DBFS;
   const peakDbfs = amplitudeToDbfs(peak);
   const rmsDbfs = amplitudeToDbfs(rms);
@@ -206,6 +212,11 @@ export function analyzePcmSamples(
     clippingRate: round(clippedSamples / Math.max(samples.length, 1), 6),
     activeSpeechRatio: computeFrameActivityRatio(frameRmsDbfs, -45, true),
     silenceRatio: computeFrameActivityRatio(frameRmsDbfs, -55, false),
+    voicedFrameRatio: prosody.voicedFrameRatio,
+    meanPitchHz: prosody.meanPitchHz,
+    pitchRangeSemitones: prosody.pitchRangeSemitones,
+    pitchVariationSemitones: prosody.pitchVariationSemitones,
+    energyVariationDb: prosody.energyVariationDb,
     reverbScore: tailScore,
     plosiveScore: clamp(
       round(plosiveSamples / Math.max(samples.length, 1), 3),
@@ -218,6 +229,120 @@ export function analyzePcmSamples(
       1,
     ),
   };
+}
+
+function analyzeProsody(
+  samples: Float32Array,
+  sampleRate: number,
+  frameRmsDbfs: readonly number[],
+): {
+  readonly energyVariationDb: number;
+  readonly meanPitchHz: number | null;
+  readonly pitchRangeSemitones: number | null;
+  readonly pitchVariationSemitones: number | null;
+  readonly voicedFrameRatio: number;
+} {
+  const frameSize = 2048;
+  const hopSize = 1024;
+  const pitches: number[] = [];
+  const activeEnergies: number[] = [];
+
+  for (
+    let offset = 0, frameIndex = 0;
+    offset < samples.length;
+    offset += hopSize, frameIndex += 1
+  ) {
+    const end = Math.min(offset + frameSize, samples.length);
+    const frame = samples.subarray(offset, end);
+    const energyDbfs = frameRmsDbfs[frameIndex] ?? MIN_DBFS;
+
+    if (energyDbfs < -45 || frame.length < 512) {
+      continue;
+    }
+
+    activeEnergies.push(energyDbfs);
+    const pitchHz = estimatePitchHz(frame, sampleRate);
+
+    if (pitchHz !== null) {
+      pitches.push(pitchHz);
+    }
+  }
+
+  const semitones = pitches.map((pitch) => 12 * Math.log2(pitch / 100));
+  const meanPitchHz = pitches.length === 0 ? null : round(mean(pitches), 1);
+  const pitchRangeSemitones =
+    pitches.length < 2
+      ? null
+      : round(Math.max(...semitones) - Math.min(...semitones), 2);
+  const pitchVariationSemitones =
+    semitones.length < 2 ? null : round(standardDeviation(semitones), 2);
+
+  return {
+    energyVariationDb: round(standardDeviation(activeEnergies), 2),
+    meanPitchHz,
+    pitchRangeSemitones,
+    pitchVariationSemitones,
+    voicedFrameRatio:
+      activeEnergies.length === 0
+        ? 0
+        : round(pitches.length / activeEnergies.length, 3),
+  };
+}
+
+function estimatePitchHz(
+  frame: Float32Array,
+  sampleRate: number,
+): number | null {
+  const stride = 4;
+  const effectiveSampleRate = sampleRate / stride;
+  const downsampledLength = Math.floor(frame.length / stride);
+  const downsampled = new Float32Array(downsampledLength);
+  let meanValue = 0;
+
+  for (let index = 0; index < downsampledLength; index += 1) {
+    const value = normalizeSample(frame[index * stride]);
+    downsampled[index] = value;
+    meanValue += value;
+  }
+
+  meanValue /= Math.max(downsampledLength, 1);
+
+  for (let index = 0; index < downsampled.length; index += 1) {
+    downsampled[index] -= meanValue;
+  }
+
+  const minLag = Math.floor(effectiveSampleRate / 350);
+  const maxLag = Math.ceil(effectiveSampleRate / 70);
+  let bestLag = 0;
+  let bestCorrelation = 0;
+
+  for (let lag = minLag; lag <= maxLag; lag += 1) {
+    let correlation = 0;
+    let leftEnergy = 0;
+    let rightEnergy = 0;
+
+    for (let index = lag; index < downsampled.length; index += 1) {
+      const left = downsampled[index];
+      const right = downsampled[index - lag];
+      correlation += left * right;
+      leftEnergy += left * left;
+      rightEnergy += right * right;
+    }
+
+    const normalizedCorrelation =
+      correlation / Math.sqrt(Math.max(leftEnergy * rightEnergy, 0.0000001));
+
+    if (normalizedCorrelation > bestCorrelation) {
+      bestCorrelation = normalizedCorrelation;
+      bestLag = lag;
+    }
+  }
+
+  if (bestLag === 0 || bestCorrelation < 0.35) {
+    return null;
+  }
+
+  return effectiveSampleRate / bestLag;
 }
 
 function estimateInterSamplePeak(
@@ -393,6 +518,25 @@ function percentile(
   );
 
   return round(sortedValues[index], 1);
+}
+
+function mean(values: readonly number[]): number {
+  return values.length === 0
+    ? 0
+    : values.reduce((total, value) => total + value, 0) / values.length;
+}
+
+function standardDeviation(values: readonly number[]): number {
+  if (values.length < 2) {
+    return 0;
+  }
+
+  const average = mean(values);
+  const variance =
+    values.reduce((total, value) => total + (value - average) ** 2, 0) /
+    values.length;
+
+  return Math.sqrt(variance);
 }
 
 function normalizeSample(value: number): number {

@@ -207,6 +207,16 @@ export function createVoiceCaptureReports(input: {
       ),
     ),
   ).sort();
+  const forcedPhonemeInventory = Array.from(
+    new Set(
+      input.takes.flatMap(
+        (take) =>
+          take.timing.forcedAlignment?.phonemes.map(
+            (phoneme) => phoneme.phoneme,
+          ) ?? [],
+      ),
+    ),
+  ).sort();
 
   return {
     audioQuality: {
@@ -244,8 +254,14 @@ export function createVoiceCaptureReports(input: {
     },
     transcriptAlignment: {
       schemaVersion: "report.transcript_alignment.v1",
-      alignmentMode: "browser_text_derived_word_phoneme_timing",
-      forcedAlignmentRequired: true,
+      alignmentMode: alignmentSummaries.some(
+        (summary) => !summary.forcedAlignmentRequired,
+      )
+        ? "external_acoustic_forced_alignment"
+        : "text_derived_estimate",
+      forcedAlignmentRequired: alignmentSummaries.some(
+        (summary) => summary.forcedAlignmentRequired,
+      ),
       recommendedExternalAligners: [
         "Montreal Forced Aligner",
         "WhisperX",
@@ -283,12 +299,15 @@ export function createVoiceCaptureReports(input: {
     },
     phoneticCoverage: {
       schemaVersion: "report.phonetic_coverage.v1",
-      targetedCoverage: input.coverage.phoneticCoverage,
+      targetedCoverage: input.coverage.promptPhoneticCoverage,
+      forcedAlignmentCoverage: input.coverage.forcedAlignmentCoverage,
       coveredTargets: coveredPhoneticTargets,
       missingTargets: input.coverage.missingPhonetics,
       focusSamples: phoneticFocus,
       estimatedInventory: phonemeInventory,
       estimatedInventoryCount: phonemeInventory.length,
+      forcedInventory: forcedPhonemeInventory,
+      forcedInventoryCount: forcedPhonemeInventory.length,
       estimatedPhoneIntervals: input.takes.reduce(
         (total, take) => total + (take.timing.phonemes?.length ?? 0),
         0,
@@ -297,8 +316,8 @@ export function createVoiceCaptureReports(input: {
       vowelCoverage: phonetic.vowelCoverage,
       rareCharacterHits: phonetic.rareCharacterHits,
       recommendation:
-        input.coverage.phoneticCoverage < 70
-          ? "Ajoute des phrases couvrant les cibles phonétiques manquantes."
+        input.coverage.forcedAlignmentCoverage < 100
+          ? "Importe un alignement forcé acoustique avant de conclure sur les phonèmes."
           : "Base phonétique ciblée correcte. Un alignement avancé pourra affiner le détail.",
     },
     intentBalance: {
@@ -327,7 +346,12 @@ export function createVoiceCaptureReports(input: {
     },
     datasetReadiness: {
       schemaVersion: "report.dataset_readiness.v1",
-      technicalQuality: input.coverage.technicalQuality,
+      promptCoverage: input.coverage.promptCoverage,
+      audioQuality: input.coverage.audioQuality,
+      asrCoverage: input.coverage.asrCoverage,
+      forcedAlignmentCoverage: input.coverage.forcedAlignmentCoverage,
+      prosodyMeasurementCoverage: input.coverage.prosodyMeasurementCoverage,
+      technicalQuality: input.coverage.audioQuality,
       transcriptAccuracy: input.coverage.transcriptAccuracy,
       intentCoverage: input.coverage.intentCoverage,
       prosodyDiversity: input.coverage.prosodyDiversity,
@@ -351,18 +375,14 @@ function summarizeTakeAlignment(take: RecordedTake): {
   readonly takeId: RecordedTake["id"];
   readonly wordCount: number;
 } {
-  const words = take.timing.words;
+  const words = take.timing.forcedAlignment?.words ?? [];
   const linkedWordCount = words.filter(
-    (word) => (word.phonemes?.length ?? 0) > 0,
+    (word) => word.endMs > word.startMs,
   ).length;
 
   return {
-    confidence:
-      take.timing.alignment?.confidence ??
-      take.quality.performance.alignmentConfidence ??
-      0,
-    forcedAlignmentRequired:
-      take.timing.alignment?.forcedAlignmentRequired ?? true,
+    confidence: take.timing.forcedAlignment?.confidence ?? 0,
+    forcedAlignmentRequired: take.timing.forcedAlignment === undefined,
     linkedWordCount,
     takeId: take.id,
     wordCount: words.length,

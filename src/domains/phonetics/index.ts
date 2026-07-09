@@ -1,5 +1,7 @@
 export type {
   AlignmentSource,
+  ForcedAlignment,
+  ForcedAlignmentWord,
   PhonemeInterval,
   PromptPhonemeAlignment,
   TranscriptMatchEstimate,
@@ -11,3 +13,4 @@ export {
   estimateTranscriptMatch,
   tokenizeTranscript,
 } from "./textPhonemeAlignment";
+export { importForcedAlignment } from "./forcedAlignment";

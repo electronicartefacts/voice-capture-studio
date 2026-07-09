@@ -1,4 +1,5 @@
 import type { IsoDateTime } from "@shared/index";
+import type { LocalCorpusSnapshot } from "@domains/corpus";
 import { CURRENT_WORKSPACE_SCHEMA_VERSION } from "./factory";
 import {
   DEFAULT_CAPTURE_PROFILE,
@@ -46,9 +47,37 @@ export function normalizeWorkspacePayload(
     updatedAt: coerceString(workspace.updatedAt, now) as IsoDateTime,
     speakers: coerceReadonlyArray(workspace.speakers),
     corpusProgress: coerceReadonlyArray(workspace.corpusProgress),
+    localCorpusSnapshot: normalizeLocalCorpusSnapshot(
+      workspace.localCorpusSnapshot,
+    ),
     sessions: coerceReadonlyArray(workspace.sessions),
     capturedSessions: coerceReadonlyArray(workspace.capturedSessions),
     settings: normalizeWorkspaceSettings(workspace.settings),
+  };
+}
+
+function normalizeLocalCorpusSnapshot(
+  value: unknown,
+): VoiceWorkspace["localCorpusSnapshot"] {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  if (
+    !isNonEmptyString(value.corpusId) ||
+    !isNonEmptyString(value.language) ||
+    !isNonEmptyString(value.text) ||
+    (value.mode !== "dubbing" && value.mode !== "mastering")
+  ) {
+    return null;
+  }
+
+  return {
+    corpusId: value.corpusId as LocalCorpusSnapshot["corpusId"],
+    mode: value.mode as LocalCorpusSnapshot["mode"],
+    language: value.language as LocalCorpusSnapshot["language"],
+    sourceName: isNonEmptyString(value.sourceName) ? value.sourceName : null,
+    text: value.text,
   };
 }
 

@@ -51,6 +51,7 @@ test("workspace normalization repairs missing and invalid browser payload fields
   assert.equal(workspace.updatedAt, now.toISOString());
   assert.deepEqual(workspace.speakers, []);
   assert.deepEqual(workspace.corpusProgress, []);
+  assert.equal(workspace.localCorpusSnapshot, null);
   assert.deepEqual(workspace.sessions, ["session.valid"]);
   assert.deepEqual(workspace.capturedSessions, []);
   assert.equal(workspace.settings.preferredSessionMinutes, 60);
@@ -85,6 +86,26 @@ test("workspace normalization can create a safe shell from a non-object payload"
   assert.equal(workspace.updatedAt, now.toISOString());
   assert.deepEqual(workspace.sessions, []);
   assert.equal(workspace.settings.preferredSessionMinutes, 5);
+});
+
+test("workspace normalization preserves a local corpus snapshot", () => {
+  const workspace = normalizeWorkspacePayload({
+    localCorpusSnapshot: {
+      corpusId: "corpus.local.dubbing.abc",
+      mode: "dubbing",
+      language: "fr",
+      sourceName: "scene.srt",
+      text: "Oui.\nNon.",
+    },
+  });
+
+  assert.deepEqual(workspace.localCorpusSnapshot, {
+    corpusId: "corpus.local.dubbing.abc",
+    mode: "dubbing",
+    language: "fr",
+    sourceName: "scene.srt",
+    text: "Oui.\nNon.",
+  });
 });
 
 test("workspace progress reconciliation tolerates malformed browser history entries", () => {

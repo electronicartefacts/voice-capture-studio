@@ -54,6 +54,11 @@ Compatibility rules:
 
 Current seed corpus lives in `src/domains/corpus/data/canonicalCorpus.ts`.
 
+Local text corpora accept plain text, Markdown, SRT, and VTT. Subtitle cue numbers, timecodes,
+markup, and repeated speaker labels are removed before prompt creation. One-word utterances are
+valid prompts, and local scripts are not silently truncated. The source text and generated corpus
+identifier are persisted in the workspace snapshot.
+
 Recommended capture levels:
 
 1. Calibration: 50-100 keeper prompts per language, enough to verify microphone, room, transcript

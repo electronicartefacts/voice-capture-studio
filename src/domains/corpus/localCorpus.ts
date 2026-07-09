@@ -28,10 +28,18 @@ export type LocalTextCorpus = {
   readonly summary: LocalTextCorpusSummary;
 };
 
+export type LocalCorpusSnapshot = {
+  readonly corpusId: CorpusId;
+  readonly mode: LocalCorpusMode;
+  readonly language: LanguageCode;
+  readonly sourceName: string | null;
+  readonly text: string;
+};
+
 export function createLocalTextCorpus(
   input: LocalTextCorpusInput,
 ): LocalTextCorpus | null {
-  const segments = createPromptSegments(input.text);
+  const segments = createPromptSegments(input.text, input.sourceName);
 
   if (segments.length === 0) {
     return null;
@@ -81,23 +89,31 @@ export function createLocalTextCorpus(
   };
 }
 
-export function createPromptSegments(text: string): readonly string[] {
+export function createPromptSegments(
+  text: string,
+  sourceName?: string | null,
+): readonly string[] {
   const normalizedText = normalizeCorpusText(text);
 
   if (normalizedText.length === 0) {
     return [];
   }
 
-  const lineSegments = normalizedText
-    .split("\n")
+  const subtitleSegments = isSubtitleText(normalizedText, sourceName)
+    ? parseSubtitleSegments(normalizedText)
+    : [];
+  const lineSegments = (
+    subtitleSegments.length > 0 ? subtitleSegments : normalizedText.split("\n")
+  )
     .map(cleanSegment)
     .filter(isUsableSegment);
   const hasScriptLikeLineBreaks = lineSegments.length >= 3;
-  const rawSegments = hasScriptLikeLineBreaks
-    ? lineSegments
-    : splitProseIntoSentences(normalizedText.replace(/\n+/g, " "));
+  const rawSegments =
+    subtitleSegments.length > 0 || hasScriptLikeLineBreaks
+      ? lineSegments
+      : splitProseIntoSentences(normalizedText.replace(/\n+/g, " "));
 
-  return rawSegments.flatMap(splitLongSegment).slice(0, 80);
+  return stripSpeakerLabels(rawSegments).flatMap(splitLongSegment);
 }
 
 function createPrompt(input: {
@@ -264,12 +280,158 @@ function normalizeCorpusText(text: string): string {
 function cleanSegment(segment: string): string {
   return segment
     .replace(/^\s*[-*•]\s+/, "")
+    .replace(/\uFEFF/g, "")
     .replace(/\s+/g, " ")
     .trim();
 }
 
 function isUsableSegment(segment: string): boolean {
-  return countWords(segment) >= 2;
+  return countWords(segment) >= 1;
+}
+
+function isSubtitleText(text: string, sourceName?: string | null): boolean {
+  const extension = sourceName?.toLowerCase().split(".").at(-1) ?? "";
+
+  return (
+    extension === "srt" ||
+    extension === "vtt" ||
+    /^WEBVTT(?:\s|$)/u.test(text) ||
+    text.split("\n").some(isSubtitleTimingLine)
+  );
+}
+
+function isSubtitleTimingLine(line: string): boolean {
+  return /^\s*(?:\d{1,2}:)?\d{2}:\d{2}[,.]\d{3}\s+-->\s+(?:\d{1,2}:)?\d{2}:\d{2}[,.]\d{3}(?:\s|$)/u.test(
+    line,
+  );
+}
+
+function parseSubtitleSegments(text: string): readonly string[] {
+  const lines = text.replace(/^\uFEFF/u, "").split("\n");
+  const segments: string[] = [];
+  let current: string[] = [];
+  let inCue = false;
+  let skipBlock = false;
+
+  const flush = () => {
+    const segment = cleanSubtitleText(current.join(" "));
+
+    if (segment.length > 0) {
+      segments.push(segment);
+    }
+
+    current = [];
+  };
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+
+    if (line.length === 0) {
+      if (inCue) {
+        flush();
+      }
+      inCue = false;
+      skipBlock = false;
+      continue;
+    }
+
+    if (/^(?:WEBVTT|NOTE|STYLE|REGION)(?:\s|$)/iu.test(line)) {
+      flush();
+      inCue = false;
+      skipBlock = true;
+      continue;
+    }
+
+    if (isSubtitleTimingLine(line)) {
+      flush();
+      inCue = true;
+      skipBlock = false;
+      continue;
+    }
+
+    if (!inCue || skipBlock) {
+      continue;
+    }
+
+    current.push(line);
+  }
+
+  if (inCue) {
+    flush();
+  }
+
+  return segments;
+}
+
+function cleanSubtitleText(text: string): string {
+  return decodeBasicEntities(
+    text
+      .replace(/<v(?:\s+[^>]*)?>/giu, "")
+      .replace(/<\/?[^>]+>/gu, "")
+      .trim(),
+  );
+}
+
+function stripSpeakerLabels(segments: readonly string[]): readonly string[] {
+  const labelCounts = new Map<string, number>();
+
+  for (const segment of segments) {
+    const label = readSpeakerLabel(segment);
+
+    if (label !== null) {
+      labelCounts.set(label.key, (labelCounts.get(label.key) ?? 0) + 1);
+    }
+  }
+
+  return segments.map((segment) => {
+    const label = readSpeakerLabel(segment);
+
+    if (
+      label === null ||
+      !labelCounts.has(label.key) ||
+      ((labelCounts.get(label.key) ?? 0) < 2 && !label.isUppercase)
+    ) {
+      return segment;
+    }
+
+    return segment.slice(label.endIndex).trim();
+  });
+}
+
+function readSpeakerLabel(segment: string): {
+  readonly endIndex: number;
+  readonly isUppercase: boolean;
+  readonly key: string;
+} | null {
+  const match = segment.match(
+    /^\s*([\p{L}\p{N}][\p{L}\p{N} _-]{0,31})\s*:\s+/u,
+  );
+
+  if (match === null || match.index === undefined) {
+    return null;
+  }
+
+  const label = match[1].trim();
+  const letters = label.replace(/[^\p{L}]/gu, "");
+
+  if (letters.length === 0) {
+    return null;
+  }
+
+  return {
+    endIndex: match.index + match[0].length,
+    isUppercase: letters === letters.toLocaleUpperCase(),
+    key: label.toLocaleLowerCase(),
+  };
+}
+
+function decodeBasicEntities(text: string): string {
+  return text
+    .replace(/&amp;/giu, "&")
+    .replace(/&lt;/giu, "<")
+    .replace(/&gt;/giu, ">")
+    .replace(/&quot;/giu, '"')
+    .replace(/&#39;/giu, "'");
 }
 
 function countWords(text: string): number {

@@ -103,7 +103,12 @@ export function createDatasetPackagePlan(input: {
           promptId: take.promptId,
           language: session.language,
           durationMs: take.durationMs,
-          alignment: take.timing.alignment ?? null,
+          alignment: take.timing.forcedAlignment ?? null,
+          estimatedAlignment: take.timing.alignment ?? null,
+          alignmentSource:
+            take.timing.forcedAlignment === undefined
+              ? "text_derived_estimate"
+              : "external_acoustic_forced_alignment",
           wordPhonemeMap: take.timing.words.map((word) => ({
             word: word.word,
             normalized: word.normalized ?? word.word.toLowerCase(),
@@ -112,7 +117,15 @@ export function createDatasetPackagePlan(input: {
             confidence: word.confidence ?? null,
             phonemes: word.phonemes ?? [],
           })),
-          inventory: take.timing.alignment?.inventory ?? [],
+          inventory: take.timing.forcedAlignment
+            ? Array.from(
+                new Set(
+                  take.timing.forcedAlignment.phonemes.map(
+                    (phoneme) => phoneme.phoneme,
+                  ),
+                ),
+              ).sort()
+            : [],
           focus: prompt?.phonetics.focus ?? [],
           coverage: prompt?.phonetics.coverage ?? [],
           difficulty: prompt?.phonetics.difficulty ?? null,
@@ -141,7 +154,15 @@ export function createDatasetPackagePlan(input: {
           take.quality.performance.alignmentConfidence ?? null,
         word_phoneme_link_rate:
           take.quality.performance.wordPhonemeLinkRate ?? null,
-        phoneme_inventory: take.timing.alignment?.inventory ?? [],
+        phoneme_inventory: take.timing.forcedAlignment
+          ? Array.from(
+              new Set(
+                take.timing.forcedAlignment.phonemes.map(
+                  (phoneme) => phoneme.phoneme,
+                ),
+              ),
+            ).sort()
+          : [],
         intent: take.intent.intent.primary,
         pace: take.intent.delivery.pace,
         energy: take.intent.delivery.energy,

@@ -140,7 +140,7 @@ export function estimateTranscriptMatch(input: {
 
   if (observedTokens.length === 0) {
     return {
-      score: 0.96,
+      score: 0,
       source: "prompt_only",
       expectedTokens,
       observedTokens,

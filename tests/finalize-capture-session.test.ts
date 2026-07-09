@@ -31,6 +31,7 @@ test("capture finalization persists a non-empty keeper take and export bundle", 
     folderName: "Voice Workspace",
     recordedAt,
     recording: createRecording(new Blob(["audio"], { type: "audio/wav" })),
+    recognizedTranscript: prompt.text,
     saveRecording: async (fileName) => {
       savedAudioFileName = fileName;
 

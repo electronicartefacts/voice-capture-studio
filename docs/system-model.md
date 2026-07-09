@@ -24,18 +24,18 @@ documentation, and deployment configuration. User voice data belongs outside the
 5. `inspectRuntime` computes browser capability diagnostics for microphone, Web Audio, storage,
    folder export, downloads, and wake lock.
 6. `planSession` selects prompt ids from the canonical corpus by language, speaker progress, and
-   simple diversity scoring.
+   simple diversity scoring. Local text corpora are parsed into cue-safe prompts and their latest
+   source snapshot is persisted in the workspace.
 7. Recording uses `getUserMedia` plus `createPcmRecorder`. Capture prefers an `AudioWorkletNode`
    and retains a `ScriptProcessorNode` compatibility fallback, then encodes local mono WAV PCM
    48 kHz / 24-bit and computes first-pass technical metrics.
 8. `finalizeCaptureSession` in `src/app/recording/finalizeCaptureSession.ts` coordinates take
    finalization, audio persistence, workspace projection, and metadata export.
 9. `createRecordedTake` in `src/app/recording/recordedTake.ts` builds transcript, word/phoneme
-   timing, intent, quality, and review metadata from the prompt plus local metrics. It uses a
-   deterministic browser-side grapheme-to-phoneme estimate so every word is linked to phoneme
-   intervals, while marking the alignment as requiring acoustic forced-alignment validation. Each
-   take receives a stable take identifier that is also used in the fallback WAV file name, so
-   multi-prompt sessions do not overwrite earlier browser recordings.
+   timing, intent, quality, measured pitch/energy prosody, and review metadata from the prompt plus
+   local metrics. Web Speech transcript matching is treated as an actual ASR observation; a
+   prompt-only estimate cannot become a keeper. Browser grapheme-to-phoneme timing remains
+   explicitly estimated until an acoustic forced-alignment JSON is imported.
 10. Empty audio blobs do not create takes and therefore cannot credit corpus coverage.
 11. Audio is persisted through IndexedDB, File System Access, or explicit download fallback. If
     the WAV cannot be accepted by durable browser or folder storage, the take is marked rejected
@@ -83,6 +83,9 @@ an explicit migration exists.
 - Browser private storage is still the default initial workspace mode even though the doctrine says
   File System Access should be preferred where available.
 - Corpus compatibility policy reserves tombstones, but the corpus model has no tombstone type yet.
+- Local corpus snapshots are stored with the workspace so reloads do not orphan local sessions.
+- Coverage separates prompt completion from measured audio quality, ASR coverage, prosody
+  measurements, and acoustic forced-alignment coverage.
 - Workspace normalization handles missing or malformed schema-1 browser payload fields and refuses
   future schema versions, but there is no transform-based migration path yet.
 

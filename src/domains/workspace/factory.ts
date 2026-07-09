@@ -28,6 +28,7 @@ export function createEmptyWorkspace(input: {
       languages: speaker.supportedLanguages,
     })),
     corpusProgress: [],
+    localCorpusSnapshot: null,
     sessions: [],
     capturedSessions: [],
     settings: DEFAULT_WORKSPACE_SETTINGS,

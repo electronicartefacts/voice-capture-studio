@@ -11,6 +11,7 @@ export type {
   TakeQuality,
   TakeQualityGateResult,
   TakeQualityReport,
+  TakeProsodyMetrics,
   TakeReview,
   TakeTiming,
   TakeTranscript,
@@ -18,7 +19,9 @@ export type {
   TranscriptAnnotation,
   WordTiming,
 } from "./types";
+export type { ForcedAlignment } from "@domains/phonetics";
 export type { SessionPlanner, SessionPlannerInput } from "./contracts";
+export { applyForcedAlignment } from "./forcedAlignment";
 export {
   findPrompt,
   findPromptText,

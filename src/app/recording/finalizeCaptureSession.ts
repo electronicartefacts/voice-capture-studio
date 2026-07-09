@@ -4,6 +4,7 @@ import type { SpeakerProfile } from "../../domains/speakers";
 import type {
   AudioCaptureProvenance,
   CaptureSession,
+  ForcedAlignment,
   RecordedTake,
 } from "../../domains/sessions";
 import {
@@ -75,6 +76,7 @@ export async function finalizeCaptureSession(input: {
   readonly completedAt?: Date;
   readonly corpus: CorpusManifest;
   readonly folderName: string | null;
+  readonly forcedAlignment?: ForcedAlignment;
   readonly recording: FinalizedRecording;
   readonly recordedAt?: Date;
   readonly recognizedTranscript?: string;
@@ -149,6 +151,7 @@ export async function finalizeCaptureSession(input: {
           prompt: input.activePrompt,
           recordedAt,
           recognizedTranscript: input.recognizedTranscript,
+          forcedAlignment: input.forcedAlignment,
           session: input.session,
           takeId,
         });

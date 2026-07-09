@@ -20,6 +20,7 @@ export {
   createLocalTextCorpus,
   createPromptSegments,
   type LocalCorpusMode,
+  type LocalCorpusSnapshot,
   type LocalTextCorpus,
   type LocalTextCorpusInput,
   type LocalTextCorpusSummary,

@@ -1,9 +1,11 @@
 import type { PromptDefinition } from "../../domains/corpus";
 import type {
   CaptureSession,
+  ForcedAlignment,
   RecordedTake,
   TakeMedia,
   TakeId,
+  TakeProsodyMetrics,
 } from "../../domains/sessions";
 import type { CaptureProfile } from "../../domains/workspace";
 import {
@@ -14,6 +16,7 @@ import type { PcmRecordingMetrics } from "../audio/pcmRecorder";
 
 export function createRecordedTake(input: {
   readonly durationMs: number;
+  readonly forcedAlignment?: ForcedAlignment;
   readonly fileName: string;
   readonly media: TakeMedia;
   readonly metrics: PcmRecordingMetrics;
@@ -41,9 +44,14 @@ export function createRecordedTake(input: {
       : "pass";
   const transcriptStatus = getTranscriptGateStatus(transcriptMatch);
   const phonemeAlignmentStatus =
-    phonemeAlignment.words.length === 0 || phonemeAlignment.confidence < 0.68
-      ? "review"
-      : "pass";
+    input.forcedAlignment === undefined
+      ? ("review" as const)
+      : ("pass" as const);
+  const prosody = createProsodyMetrics({
+    durationMs: input.durationMs,
+    metrics: input.metrics,
+    wordCount: phonemeAlignment.words.length,
+  });
   const clippingStatus = input.metrics.clippingDetected ? "fail" : "pass";
   const headroomStatus = getHeadroomStatus(input.metrics.estimatedTruePeakDbfs);
   const dcOffsetStatus =
@@ -83,18 +91,10 @@ export function createRecordedTake(input: {
           plosiveStatus === "pass" &&
           mouthNoiseStatus === "pass" &&
           reverbStatus === "pass" &&
-          phonemeAlignmentStatus === "pass" &&
+          transcriptStatus === "pass" &&
           input.profile.roomToneCaptured
         ? "pass"
         : "review";
-  const wordPhonemeLinkRate =
-    phonemeAlignment.words.length === 0
-      ? 0
-      : roundScore(
-          phonemeAlignment.words.filter((word) => word.phonemes.length > 0)
-            .length / phonemeAlignment.words.length,
-        );
-
   return {
     id: input.takeId,
     promptId: input.prompt.id,
@@ -138,6 +138,9 @@ export function createRecordedTake(input: {
         },
       ],
       alignment: phonemeAlignment,
+      ...(input.forcedAlignment === undefined
+        ? {}
+        : { forcedAlignment: input.forcedAlignment }),
     },
     intent: {
       schemaVersion: "voice.intent.v2",
@@ -171,17 +174,39 @@ export function createRecordedTake(input: {
         clippingRate: input.metrics.clippingRate,
         activeSpeechRatio: input.metrics.activeSpeechRatio,
         silenceRatio: input.metrics.silenceRatio,
+        voicedFrameRatio: input.metrics.voicedFrameRatio,
+        meanPitchHz: input.metrics.meanPitchHz,
+        pitchRangeSemitones: input.metrics.pitchRangeSemitones,
+        pitchVariationSemitones: input.metrics.pitchVariationSemitones,
+        energyVariationDb: input.metrics.energyVariationDb,
         reverbScore: input.metrics.reverbScore,
         plosiveScore: input.metrics.plosiveScore,
         mouthNoiseScore: input.metrics.mouthNoiseScore,
       },
       performance: {
         transcriptMatch: transcriptMatch.score,
-        alignmentConfidence: phonemeAlignment.confidence,
-        phonemeInventoryCount: phonemeAlignment.inventory.length,
-        wordPhonemeLinkRate,
-        intentMatch: verdict === "pass" ? 0.92 : 0.78,
-        prosodyVariation: 0.74,
+        alignmentConfidence: input.forcedAlignment?.confidence ?? null,
+        phonemeInventoryCount:
+          input.forcedAlignment === undefined
+            ? null
+            : new Set(
+                input.forcedAlignment.phonemes.map(
+                  (phoneme) => phoneme.phoneme,
+                ),
+              ).size,
+        wordPhonemeLinkRate:
+          input.forcedAlignment === undefined
+            ? null
+            : input.forcedAlignment.words.length === 0
+              ? 0
+              : roundScore(
+                  input.forcedAlignment.words.filter(
+                    (word) => word.endMs > word.startMs,
+                  ).length / input.forcedAlignment.words.length,
+                ),
+        intentMatch: null,
+        prosody,
+        prosodyVariation: scoreMeasuredProsody(prosody),
         naturalnessHumanReview: null,
         keeper: verdict === "pass",
       },
@@ -295,9 +320,7 @@ export function createRecordedTake(input: {
           label: "Alignement phonèmes",
           status: phonemeAlignmentStatus,
           message:
-            phonemeAlignmentStatus === "pass"
-              ? `Chaque mot est lié à ses phonèmes estimés (${phonemeAlignment.inventory.length} unités).`
-              : "Alignement phonémique local peu fiable. Prévois une validation forcée avant entraînement.",
+            "Alignement forcé acoustique requis avant d'utiliser les phonèmes pour l'entraînement.",
         },
       ],
       verdict,
@@ -368,4 +391,34 @@ function createTranscriptGateMessage(
 
 function roundScore(value: number): number {
   return Math.round(Math.max(0, Math.min(1, value)) * 100) / 100;
+}
+
+function createProsodyMetrics(input: {
+  readonly durationMs: number;
+  readonly metrics: PcmRecordingMetrics;
+  readonly wordCount: number;
+}): TakeProsodyMetrics {
+  return {
+    schemaVersion: "voice.prosody.v1",
+    source: "audio_signal",
+    voicedFrameRatio: input.metrics.voicedFrameRatio,
+    meanPitchHz: input.metrics.meanPitchHz,
+    pitchRangeSemitones: input.metrics.pitchRangeSemitones,
+    pitchVariationSemitones: input.metrics.pitchVariationSemitones,
+    energyVariationDb: input.metrics.energyVariationDb,
+    speakingRateWpm:
+      input.durationMs > 0
+        ? Math.round((input.wordCount * 60_000 * 100) / input.durationMs) / 100
+        : null,
+  };
+}
+
+function scoreMeasuredProsody(prosody: TakeProsodyMetrics): number {
+  const pitchScore =
+    prosody.pitchVariationSemitones === null
+      ? 0
+      : Math.min(1, prosody.pitchVariationSemitones / 4);
+  const energyScore = Math.min(1, prosody.energyVariationDb / 12);
+
+  return roundScore((pitchScore + energyScore) / 2);
 }

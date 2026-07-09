@@ -25,6 +25,10 @@ test("local text corpus turns script lines into recordable prompts", () => {
   assert.equal(corpus.summary.sourceName, "scene-12.txt");
   assert.equal(corpus.corpus.scenarios[0]?.title, "Script de doublage");
   assert.equal(
+    corpus.corpus.scenarios[0]?.prompts[0]?.text,
+    "Tu es sur que c'est la bonne porte ?",
+  );
+  assert.equal(
     corpus.corpus.scenarios[0]?.prompts[0]?.intention.primary,
     "cinematic_dialogue",
   );
@@ -69,4 +73,46 @@ test("local text segmentation ignores empty input and chunks long prose", () => 
 
   assert.ok(segments.length >= 2);
   assert.ok(segments.every((segment) => segment.trim().length > 0));
+});
+
+test("local text corpus parses SRT and VTT cues without recording timecodes", () => {
+  const srt = createLocalTextCorpus({
+    mode: "dubbing",
+    language: fr,
+    sourceName: "scene.srt",
+    text: [
+      "1",
+      "00:00:01,000 --> 00:00:03,000",
+      "ELLE: Bonjour, comment ça va ?",
+      "",
+      "2",
+      "00:00:04,000 --> 00:00:06,000",
+      "LUI: Très bien, merci.",
+    ].join("\n"),
+  });
+
+  assert.ok(srt);
+  assert.deepEqual(
+    srt.corpus.scenarios[0]?.prompts.map((prompt) => prompt.text),
+    ["Bonjour, comment ça va ?", "Très bien, merci."],
+  );
+
+  const vtt = createPromptSegments(
+    ["WEBVTT", "", "00:00:01.000 --> 00:00:02.000", "<v Alice>Oui."].join("\n"),
+    "scene.vtt",
+  );
+
+  assert.deepEqual(vtt, ["Oui."]);
+});
+
+test("local corpus keeps one-word lines and does not silently truncate scripts", () => {
+  assert.deepEqual(createPromptSegments("Oui.\nNon.\nD'accord."), [
+    "Oui.",
+    "Non.",
+    "D'accord.",
+  ]);
+
+  const lines = Array.from({ length: 81 }, (_, index) => `Ligne ${index + 1}.`);
+
+  assert.equal(createPromptSegments(lines.join("\n")).length, 81);
 });

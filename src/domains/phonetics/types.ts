@@ -1,7 +1,9 @@
 import type { LanguageCode } from "@shared/index";
 
 export type AlignmentSource =
-  "local_grapheme_phoneme_estimate" | "web_speech_transcript_estimate";
+  | "local_grapheme_phoneme_estimate"
+  | "web_speech_transcript_estimate"
+  | "external_acoustic_forced_alignment";
 
 export type TranscriptToken = {
   readonly index: number;
@@ -46,6 +48,26 @@ export type PromptPhonemeAlignment = {
   readonly phonemes: readonly PhonemeInterval[];
   readonly inventory: readonly string[];
   readonly warnings: readonly string[];
+};
+
+export type ForcedAlignmentWord = {
+  readonly word: string;
+  readonly startMs: number;
+  readonly endMs: number;
+  readonly confidence: number;
+  readonly phonemes: readonly PhonemeInterval[];
+};
+
+export type ForcedAlignment = {
+  readonly schemaVersion: "voice.forced_alignment.v1";
+  readonly source: "external_acoustic_forced_alignment";
+  readonly aligner: string;
+  readonly language: LanguageCode;
+  readonly durationMs: number;
+  readonly confidence: number;
+  readonly words: readonly ForcedAlignmentWord[];
+  readonly phonemes: readonly PhonemeInterval[];
+  readonly importedAt: string;
 };
 
 export type TranscriptMatchEstimate = {
