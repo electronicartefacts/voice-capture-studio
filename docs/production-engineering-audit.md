@@ -93,8 +93,10 @@ uses FFT size 2048, min/max decibels -100/-8, and
 animation update for stable interface metering.
 
 The recorder clones the monitor stream where possible, creates a dedicated
-context requesting 48 kHz, and writes mono 24-bit WAV. If the browser cannot
-honour the target rate, it resamples once on stop with linear interpolation.
+interactive context requesting 48 kHz, and writes mono 24-bit WAV. If the
+browser cannot honour the target rate, it resamples once on stop with a
+windowed-sinc low-pass filter so downsampling does not fold ultrasonic content
+into the voice band.
 
 `createPcmRecorder` now prefers `AudioWorkletNode`. The audio thread batches
 four 128-frame render quanta into 1024 samples, transfers each block to the
@@ -102,11 +104,12 @@ main thread, and flushes a partial block before shutdown. The old
 `ScriptProcessorNode` is retained only as a compatibility fallback when a
 browser or webview cannot load the dynamic worklet module.
 
-`PcmSampleBuffer` grows geometrically with `Float32Array`. Stop-time analysis
-reports peak dBFS, RMS-derived integrated LUFS estimate, frame-percentile noise
-floor, derived SNR, clipping, tail/reverb score, plosive density, and
-high-delta mouth-noise score. These are browser-side quality aids, not
-calibrated studio measurements.
+`PcmSampleBuffer` grows geometrically with `Float32Array` and is bounded by the
+configured capture duration, with a 120-second safety maximum by default.
+Stop-time analysis reports peak dBFS, a gated mono K-weighted LUFS estimate,
+frame-percentile noise floor, derived SNR, clipping, tail/reverb score,
+plosive density, and high-delta mouth-noise score. These are browser-side
+quality aids, not calibrated studio measurements.
 
 Speech recognition is optional reading guidance only. Prompt-derived phoneme
 timing is explicitly marked for acoustic forced alignment downstream.
@@ -117,6 +120,7 @@ timing is explicitly marked for acoustic forced alignment downstream.
 | -------------------- | -------------------: | --------------------------------- |
 | Display samples      |                  260 | filament density and Bézier cost  |
 | Worklet batch        |          1024 frames | 21.3 ms maximum at 48 kHz         |
+| Stop flush guard     |               500 ms | prevents browser shutdown hangs   |
 | Capture target       | mono, 48 kHz, 24-bit | archive-compatible WAV            |
 | Ambient FFT          |                 2048 | field resolution                  |
 | Analyser smoothing   |                 0.42 | spectral stability                |

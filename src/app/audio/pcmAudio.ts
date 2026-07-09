@@ -140,6 +140,82 @@ export function resampleLinear(
   return output;
 }
 
+/**
+ * Resamples mono PCM with a short-windowed sinc low-pass filter. Linear
+ * interpolation is useful for previews, but it aliases when browser input is
+ * converted between common rates. Persisted recordings use this path.
+ */
+export function resampleBandLimited(
+  samples: Float32Array,
+  sourceSampleRate: number,
+  targetSampleRate: number,
+): Float32Array {
+  if (
+    samples.length === 0 ||
+    sourceSampleRate === targetSampleRate ||
+    !isPositiveFiniteNumber(sourceSampleRate) ||
+    !isPositiveFiniteNumber(targetSampleRate)
+  ) {
+    return samples;
+  }
+
+  const targetLength = Math.max(
+    1,
+    Math.round(samples.length * (targetSampleRate / sourceSampleRate)),
+  );
+  const output = new Float32Array(targetLength);
+  const sourcePerTargetSample = sourceSampleRate / targetSampleRate;
+  const cutoff = Math.min(1, targetSampleRate / sourceSampleRate) * 0.94;
+  const radius = 16;
+
+  for (let targetIndex = 0; targetIndex < targetLength; targetIndex += 1) {
+    const sourcePosition = targetIndex * sourcePerTargetSample;
+    const firstIndex = Math.ceil(sourcePosition - radius);
+    const lastIndex = Math.floor(sourcePosition + radius);
+    let weightedSum = 0;
+    let weightTotal = 0;
+
+    for (
+      let sourceIndex = firstIndex;
+      sourceIndex <= lastIndex;
+      sourceIndex += 1
+    ) {
+      if (sourceIndex < 0 || sourceIndex >= samples.length) {
+        continue;
+      }
+
+      const distance = sourceIndex - sourcePosition;
+      const windowPosition = Math.abs(distance) / radius;
+
+      if (windowPosition >= 1) {
+        continue;
+      }
+
+      const scaledDistance = distance * cutoff;
+      const sinc =
+        Math.abs(scaledDistance) < 0.0000001
+          ? 1
+          : Math.sin(Math.PI * scaledDistance) / (Math.PI * scaledDistance);
+      const window = 0.5 + 0.5 * Math.cos(Math.PI * windowPosition);
+      const weight = sinc * window * cutoff;
+
+      weightedSum += normalizeSample(samples[sourceIndex]) * weight;
+      weightTotal += weight;
+    }
+
+    const fallbackIndex = Math.min(
+      samples.length - 1,
+      Math.max(0, Math.round(sourcePosition)),
+    );
+    output[targetIndex] =
+      Math.abs(weightTotal) < 0.0000001
+        ? normalizeSample(samples[fallbackIndex] ?? 0)
+        : weightedSum / weightTotal;
+  }
+
+  return output;
+}
+
 export function analyzePcmSamples(
   samples: Float32Array,
   sampleRate = PCM_TARGET_SAMPLE_RATE,
@@ -186,7 +262,7 @@ export function analyzePcmSamples(
   const estimatedTruePeakDbfs = amplitudeToDbfs(
     estimateInterSamplePeak(samples, peak),
   );
-  const integratedLufs = clamp(round(rmsDbfs - 0.691, 1), MIN_DBFS, 0);
+  const integratedLufs = computeIntegratedLufs(samples, normalizedSampleRate);
   const snrDb = clamp(round(rmsDbfs - noiseFloorDbfs, 1), 0, 96);
   const clippingDetected =
     clippedSamples > Math.max(2, samples.length * 0.00005);
@@ -441,9 +517,10 @@ export function encodeWav24(
 
 function computeFrameRmsDbfs(samples: Float32Array): number[] {
   const frameSize = 2048;
+  const hopSize = 1024;
   const values: number[] = [];
 
-  for (let offset = 0; offset < samples.length; offset += frameSize) {
+  for (let offset = 0; offset < samples.length; offset += hopSize) {
     let sumSquares = 0;
     const end = Math.min(offset + frameSize, samples.length);
 
@@ -458,6 +535,141 @@ function computeFrameRmsDbfs(samples: Float32Array): number[] {
   }
 
   return values;
+}
+
+function computeIntegratedLufs(
+  samples: Float32Array,
+  sampleRate: number,
+): number {
+  if (samples.length === 0) {
+    return MIN_DBFS;
+  }
+
+  // These are the BS.1770 K-weighting biquad coefficients for 48 kHz mono.
+  // The recorder always exports 48 kHz; for other analysis inputs we retain a
+  // finite RMS fallback rather than claiming a calibrated loudness value.
+  if (sampleRate !== PCM_TARGET_SAMPLE_RATE) {
+    let sumSquares = 0;
+
+    for (const sample of samples) {
+      const normalized = normalizeSample(sample);
+      sumSquares += normalized * normalized;
+    }
+
+    return clamp(
+      round(
+        10 *
+          Math.log10(
+            Math.max(sumSquares / Math.max(samples.length, 1), 0.0000000001),
+          ) -
+          0.691,
+        1,
+      ),
+      MIN_DBFS,
+      0,
+    );
+  }
+
+  const preFiltered = processBiquad(samples, {
+    b0: 1.53512485958697,
+    b1: -2.69169618940638,
+    b2: 1.19839281085285,
+    a1: -1.69065929318241,
+    a2: 0.73248077421585,
+  });
+  const weighted = processBiquad(preFiltered, {
+    b0: 1,
+    b1: -2,
+    b2: 1,
+    a1: -1.99004745483398,
+    a2: 0.99007225036689,
+  });
+  const blockSize = Math.max(1, Math.round(sampleRate * 0.4));
+  const hopSize = Math.max(1, Math.round(sampleRate * 0.1));
+  const blockPowers: number[] = [];
+
+  if (samples.length < blockSize) {
+    blockPowers.push(meanSquare(weighted, 0, weighted.length));
+  } else {
+    for (
+      let offset = 0;
+      offset + blockSize <= weighted.length;
+      offset += hopSize
+    ) {
+      blockPowers.push(meanSquare(weighted, offset, offset + blockSize));
+    }
+  }
+
+  const absoluteGate = 10 ** ((-70 + 0.691) / 10);
+  const ungatedPower = mean(
+    blockPowers.filter((power) => power >= absoluteGate),
+  );
+
+  if (ungatedPower <= 0) {
+    return MIN_DBFS;
+  }
+
+  const ungatedLufs = 10 * Math.log10(ungatedPower) - 0.691;
+  const relativeGate = Math.max(
+    absoluteGate,
+    10 ** ((ungatedLufs - 10 + 0.691) / 10),
+  );
+  const gatedPowers = blockPowers.filter((power) => power >= relativeGate);
+  const integratedPower = mean(gatedPowers);
+
+  return clamp(
+    round(10 * Math.log10(Math.max(integratedPower, 0.0000000001)) - 0.691, 1),
+    MIN_DBFS,
+    0,
+  );
+}
+
+type BiquadCoefficients = {
+  readonly a1: number;
+  readonly a2: number;
+  readonly b0: number;
+  readonly b1: number;
+  readonly b2: number;
+};
+
+function processBiquad(
+  samples: Float32Array,
+  coefficients: BiquadCoefficients,
+): Float32Array {
+  const output = new Float32Array(samples.length);
+  let previousInput = 0;
+  let previousInput2 = 0;
+  let previousOutput = 0;
+  let previousOutput2 = 0;
+
+  for (let index = 0; index < samples.length; index += 1) {
+    const input = normalizeSample(samples[index]);
+    const nextOutput =
+      coefficients.b0 * input +
+      coefficients.b1 * previousInput +
+      coefficients.b2 * previousInput2 -
+      coefficients.a1 * previousOutput -
+      coefficients.a2 * previousOutput2;
+
+    output[index] = Number.isFinite(nextOutput) ? nextOutput : 0;
+    previousInput2 = previousInput;
+    previousInput = input;
+    previousOutput2 = previousOutput;
+    previousOutput = output[index];
+  }
+
+  return output;
+}
+
+function meanSquare(samples: Float32Array, start: number, end: number): number {
+  let sumSquares = 0;
+
+  for (let index = start; index < end; index += 1) {
+    const sample = normalizeSample(samples[index]);
+    sumSquares += sample * sample;
+  }
+
+  return sumSquares / Math.max(1, end - start);
 }
 
 function computeTailScore(samples: Float32Array, sampleRate: number): number {

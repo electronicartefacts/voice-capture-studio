@@ -3,7 +3,7 @@ import {
   PcmSampleBuffer,
   analyzePcmSamples,
   encodeWav24,
-  resampleLinear,
+  resampleBandLimited,
   type PcmRecordingMetrics,
 } from "./pcmAudio";
 import type { AudioCaptureProvenance } from "@domains/sessions";
@@ -40,6 +40,8 @@ type CapturePipeline = {
 
 const WORKLET_PROCESSOR_NAME = "voice-capture-pcm-recorder";
 const WORKLET_BATCH_SIZE = 1024;
+const CAPTURE_FLUSH_TIMEOUT_MS = 500;
+const DEFAULT_MAX_CAPTURE_DURATION_MS = 120_000;
 
 // The worklet batches four 128-frame render quanta before crossing back to the
 // main thread. This keeps capture off the UI thread without increasing the
@@ -116,11 +118,9 @@ export async function createPcmRecorder(
     stream,
     audioContext.sampleRate,
   );
+  const maxDurationMs = normalizeCaptureDuration(options.maxDurationMs);
   const sampleBuffer = new PcmSampleBuffer({
-    maxSamples:
-      options.maxDurationMs === undefined
-        ? undefined
-        : Math.ceil((options.maxDurationMs / 1000) * PCM_TARGET_SAMPLE_RATE),
+    maxSamples: Math.ceil((maxDurationMs / 1000) * audioContext.sampleRate),
   });
   let stopPromise: Promise<PcmRecordingResult> | null = null;
   let source: MediaStreamAudioSourceNode | null = null;
@@ -153,23 +153,28 @@ export async function createPcmRecorder(
     async stop() {
       stopPromise ??= (async () => {
         const sourceSampleRate = audioContext.sampleRate;
+        const activeCapture = capture;
+        const activeSilentOutput = silentOutput;
+        const activeSource = source;
 
-        await capture?.flush();
-        capture?.dispose();
-
-        disconnectAudioNode(capture?.node ?? null);
-        disconnectAudioNode(silentOutput);
-        disconnectAudioNode(source);
-        capture = null;
-        silentOutput = null;
-        source = null;
-        await closeAudioContext(audioContext);
+        try {
+          await flushWithTimeout(activeCapture?.flush);
+        } finally {
+          activeCapture?.dispose();
+          disconnectAudioNode(activeCapture?.node ?? null);
+          disconnectAudioNode(activeSilentOutput);
+          disconnectAudioNode(activeSource);
+          capture = null;
+          silentOutput = null;
+          source = null;
+          await closeAudioContext(audioContext);
+        }
 
         const sourceSamples = sampleBuffer.consume();
         const samples =
           sourceSampleRate === PCM_TARGET_SAMPLE_RATE
             ? sourceSamples
-            : resampleLinear(
+            : resampleBandLimited(
                 sourceSamples,
                 sourceSampleRate,
                 PCM_TARGET_SAMPLE_RATE,
@@ -374,6 +379,7 @@ function createCompatibleAudioContext(
 ): AudioContext {
   try {
     return new AudioContextConstructor({
+      latencyHint: "interactive",
       sampleRate: PCM_TARGET_SAMPLE_RATE,
     });
   } catch {
@@ -399,6 +405,29 @@ async function closeAudioContext(audioContext: AudioContext): Promise<void> {
   }
 }
 
+async function flushWithTimeout(
+  flush: (() => Promise<void>) | undefined,
+): Promise<void> {
+  if (flush === undefined) {
+    return;
+  }
+
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+  try {
+    await Promise.race([
+      flush(),
+      new Promise<void>((resolve) => {
+        timeoutId = setTimeout(resolve, CAPTURE_FLUSH_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timeoutId !== undefined) {
+      clearTimeout(timeoutId);
+    }
+  }
+}
+
 function computeLevel(samples: Float32Array): number {
   let sumSquares = 0;
   let peak = 0;
@@ -411,8 +440,20 @@ function computeLevel(samples: Float32Array): number {
   }
 
   const rms = Math.sqrt(sumSquares / Math.max(samples.length, 1));
+  const rmsDbfs = 20 * Math.log10(Math.max(rms, 0.000001));
+  const peakDbfs = 20 * Math.log10(Math.max(peak, 0.000001));
+  const rmsMeter = (rmsDbfs + 60) / 45;
+  const peakMeter = (peakDbfs + 36) / 36;
 
-  return clamp(Math.max(rms * 10, peak * 2.2), 0, 1);
+  return clamp(Math.max(rmsMeter, peakMeter * 0.78), 0, 1);
+}
+
+function normalizeCaptureDuration(value: number | undefined): number {
+  if (value === undefined || !Number.isFinite(value) || value <= 0) {
+    return DEFAULT_MAX_CAPTURE_DURATION_MS;
+  }
+
+  return Math.min(value, DEFAULT_MAX_CAPTURE_DURATION_MS);
 }
 
 function clamp(value: number, min: number, max: number): number {

@@ -5,6 +5,7 @@ import {
   PcmSampleBuffer,
   analyzePcmSamples,
   encodeWav24,
+  resampleBandLimited,
   resampleLinear,
 } from "../src/app/audio/pcmAudio";
 
@@ -100,6 +101,20 @@ test("PCM analysis extracts measured pitch and energy variation for prosody", ()
   assert.ok(metrics.energyVariationDb < 0.5);
 });
 
+test("PCM analysis uses a finite gated K-weighted loudness estimate", () => {
+  const samples = new Float32Array(48_000);
+
+  for (let index = 0; index < samples.length; index += 1) {
+    samples[index] = 0.25 * Math.sin((2 * Math.PI * 1000 * index) / 48_000);
+  }
+
+  const metrics = analyzePcmSamples(samples, 48_000);
+
+  assert.ok(Number.isFinite(metrics.integratedLufs));
+  assert.ok(metrics.integratedLufs > -17);
+  assert.ok(metrics.integratedLufs < -14);
+});
+
 test("linear resampling keeps endpoints stable", () => {
   const resampled = resampleLinear(new Float32Array([0, 1]), 2, 4);
 
@@ -108,6 +123,24 @@ test("linear resampling keeps endpoints stable", () => {
   assert.ok(Math.abs(resampled[1] - 1 / 3) < 0.000001);
   assert.ok(Math.abs(resampled[2] - 2 / 3) < 0.000001);
   assert.equal(resampled[3], 1);
+});
+
+test("band-limited resampling suppresses ultrasonic content before downsampling", () => {
+  const source = new Float32Array(44_100);
+
+  for (let index = 0; index < source.length; index += 1) {
+    source[index] = 0.8 * Math.sin((2 * Math.PI * 18_000 * index) / 44_100);
+  }
+
+  const resampled = resampleBandLimited(source, 44_100, 16_000);
+  let sumSquares = 0;
+
+  for (const sample of resampled) {
+    sumSquares += sample * sample;
+  }
+
+  assert.equal(resampled.length, 16_000);
+  assert.ok(Math.sqrt(sumSquares / resampled.length) < 0.01);
 });
 
 function readAscii(bytes: Uint8Array, offset: number, length: number): string {
