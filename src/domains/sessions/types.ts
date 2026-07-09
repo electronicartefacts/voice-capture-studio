@@ -210,6 +210,7 @@ export type TakeQualityGateResult = {
     | "intent_match"
     | "prosody_balance"
     | "headroom"
+    | "capture_truncated"
     | "dc_offset"
     | "speech_activity"
     | "plosives"

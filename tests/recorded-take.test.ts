@@ -107,6 +107,26 @@ test("recorded take is rejected when clipping is detected", () => {
   assert.equal(findGateStatus(take, "clipping"), "fail");
 });
 
+test("recorded take is rejected when capture reached its memory limit", () => {
+  const { prompt, session } = createPlannedPrompt();
+  const take = createRecordedTake({
+    durationMs: 3200,
+    fileName: "take.wav",
+    media: createMedia(),
+    metrics: createMetrics(),
+    profile: createCaptureProfile({ roomToneCaptured: true }),
+    prompt,
+    recordedAt,
+    recognizedTranscript: prompt.text,
+    session,
+    takeId,
+    truncated: true,
+  });
+
+  assert.equal(take.quality.verdict, "reject");
+  assert.equal(findGateStatus(take, "capture_truncated"), "fail");
+});
+
 test("recorded take is rejected when signal level is effectively silent", () => {
   const { prompt, session } = createPlannedPrompt();
   const take = createRecordedTake({

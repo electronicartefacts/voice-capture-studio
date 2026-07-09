@@ -48,9 +48,11 @@ alignment tools do not need to parse the full take timing object.
 3. Quality gates for clipping, noise, duration, audio persistence, transcript, intent, and prosody balance.
 4. Verdict: `pass`, `review`, or `reject`.
 
-The browser implementation now writes WAV PCM mono 48 kHz / 24-bit when the Web Audio API is
-available. It computes local technical metrics for `quality.json`: peak dBFS, integrated LUFS
-estimate, noise floor, SNR, clipping, reverb estimate, plosive score, and mouth-noise score.
+The browser implementation now writes RIFF-padded WAV PCM mono 48 kHz / 24-bit when the Web Audio
+API is available. It computes local technical metrics for `quality.json`: peak dBFS, gated
+K-weighted integrated LUFS estimate, noise floor, SNR, clipping, reverb estimate, plosive score,
+and mouth-noise score. If the bounded capture buffer is exhausted, the take carries a failed
+capture-integrity gate and cannot become a keeper.
 
 `manifest.json` is generated after files are written and includes SHA-256 checksums for every
 artifact written by the browser export path.

@@ -227,6 +227,7 @@ function createNextRecommendation(input: {
 }
 
 const AUDIO_GATE_IDS = new Set([
+  "capture_truncated",
   "clipping",
   "noise_floor",
   "signal_level",

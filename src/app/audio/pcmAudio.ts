@@ -35,6 +35,7 @@ export type PcmRecordingMetrics = {
 export class PcmSampleBuffer {
   private samples: Float32Array;
   private usedLength = 0;
+  private reachedLimit = false;
 
   constructor(
     options: {
@@ -54,8 +55,17 @@ export class PcmSampleBuffer {
     return this.usedLength;
   }
 
+  get limitReached(): boolean {
+    return this.reachedLimit;
+  }
+
   append(samples: Float32Array): void {
-    if (samples.length === 0 || this.usedLength >= this.maxSamples) {
+    if (samples.length === 0) {
+      return;
+    }
+
+    if (this.usedLength >= this.maxSamples) {
+      this.reachedLimit = true;
       return;
     }
 
@@ -63,6 +73,10 @@ export class PcmSampleBuffer {
       samples.length,
       this.maxSamples - this.usedLength,
     );
+
+    if (writableLength < samples.length) {
+      this.reachedLimit = true;
+    }
 
     this.ensureCapacity(this.usedLength + writableLength);
     this.samples.set(samples.subarray(0, writableLength), this.usedLength);
@@ -80,6 +94,7 @@ export class PcmSampleBuffer {
   clear(): void {
     this.samples = new Float32Array(0);
     this.usedLength = 0;
+    this.reachedLimit = false;
   }
 
   private ensureCapacity(requiredLength: number): void {
@@ -226,9 +241,6 @@ export function analyzePcmSamples(
   let sumSquares = 0;
   let sum = 0;
   let clippedSamples = 0;
-  let plosiveSamples = 0;
-  let highDelta = 0;
-  let previous = 0;
 
   for (const rawSample of samples) {
     const sample = normalizeSample(rawSample);
@@ -241,16 +253,6 @@ export function analyzePcmSamples(
     if (abs >= 0.999) {
       clippedSamples += 1;
     }
-
-    if (abs >= 0.82) {
-      plosiveSamples += 1;
-    }
-
-    if (Math.abs(sample - previous) >= 0.2) {
-      highDelta += 1;
-    }
-
-    previous = sample;
   }
 
   const rms = Math.sqrt(sumSquares / Math.max(samples.length, 1));
@@ -267,6 +269,7 @@ export function analyzePcmSamples(
   const clippingDetected =
     clippedSamples > Math.max(2, samples.length * 0.00005);
   const tailScore = computeTailScore(samples, normalizedSampleRate);
+  const transientScores = computeTransientScores(samples, normalizedSampleRate);
 
   return {
     schemaVersion: "voice.audio_metrics.v1",
@@ -294,16 +297,8 @@ export function analyzePcmSamples(
     pitchVariationSemitones: prosody.pitchVariationSemitones,
     energyVariationDb: prosody.energyVariationDb,
     reverbScore: tailScore,
-    plosiveScore: clamp(
-      round(plosiveSamples / Math.max(samples.length, 1), 3),
-      0,
-      1,
-    ),
-    mouthNoiseScore: clamp(
-      round(highDelta / Math.max(samples.length, 1), 3),
-      0,
-      1,
-    ),
+    plosiveScore: transientScores.plosiveScore,
+    mouthNoiseScore: transientScores.mouthNoiseScore,
   };
 }
 
@@ -376,7 +371,15 @@ function estimatePitchHz(
   let meanValue = 0;
 
   for (let index = 0; index < downsampledLength; index += 1) {
-    const value = normalizeSample(frame[index * stride]);
+    const start = index * stride;
+    const end = Math.min(frame.length, start + stride);
+    let value = 0;
+
+    for (let sourceIndex = start; sourceIndex < end; sourceIndex += 1) {
+      value += normalizeSample(frame[sourceIndex]);
+    }
+
+    value /= Math.max(1, end - start);
     downsampled[index] = value;
     meanValue += value;
   }
@@ -384,13 +387,20 @@ function estimatePitchHz(
   meanValue /= Math.max(downsampledLength, 1);
 
   for (let index = 0; index < downsampled.length; index += 1) {
-    downsampled[index] -= meanValue;
+    const window =
+      downsampled.length <= 1
+        ? 1
+        : 0.5 -
+          0.5 * Math.cos((2 * Math.PI * index) / (downsampled.length - 1));
+
+    downsampled[index] = (downsampled[index] - meanValue) * window;
   }
 
   const minLag = Math.floor(effectiveSampleRate / 350);
   const maxLag = Math.ceil(effectiveSampleRate / 70);
   let bestLag = 0;
   let bestCorrelation = 0;
+  const correlations = new Float64Array(maxLag + 1);
 
   for (let lag = minLag; lag <= maxLag; lag += 1) {
     let correlation = 0;
@@ -408,6 +418,8 @@ function estimatePitchHz(
     const normalizedCorrelation =
       correlation / Math.sqrt(Math.max(leftEnergy * rightEnergy, 0.0000001));
 
+    correlations[lag] = normalizedCorrelation;
+
     if (normalizedCorrelation > bestCorrelation) {
       bestCorrelation = normalizedCorrelation;
       bestLag = lag;
@@ -418,7 +430,19 @@ function estimatePitchHz(
     return null;
   }
 
-  return effectiveSampleRate / bestLag;
+  const previousCorrelation = correlations[bestLag - 1] ?? bestCorrelation;
+  const nextCorrelation = correlations[bestLag + 1] ?? bestCorrelation;
+  const curvature = previousCorrelation - 2 * bestCorrelation + nextCorrelation;
+  const interpolation =
+    Math.abs(curvature) < 0.0000001
+      ? 0
+      : clamp(
+          0.5 * ((previousCorrelation - nextCorrelation) / curvature),
+          -0.5,
+          0.5,
+        );
+
+  return effectiveSampleRate / (bestLag + interpolation);
 }
 
 function estimateInterSamplePeak(
@@ -427,16 +451,21 @@ function estimateInterSamplePeak(
 ): number {
   let peak = samplePeak;
 
-  for (let index = 1; index < samples.length; index += 1) {
-    const previous = normalizeSample(samples[index - 1]);
-    const current = normalizeSample(samples[index]);
-    // 4x linear interpolation is intentionally labelled "estimated": it is
-    // a conservative, dependency-free guardrail rather than IEC true-peak metering.
+  for (let index = 1; index < samples.length - 2; index += 1) {
+    const p0 = normalizeSample(samples[index - 1]);
+    const p1 = normalizeSample(samples[index]);
+    const p2 = normalizeSample(samples[index + 1]);
+    const p3 = normalizeSample(samples[index + 2]);
+    const a0 = -0.5 * p0 + 1.5 * p1 - 1.5 * p2 + 0.5 * p3;
+    const a1 = p0 - 2.5 * p1 + 2 * p2 - 0.5 * p3;
+    const a2 = -0.5 * p0 + 0.5 * p2;
+
     for (let step = 1; step < 4; step += 1) {
-      peak = Math.max(
-        peak,
-        Math.abs(previous + ((current - previous) * step) / 4),
-      );
+      const position = step / 4;
+      const interpolated =
+        ((a0 * position + a1) * position + a2) * position + p1;
+
+      peak = Math.max(peak, Math.abs(interpolated));
     }
   }
 
@@ -466,18 +495,19 @@ export function encodeWav24(
   const normalizedSampleRate = normalizeSampleRate(sampleRate);
   const bytesPerSample = 3;
   const dataSize = samples.length * bytesPerSample;
+  const dataPadding = dataSize % 2;
 
-  if (dataSize > 0xffffffff - 36) {
+  if (dataSize > 0xffffffff - 36 - dataPadding) {
     throw new Error("WAV payload is too large for a RIFF container.");
   }
 
-  const buffer = new ArrayBuffer(44 + dataSize);
+  const buffer = new ArrayBuffer(44 + dataSize + dataPadding);
   const view = new DataView(buffer);
   let offset = 0;
 
   writeAscii(view, offset, "RIFF");
   offset += 4;
-  view.setUint32(offset, 36 + dataSize, true);
+  view.setUint32(offset, 36 + dataSize + dataPadding, true);
   offset += 4;
   writeAscii(view, offset, "WAVE");
   offset += 4;
@@ -512,6 +542,10 @@ export function encodeWav24(
     offset += bytesPerSample;
   }
 
+  if (dataPadding > 0) {
+    view.setUint8(offset, 0);
+  }
+
   return new Blob([buffer], { type: "audio/wav" });
 }
 
@@ -535,6 +569,77 @@ function computeFrameRmsDbfs(samples: Float32Array): number[] {
   }
 
   return values;
+}
+
+function computeTransientScores(
+  samples: Float32Array,
+  sampleRate: number,
+): {
+  readonly mouthNoiseScore: number;
+  readonly plosiveScore: number;
+} {
+  if (samples.length === 0) {
+    return { mouthNoiseScore: 0, plosiveScore: 0 };
+  }
+
+  const frameSize = Math.max(1, Math.round(sampleRate * 0.02));
+  const hopSize = Math.max(1, Math.round(sampleRate * 0.01));
+  const lowPassAlpha = Math.exp((-2 * Math.PI * 250) / sampleRate);
+  let lowPass = 0;
+  let previousFrameDbfs = MIN_DBFS;
+  let activeFrames = 0;
+  let plosiveFrames = 0;
+  let mouthNoiseFrames = 0;
+
+  for (let offset = 0; offset < samples.length; offset += hopSize) {
+    const end = Math.min(samples.length, offset + frameSize);
+    let framePower = 0;
+    let lowPower = 0;
+    let highPower = 0;
+
+    for (let index = offset; index < end; index += 1) {
+      const sample = normalizeSample(samples[index]);
+      const lowSample = (1 - lowPassAlpha) * sample + lowPassAlpha * lowPass;
+      const highSample = sample - lowSample;
+
+      lowPass = lowSample;
+      framePower += sample * sample;
+      lowPower += lowSample * lowSample;
+      highPower += highSample * highSample;
+    }
+
+    const frameDbfs = amplitudeToDbfs(
+      Math.sqrt(framePower / Math.max(1, end - offset)),
+    );
+    const onsetDb = frameDbfs - previousFrameDbfs;
+    const lowRatio = lowPower / Math.max(framePower, 0.0000001);
+    const highRatio = highPower / Math.max(framePower, 0.0000001);
+
+    if (frameDbfs >= -45) {
+      activeFrames += 1;
+
+      if (frameDbfs >= -35 && lowRatio >= 0.52 && onsetDb >= 3) {
+        plosiveFrames += 1;
+      }
+
+      if (frameDbfs >= -40 && highRatio >= 0.62 && onsetDb >= 4) {
+        mouthNoiseFrames += 1;
+      }
+    }
+
+    previousFrameDbfs = frameDbfs;
+  }
+
+  return {
+    mouthNoiseScore: round(
+      clamp(mouthNoiseFrames / Math.max(activeFrames, 1), 0, 1),
+      3,
+    ),
+    plosiveScore: round(
+      clamp(plosiveFrames / Math.max(activeFrames, 1), 0, 1),
+      3,
+    ),
+  };
 }
 
 function computeIntegratedLufs(

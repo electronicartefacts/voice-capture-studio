@@ -28,6 +28,7 @@ export type FinalizedRecording = {
   readonly extension: "wav";
   readonly mimeType: "audio/wav";
   readonly metrics: PcmRecordingMetrics;
+  readonly truncated?: boolean;
   readonly capture: AudioCaptureProvenance;
 };
 
@@ -151,6 +152,7 @@ export async function finalizeCaptureSession(input: {
           prompt: input.activePrompt,
           recordedAt,
           recognizedTranscript: input.recognizedTranscript,
+          truncated: input.recording.truncated,
           forcedAlignment: input.forcedAlignment,
           session: input.session,
           takeId,

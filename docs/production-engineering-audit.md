@@ -108,7 +108,10 @@ browser or webview cannot load the dynamic worklet module.
 configured capture duration, with a 120-second safety maximum by default.
 Stop-time analysis reports peak dBFS, a gated mono K-weighted LUFS estimate,
 frame-percentile noise floor, derived SNR, clipping, tail/reverb score,
-plosive density, and high-delta mouth-noise score. These are browser-side
+plosive density, and mouth-noise score. Plosive and mouth-noise heuristics are
+frame-based, using low/high-band energy and onset thresholds instead of
+counting individual large samples. A capture that reaches its memory bound is
+marked truncated and rejected by the quality gates. These remain browser-side
 quality aids, not calibrated studio measurements.
 
 Speech recognition is optional reading guidance only. Prompt-derived phoneme

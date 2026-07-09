@@ -15,6 +15,7 @@ export type PcmRecordingResult = {
   readonly extension: "wav";
   readonly mimeType: "audio/wav";
   readonly metrics: PcmRecordingMetrics;
+  readonly truncated: boolean;
   readonly capture: AudioCaptureProvenance;
 };
 
@@ -170,6 +171,7 @@ export async function createPcmRecorder(
           await closeAudioContext(audioContext);
         }
 
+        const truncated = sampleBuffer.limitReached;
         const sourceSamples = sampleBuffer.consume();
         const samples =
           sourceSampleRate === PCM_TARGET_SAMPLE_RATE
@@ -186,6 +188,7 @@ export async function createPcmRecorder(
           extension: "wav",
           mimeType: "audio/wav",
           metrics,
+          truncated,
           capture: {
             ...captureSettings,
             resampledToTarget: sourceSampleRate !== PCM_TARGET_SAMPLE_RATE,

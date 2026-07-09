@@ -26,6 +26,7 @@ export function createRecordedTake(input: {
   readonly recognizedTranscript?: string;
   readonly session: CaptureSession;
   readonly takeId: TakeId;
+  readonly truncated?: boolean;
 }): RecordedTake {
   const spokenText = input.prompt.spokenText ?? input.prompt.text;
   const phonemeAlignment = alignPromptToPhonemes({
@@ -53,6 +54,7 @@ export function createRecordedTake(input: {
     wordCount: phonemeAlignment.words.length,
   });
   const clippingStatus = input.metrics.clippingDetected ? "fail" : "pass";
+  const captureTruncatedStatus = input.truncated === true ? "fail" : "pass";
   const headroomStatus = getHeadroomStatus(input.metrics.estimatedTruePeakDbfs);
   const dcOffsetStatus =
     Math.abs(input.metrics.dcOffset) > 0.02 ? "review" : "pass";
@@ -76,6 +78,7 @@ export function createRecordedTake(input: {
       : "pass";
   const snrStatus = input.metrics.snrDb < 24 ? "review" : "pass";
   const verdict =
+    captureTruncatedStatus === "fail" ||
     clippingStatus === "fail" ||
     headroomStatus === "fail" ||
     signalStatus === "fail" ||
@@ -218,6 +221,15 @@ export function createRecordedTake(input: {
           message: input.metrics.clippingDetected
             ? "Le signal sature. Baisse le niveau ou éloigne le micro."
             : `Niveau OK : pic à ${input.metrics.peakDbfs} dBFS.`,
+        },
+        {
+          id: "capture_truncated",
+          label: "Intégrité capture",
+          status: captureTruncatedStatus,
+          message:
+            captureTruncatedStatus === "fail"
+              ? "La capture a atteint sa limite mémoire et le fichier est tronqué. Reprends la phrase."
+              : "Tous les échantillons capturés sont présents.",
         },
         {
           id: "signal_level",

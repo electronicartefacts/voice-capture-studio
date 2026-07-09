@@ -18,8 +18,10 @@ test("PCM sample buffer copies chunks and enforces the configured sample limit",
   buffer.append(new Float32Array([3, 4]));
 
   assert.equal(buffer.sampleCount, 3);
+  assert.equal(buffer.limitReached, true);
   assert.deepEqual(Array.from(buffer.consume()), [1, 2, 3]);
   assert.equal(buffer.sampleCount, 0);
+  assert.equal(buffer.limitReached, false);
 });
 
 test("WAV encoder preserves mono 48 kHz 24-bit PCM container compatibility", async () => {
@@ -32,7 +34,7 @@ test("WAV encoder preserves mono 48 kHz 24-bit PCM container compatibility", asy
   assert.equal(readAscii(bytes, 8, 4), "WAVE");
   assert.equal(readAscii(bytes, 12, 4), "fmt ");
   assert.equal(readAscii(bytes, 36, 4), "data");
-  assert.equal(view.getUint32(4, true), 45);
+  assert.equal(view.getUint32(4, true), 46);
   assert.equal(view.getUint16(20, true), 1);
   assert.equal(view.getUint16(22, true), 1);
   assert.equal(view.getUint32(24, true), 48_000);
@@ -41,7 +43,7 @@ test("WAV encoder preserves mono 48 kHz 24-bit PCM container compatibility", asy
   assert.equal(view.getUint32(40, true), 9);
   assert.deepEqual(
     Array.from(bytes.slice(44)),
-    [0x00, 0x00, 0x80, 0x00, 0x00, 0x00, 0xff, 0xff, 0x7f],
+    [0x00, 0x00, 0x80, 0x00, 0x00, 0x00, 0xff, 0xff, 0x7f, 0x00],
   );
 });
 
