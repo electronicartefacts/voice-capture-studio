@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { liveAudioSignal } from "./liveAudioSignal";
+import { getLiveAudioLevel, liveAudioSignal } from "./liveAudioSignal";
 
 export type VoiceWaveformScreen =
   "home" | "permission" | "calibration" | "karaoke" | "done" | "technical";
@@ -7,20 +7,14 @@ export type VoiceWaveformScreen =
 const DISPLAY_SAMPLES = 260;
 
 export function VoiceWaveformSurface(input: {
-  readonly audioLevel: number;
   readonly awake: boolean;
   readonly playbackProgress: number;
   readonly screen: VoiceWaveformScreen;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const audioLevelRef = useRef(input.audioLevel);
   const awakeRef = useRef(input.awake);
   const playbackProgressRef = useRef(input.playbackProgress);
   const screenRef = useRef(input.screen);
-
-  useEffect(() => {
-    audioLevelRef.current = input.audioLevel;
-  }, [input.audioLevel]);
 
   useEffect(() => {
     awakeRef.current = input.awake;
@@ -197,7 +191,7 @@ export function VoiceWaveformSurface(input: {
       const { waveColor, guideColor, playheadColor } = theme;
       const waveAlpha = clampUnit(theme.waveAlpha);
       const state = screenRef.current;
-      const level = Math.max(0, Math.min(1, audioLevelRef.current));
+      const level = getLiveAudioLevel();
       const width = renderWidth;
       const height = renderHeight;
 

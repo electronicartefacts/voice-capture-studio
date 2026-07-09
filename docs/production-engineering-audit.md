@@ -113,19 +113,21 @@ timing is explicitly marked for acoustic forced alignment downstream.
 
 ## Parameter map
 
-| Parameter            |                Value | Responsibility                   |
-| -------------------- | -------------------: | -------------------------------- |
-| Display samples      |                  260 | filament density and Bézier cost |
-| Worklet batch        |          1024 frames | 21.3 ms maximum at 48 kHz        |
-| Capture target       | mono, 48 kHz, 24-bit | archive-compatible WAV           |
-| Ambient FFT          |                 2048 | field resolution                 |
-| Analyser smoothing   |                 0.42 | spectral stability               |
-| Field update maximum |                20 Hz | avoids style churn               |
-| Fresh-signal window  |               260 ms | prevents stale live trace        |
-| Input sensitivity    |   0.5-3; default 1.6 | visual/meter gain only           |
-| Room tone            |              3000 ms | short stable calibration         |
-| Reading guide        |                90 ms | voice-activity fallback cadence  |
-| Review bars          |                   92 | review waveform density          |
+| Parameter            |                Value | Responsibility                    |
+| -------------------- | -------------------: | --------------------------------- |
+| Display samples      |                  260 | filament density and Bézier cost  |
+| Worklet batch        |          1024 frames | 21.3 ms maximum at 48 kHz         |
+| Capture target       | mono, 48 kHz, 24-bit | archive-compatible WAV            |
+| Ambient FFT          |                 2048 | field resolution                  |
+| Analyser smoothing   |                 0.42 | spectral stability                |
+| Field update maximum |                20 Hz | avoids style churn                |
+| Fresh-signal window  |               260 ms | prevents stale live trace         |
+| React audio UI       |      12.5 Hz maximum | keeps the shell off audio cadence |
+| Karaoke style writes |        30 Hz maximum | bounds character DOM updates      |
+| Input sensitivity    |   0.5-3; default 1.6 | visual/meter gain only            |
+| Room tone            |              3000 ms | short stable calibration          |
+| Reading guide        |                90 ms | voice-activity fallback cadence   |
+| Review bars          |                   92 | review waveform density           |
 
 ## Latency and performance model
 
@@ -156,6 +158,20 @@ clipping, or horizontal overflow on the opening ritual. Physical microphone,
 calibration, playback, end-to-end latency, CPU/GPU frame pacing, and long
 recording memory cannot be honestly measured in this headless environment; they
 remain hardware release checks.
+
+## 2026-07-10 fluidity pass
+
+The live canvas now reads its level directly from the typed-array signal bus.
+Audio activity updates the root CSS variable directly, while the large React
+shell receives meter state at most every 80 ms. This keeps the waveform and
+field responsive at display cadence without repeatedly reconciling the entire
+screen during recording.
+
+Karaoke character styling is capped at 30 Hz and writes a CSS property only
+when its rounded value changes. Halo blur is static; only compositor-friendly
+opacity, scale, and translation respond to sound. These changes remove the
+largest avoidable per-frame React, DOM-style, and dynamic-filter costs without
+slowing the live audio signal.
 
 ## UX, responsive behavior, and motion
 

@@ -212,6 +212,8 @@ const INPUT_SENSITIVITY_MIN = 0.5;
 const INPUT_SENSITIVITY_MAX = 3;
 const DEFAULT_INPUT_SENSITIVITY = 1.6;
 const REVIEW_WAVEFORM_BAR_COUNT = 92;
+const AUDIO_UI_UPDATE_INTERVAL_MS = 80;
+const KARAOKE_STYLE_UPDATE_INTERVAL_MS = 1000 / 30;
 
 function readStoredInputSensitivity(): number {
   try {
@@ -445,6 +447,7 @@ export function App() {
   const inputSensitivityRef = useRef(inputSensitivity);
   const appRootRef = useRef<HTMLElement | null>(null);
   const renderedAudioLevelRef = useRef(0);
+  const lastAudioUiUpdateAtRef = useRef(-Infinity);
   const workspaceRef = useRef<VoiceWorkspace | null>(null);
   const screenRef = useRef<Screen>("home");
   const activeWordIndexRef = useRef(0);
@@ -1418,9 +1421,7 @@ export function App() {
     clearRoomToneTimers();
     mediaStreamRef.current = stream;
     pcmRecorderRef.current = recorder;
-    visualAudioLevelRef.current = 0;
-    renderedAudioLevelRef.current = 0;
-    setAudioLevel(0);
+    resetVisualAudioLevel();
     setActiveWordIndex(0);
     setScreen("karaoke");
     setMessage(message);
@@ -1801,9 +1802,7 @@ export function App() {
 
   async function persistFinishedSession(recording: FinalizedRecording) {
     stopMediaStream();
-    visualAudioLevelRef.current = 0;
-    renderedAudioLevelRef.current = 0;
-    setAudioLevel(0);
+    resetVisualAudioLevel();
 
     const currentWorkspace = workspaceRef.current ?? workspace;
 
@@ -2020,11 +2019,30 @@ export function App() {
 
     visualAudioLevelRef.current = nextLevel;
     setLiveAudioLevel(nextLevel);
+    appRootRef.current?.style.setProperty(
+      "--audio-level",
+      nextLevel.toFixed(3),
+    );
 
-    if (Math.abs(nextLevel - renderedAudioLevelRef.current) > 0.004) {
+    const now = performance.now();
+
+    if (
+      now - lastAudioUiUpdateAtRef.current >= AUDIO_UI_UPDATE_INTERVAL_MS ||
+      Math.abs(nextLevel - renderedAudioLevelRef.current) > 0.12
+    ) {
       renderedAudioLevelRef.current = nextLevel;
+      lastAudioUiUpdateAtRef.current = now;
       setAudioLevel(nextLevel);
     }
+  }
+
+  function resetVisualAudioLevel() {
+    visualAudioLevelRef.current = 0;
+    renderedAudioLevelRef.current = 0;
+    lastAudioUiUpdateAtRef.current = performance.now();
+    setLiveAudioLevel(0);
+    appRootRef.current?.style.setProperty("--audio-level", "0");
+    setAudioLevel(0);
   }
 
   function updateInputSensitivity(value: number) {
@@ -2112,11 +2130,9 @@ export function App() {
       onPointerDown={updateAmbientPointer}
       onPointerLeave={settleAmbientPointer}
       onPointerMove={updateAmbientPointer}
-      style={{ "--audio-level": audioLevel } as CSSProperties}
     >
       <AmbientBackdrop awake={studioAwake} />
       <VoiceWaveformSurface
-        audioLevel={audioLevel}
         awake={studioAwake}
         playbackProgress={reviewPlaybackProgress}
         screen={screen}
@@ -4029,6 +4045,9 @@ const KaraokeText = memo(function KaraokeText(input: {
 }) {
   const lineRef = useRef<HTMLParagraphElement | null>(null);
   const charRefs = useRef<readonly HTMLElement[]>([]);
+  const charStyleValuesRef = useRef<
+    readonly { readonly detail: string; readonly motion: string }[]
+  >([]);
   const waveCenterRef = useRef(0);
   const waveTargetRef = useRef(0);
   const visualLines = useMemo(
@@ -4075,12 +4094,21 @@ const KaraokeText = memo(function KaraokeText(input: {
     const initialCenter = initialStart + initialWordLength * 0.5;
 
     charRefs.current = chars;
+    charStyleValuesRef.current = [];
     waveCenterRef.current = initialCenter;
     waveTargetRef.current = initialCenter;
 
     let frameId = 0;
 
-    function animate() {
+    let lastStyleUpdateAt = -Infinity;
+
+    function animate(now: number) {
+      if (now - lastStyleUpdateAt < KARAOKE_STYLE_UPDATE_INTERVAL_MS) {
+        frameId = window.requestAnimationFrame(animate);
+        return;
+      }
+
+      lastStyleUpdateAt = now;
       const energy = getLiveAudioLevel();
       const target = waveTargetRef.current;
       const current =
@@ -4089,7 +4117,9 @@ const KaraokeText = memo(function KaraokeText(input: {
 
       waveCenterRef.current = current;
 
-      for (const char of charRefs.current) {
+      const nextStyleValues: { detail: string; motion: string }[] = [];
+
+      for (const [charIndex, char] of charRefs.current.entries()) {
         const index = Number(char.dataset.charIndex ?? 0);
         const distance = Math.abs(index - current);
         const wave = Math.exp(-(distance * distance) / (2 * sigma * sigma));
@@ -4101,9 +4131,24 @@ const KaraokeText = memo(function KaraokeText(input: {
           0.34 + wave * 0.24 + trail * 0.24 + energy * 0.06,
         );
 
-        char.style.setProperty("--motion-wave", motion.toFixed(3));
-        char.style.setProperty("--detail-wave", detail.toFixed(3));
+        const nextValues = {
+          motion: motion.toFixed(3),
+          detail: detail.toFixed(3),
+        };
+        const previousValues = charStyleValuesRef.current[charIndex];
+
+        if (previousValues?.motion !== nextValues.motion) {
+          char.style.setProperty("--motion-wave", nextValues.motion);
+        }
+
+        if (previousValues?.detail !== nextValues.detail) {
+          char.style.setProperty("--detail-wave", nextValues.detail);
+        }
+
+        nextStyleValues.push(nextValues);
       }
+
+      charStyleValuesRef.current = nextStyleValues;
 
       frameId = window.requestAnimationFrame(animate);
     }
@@ -4113,6 +4158,7 @@ const KaraokeText = memo(function KaraokeText(input: {
     return () => {
       window.cancelAnimationFrame(frameId);
       charRefs.current = [];
+      charStyleValuesRef.current = [];
     };
   }, [input.words, wordStartIndexes]);
 
