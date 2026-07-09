@@ -76,12 +76,16 @@ import {
   finalizeCaptureSession,
   type FinalizedRecording,
 } from "../recording/finalizeCaptureSession";
+import { createDatasetPackagePlan } from "../export/datasetPackage";
+import { createDatasetZip } from "../export/downloadDatasetPackage";
 import { createBrowserWorkspaceRepository } from "../storage/browserWorkspaceRepository";
 import {
   canChooseSystemFolder,
   chooseWorkspaceFolder,
+  getBrowserRecording,
   getRememberedFolderName,
   listBrowserRecordings,
+  saveDatasetPackageToWorkspaceFolder,
   saveRecordingToWorkspaceFolder,
   saveTakeMetadataToWorkspaceFolder,
   type StoredRecording,
@@ -106,6 +110,15 @@ type BackingTrack = {
   readonly name: string;
   readonly url: string;
 };
+type DatasetExportState =
+  | { readonly status: "idle" }
+  | { readonly status: "preparing" }
+  | {
+      readonly status: "done";
+      readonly keeperCount: number;
+      readonly missingAudioFiles: readonly string[];
+    }
+  | { readonly status: "error"; readonly message: string };
 type ReadingGuideMode = "speech-recognition" | "voice-activity";
 type RoomToneCalibration = {
   readonly durationMs: number;
@@ -219,6 +232,8 @@ export function App() {
   const [storedRecordings, setStoredRecordings] = useState<
     readonly DownloadableRecording[]
   >([]);
+  const [datasetExportState, setDatasetExportState] =
+    useState<DatasetExportState>({ status: "idle" });
   const [audioLevel, setAudioLevel] = useState(0);
   const [readingGuideMode, setReadingGuideModeState] =
     useState<ReadingGuideMode>("voice-activity");
@@ -245,6 +260,7 @@ export function App() {
   const workspaceBackupUrlRef = useRef<string | null>(null);
   const backingTrackUrlRef = useRef<string | null>(null);
   const storedRecordingUrlsRef = useRef<readonly string[]>([]);
+  const datasetZipUrlRef = useRef<string | null>(null);
   const isPersistingRef = useRef(false);
   const roomToneCaptureTimerRef = useRef<number | null>(null);
   const roomToneProgressTimerRef = useRef<number | null>(null);
@@ -393,6 +409,7 @@ export function App() {
       revokeObjectUrl(metadataDownloadUrlRef.current);
       revokeObjectUrl(workspaceBackupUrlRef.current);
       revokeObjectUrl(backingTrackUrlRef.current);
+      revokeObjectUrl(datasetZipUrlRef.current);
       revokeStoredRecordingUrls();
     };
   }, []);
@@ -500,6 +517,111 @@ export function App() {
     setWorkspaceOpenBlocker(null);
 
     return nextWorkspace;
+  }
+
+  async function downloadDatasetPackage() {
+    if (workspace === null || activeCorpus === null) {
+      return;
+    }
+
+    setDatasetExportState({ status: "preparing" });
+
+    try {
+      const plan = createDatasetPackagePlan({
+        corpus: activeCorpus,
+        speaker: selectedSpeaker,
+        workspace,
+      });
+
+      if (plan.keeperCount === 0) {
+        setDatasetExportState({
+          status: "error",
+          message:
+            "Aucune prise gardée pour l'instant. Enregistre des prises validées avant d'exporter le dataset.",
+        });
+        return;
+      }
+
+      const zip = await createDatasetZip({
+        getAudioBlob: getBrowserRecording,
+        plan,
+      });
+
+      revokeObjectUrl(datasetZipUrlRef.current);
+      const url = URL.createObjectURL(zip.blob);
+      datasetZipUrlRef.current = url;
+
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `voice-capture-dataset-${workspace.workspaceId}.zip`;
+      anchor.click();
+
+      setDatasetExportState({
+        status: "done",
+        keeperCount: plan.keeperCount,
+        missingAudioFiles: zip.missingAudioFiles,
+      });
+    } catch (error) {
+      setDatasetExportState({
+        status: "error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Le dataset n'a pas pu être généré.",
+      });
+    }
+  }
+
+  async function writeDatasetPackageToFolder() {
+    if (workspace === null || activeCorpus === null) {
+      return;
+    }
+
+    setDatasetExportState({ status: "preparing" });
+
+    try {
+      const plan = createDatasetPackagePlan({
+        corpus: activeCorpus,
+        speaker: selectedSpeaker,
+        workspace,
+      });
+
+      if (plan.keeperCount === 0) {
+        setDatasetExportState({
+          status: "error",
+          message:
+            "Aucune prise gardée pour l'instant. Enregistre des prises validées avant d'exporter le dataset.",
+        });
+        return;
+      }
+
+      const result = await saveDatasetPackageToWorkspaceFolder({
+        getAudioBlob: getBrowserRecording,
+        jsonFiles: plan.jsonFiles,
+        textFiles: plan.textFiles,
+        audioFiles: plan.audioFiles,
+        readme: plan.readme,
+      });
+
+      if (!result.ok) {
+        setDatasetExportState({ status: "error", message: result.message });
+        return;
+      }
+
+      setDatasetExportState({
+        status: "done",
+        keeperCount: plan.keeperCount,
+        missingAudioFiles: [],
+      });
+    } catch (error) {
+      setDatasetExportState({
+        status: "error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Le dataset n'a pas pu être écrit dans ce dossier.",
+      });
+    }
   }
 
   async function selectFolder() {
@@ -1495,9 +1617,12 @@ export function App() {
           corpusVersion={activeCorpus?.version ?? null}
           coverage={coverage}
           coveragePercent={coverage?.percent ?? 0}
+          datasetExportState={datasetExportState}
           diagnostics={diagnostics}
           folderName={folderName}
           onBack={() => setScreen("home")}
+          onDownloadDataset={downloadDatasetPackage}
+          onWriteDatasetToFolder={writeDatasetPackageToFolder}
           recordings={storedRecordings}
           savedSessions={workspace?.sessions.length ?? 0}
           storageMode={
@@ -3603,9 +3728,12 @@ function TechnicalPage(input: {
   readonly corpusVersion: CorpusManifest["version"] | null;
   readonly coverage: CoverageSummary | null;
   readonly coveragePercent: number;
+  readonly datasetExportState: DatasetExportState;
   readonly diagnostics: RuntimeDiagnostics;
   readonly folderName: string | null;
   readonly onBack: () => void;
+  readonly onDownloadDataset: () => void;
+  readonly onWriteDatasetToFolder: () => void;
   readonly recordings: readonly DownloadableRecording[];
   readonly savedSessions: number;
   readonly storageMode: "folder-capable" | "browser-downloads";
@@ -3708,6 +3836,57 @@ function TechnicalPage(input: {
           de fichiers.
         </p>
       )}
+      <div className="dataset-export-panel">
+        <div className="dataset-export-header">
+          <h2>Dataset complet</h2>
+          <p>
+            Regroupe toutes les prises gardées en un dataset prêt pour
+            l'entraînement : audio brut, transcripts, métadonnées, phonèmes et
+            rapports agrégés.
+          </p>
+        </div>
+        <div className="dataset-export-actions">
+          <button
+            className="download-action"
+            disabled={input.datasetExportState.status === "preparing"}
+            onClick={input.onDownloadDataset}
+            type="button"
+          >
+            <Download aria-hidden="true" size={18} />
+            <span>
+              {input.datasetExportState.status === "preparing"
+                ? "Préparation…"
+                : "Télécharger le dataset (.zip)"}
+            </span>
+          </button>
+          {input.storageMode === "folder-capable" &&
+            input.folderName !== null && (
+              <button
+                className="quiet-button"
+                disabled={input.datasetExportState.status === "preparing"}
+                onClick={input.onWriteDatasetToFolder}
+                type="button"
+              >
+                <FolderOpen aria-hidden="true" size={18} />
+                <span>Écrire dans le dossier local</span>
+              </button>
+            )}
+        </div>
+        {input.datasetExportState.status === "done" && (
+          <p className="dataset-export-status">
+            {input.datasetExportState.keeperCount} prise(s) gardée(s)
+            incluse(s).
+            {input.datasetExportState.missingAudioFiles.length > 0
+              ? ` ${input.datasetExportState.missingAudioFiles.length} fichier(s) audio introuvable(s) dans le cache navigateur.`
+              : ""}
+          </p>
+        )}
+        {input.datasetExportState.status === "error" && (
+          <p className="dataset-export-status error">
+            {input.datasetExportState.message}
+          </p>
+        )}
+      </div>
       <div className="recordings-list">
         <div className="recordings-list-header">
           <h2>Audio disponible</h2>

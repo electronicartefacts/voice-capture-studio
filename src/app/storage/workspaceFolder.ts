@@ -397,6 +397,107 @@ export async function saveTakeMetadataToWorkspaceFolder(input: {
   }
 }
 
+export async function saveDatasetPackageToWorkspaceFolder(input: {
+  readonly getAudioBlob: (fileName: string) => Promise<Blob | undefined>;
+  readonly jsonFiles: readonly {
+    readonly path: string;
+    readonly json: unknown;
+  }[];
+  readonly textFiles: readonly {
+    readonly path: string;
+    readonly text: string;
+  }[];
+  readonly audioFiles: readonly {
+    readonly path: string;
+    readonly sourceFileName: string;
+  }[];
+  readonly readme: string;
+}): Promise<
+  Result<
+    { readonly target: "folder"; readonly writtenFiles: number },
+    "folder-unavailable" | "folder-save-failed"
+  >
+> {
+  const handle = await readDirectoryHandle();
+
+  if (handle?.getDirectoryHandle === undefined) {
+    return {
+      ok: false,
+      error: "folder-unavailable",
+      message: "Aucun dossier local connecté pour écrire le dataset.",
+    };
+  }
+
+  if (!(await requestReadWritePermission(handle))) {
+    return {
+      ok: false,
+      error: "folder-unavailable",
+      message: "Autorise l'écriture dans le dossier pour exporter le dataset.",
+    };
+  }
+
+  try {
+    const datasetDirectory = await ensureDirectory(handle, "dataset");
+    let writtenFiles = 0;
+
+    await writeBlob(datasetDirectory, "README.md", textBlob(input.readme));
+    writtenFiles++;
+
+    for (const file of input.jsonFiles) {
+      await writeNestedBlob(datasetDirectory, file.path, jsonBlob(file.json));
+      writtenFiles++;
+    }
+
+    for (const file of input.textFiles) {
+      await writeNestedBlob(datasetDirectory, file.path, textBlob(file.text));
+      writtenFiles++;
+    }
+
+    for (const file of input.audioFiles) {
+      const blob = await input.getAudioBlob(file.sourceFileName);
+
+      if (blob === undefined) {
+        continue;
+      }
+
+      await writeNestedBlob(datasetDirectory, file.path, blob);
+      writtenFiles++;
+    }
+
+    return {
+      ok: true,
+      value: { target: "folder", writtenFiles },
+    };
+  } catch {
+    return {
+      ok: false,
+      error: "folder-save-failed",
+      message: "Impossible d'écrire le dataset dans ce dossier.",
+    };
+  }
+}
+
+async function writeNestedBlob(
+  root: DirectoryHandle,
+  path: string,
+  blob: Blob,
+): Promise<void> {
+  const segments = path.split("/").map(sanitizePathSegment);
+  const fileName = segments.pop();
+
+  if (fileName === undefined) {
+    throw new Error("Invalid dataset file path.");
+  }
+
+  let directory = root;
+
+  for (const segment of segments) {
+    directory = await ensureDirectory(directory, segment);
+  }
+
+  await writeBlob(directory, fileName, blob);
+}
+
 type VoiceCaptureSessionManifest = {
   readonly exportId: string;
   readonly format: "voice.capture_session";
@@ -467,6 +568,32 @@ export async function listBrowserRecordings(): Promise<
     return recordings.sort((left, right) =>
       right.savedAt.localeCompare(left.savedAt),
     );
+  } finally {
+    database.close();
+  }
+}
+
+export async function getBrowserRecording(
+  fileName: string,
+): Promise<Blob | undefined> {
+  let database: IDBDatabase;
+
+  try {
+    database = await openDatabase();
+  } catch {
+    return undefined;
+  }
+
+  try {
+    const transaction = database.transaction(RECORDINGS_STORE_NAME, "readonly");
+    const request = transaction
+      .objectStore(RECORDINGS_STORE_NAME)
+      .get(fileName);
+    const recording = await requestResult<StoredRecording | undefined>(request);
+
+    await transactionDone(transaction);
+
+    return recording?.blob;
   } finally {
     database.close();
   }

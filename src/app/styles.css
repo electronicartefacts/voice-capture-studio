@@ -1960,6 +1960,44 @@ textarea:focus-visible {
   overflow-wrap: anywhere;
 }
 
+.dataset-export-panel {
+  background: color-mix(in srgb, var(--panel-solid) 7%, transparent);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+}
+
+.dataset-export-header h2 {
+  color: var(--text);
+  font-size: 18px;
+  margin: 0 0 6px;
+}
+
+.dataset-export-header p {
+  color: var(--soft);
+  font-size: 13px;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.dataset-export-actions {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.dataset-export-status {
+  color: var(--soft);
+  font-size: 13px;
+  margin: 0;
+}
+
+.dataset-export-status.error {
+  color: var(--accent-c);
+}
+
 .recordings-list {
   display: grid;
   gap: 10px;
