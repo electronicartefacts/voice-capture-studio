@@ -111,6 +111,7 @@ Important documents:
 - [Workspace structure](docs/workspace-structure.md)
 - [Export structure](docs/export-structure.md)
 - [Capture technology audit](docs/capture-technology-audit.md)
+- [Production engineering audit](docs/production-engineering-audit.md)
 - [Android and GitHub Pages](docs/android-github-pages.md)
 
 ## GitHub Pages

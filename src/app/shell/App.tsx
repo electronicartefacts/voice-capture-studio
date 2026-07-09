@@ -87,6 +87,17 @@ import {
   type PcmRecordingMetrics,
 } from "../audio/pcmRecorder";
 import {
+  VoiceWaveformSurface,
+  type VoiceWaveformScreen,
+} from "../rendering/VoiceWaveformSurface";
+import {
+  getLiveAudioLevel,
+  pushLiveWaveform as pushWaveformToRenderer,
+  pushLiveWaveformFromSource,
+  setLiveAudioLevel,
+} from "../rendering/liveAudioSignal";
+import { measureAcousticField } from "../rendering/acousticField";
+import {
   finalizeCaptureSession,
   type FinalizedRecording,
 } from "../recording/finalizeCaptureSession";
@@ -114,8 +125,7 @@ import {
   type RuntimeDiagnostics,
 } from "../system/runtimeDiagnostics";
 
-type Screen =
-  "home" | "permission" | "calibration" | "karaoke" | "done" | "technical";
+type Screen = VoiceWaveformScreen;
 type CaptureMode = "training" | LocalCorpusMode;
 type DownloadableRecording = StoredRecording & {
   readonly url: string;
@@ -195,7 +205,6 @@ type AmbientMicrophoneMonitor = {
 const workspaceId = "workspace.local.main" as WorkspaceId;
 const workspaceRepository = createBrowserWorkspaceRepository();
 const ROOM_TONE_CAPTURE_MS = 3000;
-const WAVEFORM_DISPLAY_SAMPLES = 260;
 const DEFAULT_SPEAKER_LANGUAGE =
   supportedLanguages[0]?.code ?? ("fr" as LanguageCode);
 const INPUT_SENSITIVITY_STORAGE_KEY = "voice-capture-studio.input-sensitivity";
@@ -367,82 +376,6 @@ function formatMeterScale(value: number): string {
   return Math.max(0.035, clampUnit(value)).toFixed(3);
 }
 
-function softLimitWaveSample(
-  value: number,
-  threshold: number,
-  ratio: number,
-): number {
-  const absoluteValue = Math.abs(value);
-
-  if (absoluteValue <= threshold) {
-    return value;
-  }
-
-  return Math.sign(value) * (threshold + (absoluteValue - threshold) / ratio);
-}
-
-// Shared real-time waveform bus: microphone samples land here every frame and
-// the canvas reads them directly, bypassing React state entirely.
-const liveAudioSignal = {
-  samples: new Float32Array(WAVEFORM_DISPLAY_SAMPLES),
-  updatedAt: 0,
-  level: 0,
-};
-
-function writeLiveWaveform(
-  readSample: (index: number) => number,
-  sourceLength: number,
-  gain: number,
-): void {
-  const target = liveAudioSignal.samples;
-  const bucketSize = sourceLength / target.length;
-
-  for (let index = 0; index < target.length; index += 1) {
-    const start = Math.floor(index * bucketSize);
-    const end = Math.min(
-      sourceLength,
-      Math.max(start + 1, Math.floor((index + 1) * bucketSize)),
-    );
-    let peak = 0;
-
-    for (let sourceIndex = start; sourceIndex < end; sourceIndex += 1) {
-      const value = readSample(sourceIndex);
-
-      if (Math.abs(value) > Math.abs(peak)) {
-        peak = value;
-      }
-    }
-
-    target[index] = softLimitWaveSample(peak * gain, 0.9, 3.6);
-  }
-
-  liveAudioSignal.updatedAt = performance.now();
-}
-
-function getLiveWaveGain(state: Screen): number {
-  if (state === "karaoke") {
-    return 1;
-  }
-
-  if (state === "technical") {
-    return 0.85;
-  }
-
-  if (state === "calibration") {
-    return 0.8;
-  }
-
-  if (state === "home") {
-    return 0.55;
-  }
-
-  if (state === "permission") {
-    return 0.4;
-  }
-
-  return 0;
-}
-
 export function App() {
   const [studioAwake, setStudioAwake] = useState(false);
   const [ritualStatus, setRitualStatus] = useState<RitualStatus>("idle");
@@ -510,6 +443,7 @@ export function App() {
     readStoredInputSensitivity,
   );
   const inputSensitivityRef = useRef(inputSensitivity);
+  const appRootRef = useRef<HTMLElement | null>(null);
   const renderedAudioLevelRef = useRef(0);
   const workspaceRef = useRef<VoiceWorkspace | null>(null);
   const screenRef = useRef<Screen>("home");
@@ -850,6 +784,7 @@ export function App() {
     const source = audioContext.createMediaStreamSource(stream);
     const analyser = audioContext.createAnalyser();
     let frameId = 0;
+    let acousticFieldReadAt = -Infinity;
     let smoothedLevel = 0;
 
     analyser.fftSize = 2048;
@@ -859,12 +794,14 @@ export function App() {
     source.connect(analyser);
 
     const timeData = new Uint8Array(analyser.fftSize);
+    const frequencyData = new Uint8Array(analyser.frequencyBinCount);
 
     if (audioContext.state === "suspended") {
       await audioContext.resume();
     }
 
     function updateAmbientLevel() {
+      const now = performance.now();
       analyser.getByteTimeDomainData(timeData);
 
       let sumSquares = 0;
@@ -879,12 +816,24 @@ export function App() {
       smoothedLevel += (rms - smoothedLevel) * 0.3;
 
       if (pcmRecorderRef.current === null && !isPersistingRef.current) {
-        writeLiveWaveform(
+        pushLiveWaveformFromSource(
           (index) => (timeData[index] - 128) / 128,
           timeData.length,
           1.5 * inputSensitivityRef.current,
         );
         updateVisualAudioLevel(Math.min(1, smoothedLevel * 7));
+      }
+
+      if (now - acousticFieldReadAt >= 50) {
+        analyser.getByteFrequencyData(frequencyData);
+        applyAcousticField(
+          measureAcousticField(
+            frequencyData,
+            audioContext.sampleRate,
+            analyser.fftSize,
+          ),
+        );
+        acousticFieldReadAt = now;
       }
 
       frameId = window.requestAnimationFrame(updateAmbientLevel);
@@ -906,6 +855,22 @@ export function App() {
   function stopAmbientMicrophoneMonitor() {
     ambientMonitorRef.current?.stop();
     ambientMonitorRef.current = null;
+  }
+
+  function applyAcousticField(features: {
+    readonly ambience: number;
+    readonly bass: number;
+    readonly presence: number;
+    readonly air: number;
+  }) {
+    const style = appRootRef.current?.style;
+
+    if (style === undefined) return;
+
+    style.setProperty("--acoustic-ambience", features.ambience.toFixed(3));
+    style.setProperty("--acoustic-bass", features.bass.toFixed(3));
+    style.setProperty("--acoustic-presence", features.presence.toFixed(3));
+    style.setProperty("--acoustic-air", features.air.toFixed(3));
   }
 
   useEffect(() => {
@@ -2038,11 +2003,7 @@ export function App() {
   }
 
   function pushLiveWaveform(samples: Float32Array) {
-    writeLiveWaveform(
-      (index) => samples[index],
-      samples.length,
-      1.5 * inputSensitivityRef.current,
-    );
+    pushWaveformToRenderer(samples, 1.5 * inputSensitivityRef.current);
   }
 
   function updateVisualAudioLevel(level: number) {
@@ -2058,7 +2019,7 @@ export function App() {
         : previousLevel * 0.58 + boostedLevel * 0.42;
 
     visualAudioLevelRef.current = nextLevel;
-    liveAudioSignal.level = nextLevel;
+    setLiveAudioLevel(nextLevel);
 
     if (Math.abs(nextLevel - renderedAudioLevelRef.current) > 0.004) {
       renderedAudioLevelRef.current = nextLevel;
@@ -2146,6 +2107,7 @@ export function App() {
 
   return (
     <main
+      ref={appRootRef}
       className={appClassName}
       onPointerDown={updateAmbientPointer}
       onPointerLeave={settleAmbientPointer}
@@ -2416,338 +2378,6 @@ function OpeningRitual(input: {
         )}
       </div>
     </section>
-  );
-}
-
-function VoiceWaveformSurface(input: {
-  readonly audioLevel: number;
-  readonly awake: boolean;
-  readonly playbackProgress: number;
-  readonly screen: Screen;
-}) {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const audioLevelRef = useRef(input.audioLevel);
-  const awakeRef = useRef(input.awake);
-  const playbackProgressRef = useRef(input.playbackProgress);
-  const screenRef = useRef(input.screen);
-
-  useEffect(() => {
-    audioLevelRef.current = input.audioLevel;
-  }, [input.audioLevel]);
-
-  useEffect(() => {
-    awakeRef.current = input.awake;
-  }, [input.awake]);
-
-  useEffect(() => {
-    playbackProgressRef.current = input.playbackProgress;
-  }, [input.playbackProgress]);
-
-  useEffect(() => {
-    screenRef.current = input.screen;
-  }, [input.screen]);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    const context = canvas?.getContext("2d");
-
-    if (canvas === null || context === undefined || context === null) {
-      return;
-    }
-
-    const surfaceCanvas = canvas;
-    const ctx = context;
-    const previousWaveform = new Float32Array(WAVEFORM_DISPLAY_SAMPLES).fill(0);
-    let frameId = 0;
-
-    function resize() {
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
-
-      surfaceCanvas.width = Math.floor(window.innerWidth * dpr);
-      surfaceCanvas.height = Math.floor(window.innerHeight * dpr);
-      surfaceCanvas.style.width = `${window.innerWidth}px`;
-      surfaceCanvas.style.height = `${window.innerHeight}px`;
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    }
-
-    // Theme tokens are read from computed styles at most twice per second:
-    // reading them every frame forces a style recalculation per draw.
-    let themeReadAt = -Infinity;
-    let themeCache = {
-      waveColor: "rgba(255,255,255,0.72)",
-      guideColor: "rgba(255,255,255,0.14)",
-      playheadColor: "rgba(122,220,255,0.9)",
-      waveAlpha: 0.72,
-    };
-
-    function readTheme(now: number): typeof themeCache {
-      if (now - themeReadAt < 500) {
-        return themeCache;
-      }
-
-      const style = getComputedStyle(document.documentElement);
-      const readColor = (name: string, fallback: string) =>
-        style.getPropertyValue(name).trim() || fallback;
-      const parsedAlpha = Number.parseFloat(
-        style.getPropertyValue("--wave-surface-alpha"),
-      );
-
-      themeReadAt = now;
-      themeCache = {
-        waveColor: readColor("--wave-surface-color", "rgba(255,255,255,0.72)"),
-        guideColor: readColor("--wave-surface-guide", "rgba(255,255,255,0.14)"),
-        playheadColor: readColor(
-          "--wave-surface-playhead",
-          "rgba(122,220,255,0.9)",
-        ),
-        waveAlpha: Number.isFinite(parsedAlpha) ? parsedAlpha : 0.72,
-      };
-
-      return themeCache;
-    }
-
-    function getWaveCenterRatio(state: Screen, width: number): number {
-      if (state === "home") {
-        return width < 720 ? 0.28 : 0.18;
-      }
-
-      if (state === "permission") {
-        return width < 720 ? 0.18 : 0.14;
-      }
-
-      if (state === "technical") {
-        return width < 720 ? 0.16 : 0.18;
-      }
-
-      if (state === "done") {
-        return width < 720 ? 0.58 : 0.64;
-      }
-
-      return 0.5;
-    }
-
-    function createWaveSample(
-      index: number,
-      timeSeconds: number,
-      level: number,
-      state: Screen,
-    ): number {
-      const position = index / Math.max(1, WAVEFORM_DISPLAY_SAMPLES - 1);
-      const phase = position * Math.PI * 2;
-      const recordingGain =
-        state === "karaoke"
-          ? 1
-          : state === "calibration"
-            ? 0.42
-            : state === "technical"
-              ? 0.68
-              : 0.22;
-      const reviewGain = state === "done" ? 0.52 : 0;
-      const quietMotion = 0.018 + (state === "home" ? 0.012 : 0);
-      const gain = quietMotion + level * (recordingGain + reviewGain);
-      const carrier =
-        Math.sin(phase * 2.8 + timeSeconds * 1.7) * 0.42 +
-        Math.sin(phase * 5.7 - timeSeconds * 1.15) * 0.27 +
-        Math.sin(phase * 11.2 + timeSeconds * 0.72) * 0.13;
-      const breath =
-        Math.sin(timeSeconds * 0.85 + index * 0.037) * (0.03 + level * 0.08);
-
-      return softLimitWaveSample(carrier * gain + breath, 0.88, 4.8);
-    }
-
-    function drawSpline(
-      points: readonly { readonly x: number; readonly y: number }[],
-      offsetScale: number,
-      lineWidth: number,
-      alpha: number,
-      color: string,
-    ) {
-      if (points.length < 2) {
-        return;
-      }
-
-      ctx.save();
-      ctx.globalAlpha = alpha;
-      ctx.strokeStyle = color;
-      ctx.lineCap = "round";
-      ctx.lineJoin = "round";
-      ctx.lineWidth = lineWidth;
-      ctx.beginPath();
-      ctx.moveTo(points[0].x, points[0].y);
-
-      for (let index = 0; index < points.length - 1; index += 1) {
-        const p0 = index > 0 ? points[index - 1] : points[0];
-        const p1 = points[index];
-        const p2 = points[index + 1];
-        const p3 =
-          index + 2 < points.length ? points[index + 2] : (points.at(-1) ?? p2);
-        const dx = p2.x - p1.x;
-        const dy = p2.y - p1.y;
-        const length = Math.max(1, Math.hypot(dx, dy));
-        const normalX = (-dy / length) * offsetScale;
-        const normalY = (dx / length) * offsetScale;
-        const cp1x = p1.x + (p2.x - p0.x) / 6 + normalX;
-        const cp1y = p1.y + (p2.y - p0.y) / 6 + normalY;
-        const cp2x = p2.x - (p3.x - p1.x) / 6 + normalX;
-        const cp2y = p2.y - (p3.y - p1.y) / 6 + normalY;
-
-        ctx.bezierCurveTo(
-          cp1x,
-          cp1y,
-          cp2x,
-          cp2y,
-          p2.x + normalX,
-          p2.y + normalY,
-        );
-      }
-
-      ctx.stroke();
-      ctx.restore();
-    }
-
-    function draw() {
-      const width = window.innerWidth;
-      const height = window.innerHeight;
-      const frameNow = performance.now();
-      const timeSeconds = frameNow * 0.001;
-      const theme = readTheme(frameNow);
-      const { waveColor, guideColor, playheadColor } = theme;
-      const waveAlpha = clampUnit(theme.waveAlpha);
-      const state = screenRef.current;
-      const isAwake = awakeRef.current;
-      const level = isAwake
-        ? Math.max(0, Math.min(1, audioLevelRef.current))
-        : 0;
-
-      ctx.clearRect(0, 0, width, height);
-
-      if (!isAwake) {
-        frameId = window.requestAnimationFrame(draw);
-        return;
-      }
-
-      const centerRatio = getWaveCenterRatio(state, width);
-      const centerY = height * centerRatio;
-      const isCaptureSurface = state === "calibration" || state === "karaoke";
-      const isQuietSurface = ["home", "permission", "technical"].includes(
-        state,
-      );
-      const signalIsFresh = frameNow - liveAudioSignal.updatedAt < 260;
-      const liveGain = signalIsFresh ? getLiveWaveGain(state) : 0;
-      const isLiveSurface = liveGain > 0;
-      const visualHeight = Math.min(
-        isQuietSurface ? 180 : 260,
-        height * (isQuietSurface ? 0.16 : 0.25),
-      );
-      const points: { x: number; y: number }[] = [];
-
-      for (let index = 0; index < WAVEFORM_DISPLAY_SAMPLES; index += 1) {
-        const position = index / Math.max(1, WAVEFORM_DISPLAY_SAMPLES - 1);
-        const edge = Math.abs(position - 0.5) * 2;
-        const envelope = Math.pow(
-          0.5 - 0.5 * Math.cos(Math.PI * Math.max(0, 1 - edge)),
-          1.8,
-        );
-        const breath =
-          Math.sin(timeSeconds * 0.85 + index * 0.037) * (0.02 + level * 0.05);
-        const targetSample = isLiveSurface
-          ? softLimitWaveSample(
-              liveAudioSignal.samples[index] * liveGain + breath,
-              0.88,
-              4.8,
-            )
-          : createWaveSample(index, timeSeconds, level, state);
-        const smoothing = isLiveSurface
-          ? 0.6
-          : state === "karaoke"
-            ? 0.48
-            : 0.22;
-        const sample =
-          previousWaveform[index] +
-          (targetSample - previousWaveform[index]) * smoothing;
-
-        previousWaveform[index] = sample;
-        points.push({
-          x: width * position,
-          y: centerY + sample * (0.08 + envelope * 0.92) * visualHeight,
-        });
-      }
-
-      if (["calibration", "karaoke", "done"].includes(state)) {
-        ctx.save();
-        ctx.strokeStyle = guideColor;
-        ctx.lineWidth = 1;
-        ctx.globalAlpha = isCaptureSurface ? 0.48 : 0.34;
-        ctx.beginPath();
-        ctx.moveTo(width / 2, centerY - visualHeight * 1.22);
-        ctx.lineTo(width / 2, centerY + visualHeight * 1.22);
-        ctx.stroke();
-        ctx.restore();
-      }
-
-      const quietAlpha =
-        state === "technical"
-          ? Math.min(0.85, 0.46 + level * 0.4)
-          : isQuietSurface
-            ? 0.24
-            : 1;
-      const captureAlpha = isCaptureSurface ? 0.56 : 1;
-      const alpha = waveAlpha * quietAlpha * captureAlpha;
-      const primaryWidth = state === "karaoke" ? 3.1 : 2.8;
-
-      drawSpline(points, -4, 0.26, alpha * 0.04, waveColor);
-      drawSpline(points, -2.4, 0.42, alpha * 0.09, waveColor);
-      drawSpline(points, -1.1, 0.74, alpha * 0.18, waveColor);
-      drawSpline(points, -0.4, 1.18, alpha * 0.28, waveColor);
-      drawSpline(points, 0, primaryWidth, alpha * 0.68, waveColor);
-      drawSpline(points, 0.4, 1.18, alpha * 0.28, waveColor);
-      drawSpline(points, 1.1, 0.74, alpha * 0.18, waveColor);
-      drawSpline(points, 2.4, 0.42, alpha * 0.09, waveColor);
-      drawSpline(points, 4, 0.26, alpha * 0.04, waveColor);
-
-      if (isLiveSurface) {
-        drawSpline(
-          points,
-          0,
-          primaryWidth * 0.55,
-          alpha * Math.min(0.6, 0.12 + level * 0.55),
-          playheadColor,
-        );
-      }
-
-      if (state === "done") {
-        const progress = Math.max(0, Math.min(1, playbackProgressRef.current));
-
-        if (progress > 0.01 && progress < 0.995) {
-          const x = width * progress;
-
-          ctx.save();
-          ctx.strokeStyle = playheadColor;
-          ctx.lineWidth = 1.4;
-          ctx.globalAlpha = waveAlpha * 0.5;
-          ctx.beginPath();
-          ctx.moveTo(x, centerY - visualHeight * 1.08);
-          ctx.lineTo(x, centerY + visualHeight * 1.08);
-          ctx.stroke();
-          ctx.restore();
-        }
-      }
-
-      frameId = window.requestAnimationFrame(draw);
-    }
-
-    resize();
-    window.addEventListener("resize", resize);
-    frameId = window.requestAnimationFrame(draw);
-
-    return () => {
-      window.cancelAnimationFrame(frameId);
-      window.removeEventListener("resize", resize);
-    };
-  }, []);
-
-  return (
-    <canvas aria-hidden="true" className="voice-wave-canvas" ref={canvasRef} />
   );
 }
 
@@ -4451,7 +4081,7 @@ const KaraokeText = memo(function KaraokeText(input: {
     let frameId = 0;
 
     function animate() {
-      const energy = liveAudioSignal.level;
+      const energy = getLiveAudioLevel();
       const target = waveTargetRef.current;
       const current =
         waveCenterRef.current + (target - waveCenterRef.current) * 0.14;

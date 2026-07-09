@@ -30,6 +30,73 @@ type WindowWithAudioContext = Window &
     webkitAudioContext?: typeof AudioContext;
   };
 
+type CapturePipeline = {
+  readonly node: AudioNode;
+  readonly flush: () => Promise<void>;
+  readonly dispose: () => void;
+};
+
+const WORKLET_PROCESSOR_NAME = "voice-capture-pcm-recorder";
+const WORKLET_BATCH_SIZE = 1024;
+
+// The worklet batches four 128-frame render quanta before crossing back to the
+// main thread. This keeps capture off the UI thread without increasing the
+// callback cadence relative to the legacy ScriptProcessor implementation.
+const PCM_CAPTURE_WORKLET_SOURCE = `
+class VoiceCapturePcmRecorder extends AudioWorkletProcessor {
+  constructor(options) {
+    super();
+    this.batchSize = options.processorOptions.batchSize;
+    this.batch = new Float32Array(this.batchSize);
+    this.batchLength = 0;
+    this.port.onmessage = (event) => {
+      if (event.data?.type === "flush") {
+        this.flush();
+        this.port.postMessage({ type: "flushed" });
+      }
+    };
+  }
+
+  process(inputs) {
+    const input = inputs[0]?.[0];
+
+    if (input === undefined) {
+      return true;
+    }
+
+    let offset = 0;
+
+    while (offset < input.length) {
+      const writable = Math.min(
+        this.batchSize - this.batchLength,
+        input.length - offset,
+      );
+      this.batch.set(input.subarray(offset, offset + writable), this.batchLength);
+      this.batchLength += writable;
+      offset += writable;
+
+      if (this.batchLength === this.batchSize) {
+        this.flush();
+      }
+    }
+
+    return true;
+  }
+
+  flush() {
+    if (this.batchLength === 0) {
+      return;
+    }
+
+    const samples = this.batch.slice(0, this.batchLength);
+    this.port.postMessage({ type: "samples", samples }, [samples.buffer]);
+    this.batchLength = 0;
+  }
+}
+
+registerProcessor("${WORKLET_PROCESSOR_NAME}", VoiceCapturePcmRecorder);
+`;
+
 export async function createPcmRecorder(
   stream: MediaStream,
   options: PcmRecorderOptions = {},
@@ -51,31 +118,25 @@ export async function createPcmRecorder(
   });
   let stopPromise: Promise<PcmRecordingResult> | null = null;
   let source: MediaStreamAudioSourceNode | null = null;
-  let processor: ScriptProcessorNode | null = null;
+  let capture: CapturePipeline | null = null;
   let silentOutput: GainNode | null = null;
 
   try {
     source = audioContext.createMediaStreamSource(stream);
-    processor = audioContext.createScriptProcessor(1024, 1, 1);
+    capture = await createCapturePipeline(audioContext, sampleBuffer, options);
     silentOutput = audioContext.createGain();
 
     silentOutput.gain.value = 0;
-    processor.onaudioprocess = (event) => {
-      const input = event.inputBuffer.getChannelData(0);
-      sampleBuffer.append(input);
-      options.onLevel?.(computeLevel(input));
-      options.onSamples?.(input);
-    };
-
-    source.connect(processor);
-    processor.connect(silentOutput);
+    source.connect(capture.node);
+    capture.node.connect(silentOutput);
     silentOutput.connect(audioContext.destination);
 
     if (audioContext.state === "suspended") {
       await audioContext.resume();
     }
   } catch (error) {
-    disconnectAudioNode(processor);
+    capture?.dispose();
+    disconnectAudioNode(capture?.node ?? null);
     disconnectAudioNode(silentOutput);
     disconnectAudioNode(source);
     await closeAudioContext(audioContext);
@@ -87,14 +148,13 @@ export async function createPcmRecorder(
       stopPromise ??= (async () => {
         const sourceSampleRate = audioContext.sampleRate;
 
-        if (processor !== null) {
-          processor.onaudioprocess = null;
-        }
+        await capture?.flush();
+        capture?.dispose();
 
-        disconnectAudioNode(processor);
+        disconnectAudioNode(capture?.node ?? null);
         disconnectAudioNode(silentOutput);
         disconnectAudioNode(source);
-        processor = null;
+        capture = null;
         silentOutput = null;
         source = null;
         await closeAudioContext(audioContext);
@@ -121,6 +181,139 @@ export async function createPcmRecorder(
       return stopPromise;
     },
   };
+}
+
+async function createCapturePipeline(
+  audioContext: AudioContext,
+  sampleBuffer: PcmSampleBuffer,
+  options: PcmRecorderOptions,
+): Promise<CapturePipeline> {
+  const appendSamples = (samples: Float32Array) => {
+    sampleBuffer.append(samples);
+    options.onLevel?.(computeLevel(samples));
+    options.onSamples?.(samples);
+  };
+
+  if (
+    audioContext.audioWorklet !== undefined &&
+    typeof AudioWorkletNode !== "undefined"
+  ) {
+    try {
+      return await createAudioWorkletCapturePipeline(
+        audioContext,
+        appendSamples,
+      );
+    } catch {
+      // Safari and embedded web views can expose AudioWorklet but reject a
+      // dynamically loaded module. Keep recording available via the legacy
+      // node instead of failing the user's capture session.
+    }
+  }
+
+  return createScriptProcessorCapturePipeline(audioContext, appendSamples);
+}
+
+async function createAudioWorkletCapturePipeline(
+  audioContext: AudioContext,
+  appendSamples: (samples: Float32Array) => void,
+): Promise<CapturePipeline> {
+  const moduleUrl = URL.createObjectURL(
+    new Blob([PCM_CAPTURE_WORKLET_SOURCE], { type: "text/javascript" }),
+  );
+
+  try {
+    await audioContext.audioWorklet.addModule(moduleUrl);
+  } finally {
+    URL.revokeObjectURL(moduleUrl);
+  }
+
+  const node = new AudioWorkletNode(audioContext, WORKLET_PROCESSOR_NAME, {
+    channelCount: 1,
+    channelCountMode: "explicit",
+    numberOfInputs: 1,
+    numberOfOutputs: 1,
+    outputChannelCount: [1],
+    processorOptions: { batchSize: WORKLET_BATCH_SIZE },
+  });
+  let disposed = false;
+  let resolveFlush: (() => void) | null = null;
+
+  node.port.onmessage = (event: MessageEvent<unknown>) => {
+    const message = event.data;
+
+    if (isSampleMessage(message)) {
+      appendSamples(message.samples);
+      return;
+    }
+
+    if (isFlushedMessage(message)) {
+      resolveFlush?.();
+      resolveFlush = null;
+    }
+  };
+
+  return {
+    node,
+    flush: () => {
+      if (disposed) {
+        return Promise.resolve();
+      }
+
+      return new Promise((resolve) => {
+        resolveFlush = resolve;
+        node.port.postMessage({ type: "flush" });
+      });
+    },
+    dispose: () => {
+      disposed = true;
+      resolveFlush?.();
+      resolveFlush = null;
+      node.port.onmessage = null;
+    },
+  };
+}
+
+function createScriptProcessorCapturePipeline(
+  audioContext: AudioContext,
+  appendSamples: (samples: Float32Array) => void,
+): CapturePipeline {
+  const node = audioContext.createScriptProcessor(WORKLET_BATCH_SIZE, 1, 1);
+
+  node.onaudioprocess = (event) => {
+    appendSamples(event.inputBuffer.getChannelData(0));
+  };
+
+  return {
+    node,
+    flush: () => Promise.resolve(),
+    dispose: () => {
+      node.onaudioprocess = null;
+    },
+  };
+}
+
+function isSampleMessage(
+  value: unknown,
+): value is { readonly type: "samples"; readonly samples: Float32Array } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "type" in value &&
+    value.type === "samples" &&
+    "samples" in value &&
+    value.samples instanceof Float32Array
+  );
+}
+
+function isFlushedMessage(
+  value: unknown,
+): value is { readonly type: "flushed" } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "type" in value &&
+    value.type === "flushed"
+  );
 }
 
 function createCompatibleAudioContext(

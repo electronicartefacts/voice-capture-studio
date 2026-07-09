@@ -25,8 +25,9 @@ documentation, and deployment configuration. User voice data belongs outside the
    folder export, downloads, and wake lock.
 6. `planSession` selects prompt ids from the canonical corpus by language, speaker progress, and
    simple diversity scoring.
-7. Recording uses `getUserMedia` plus `createPcmRecorder`, then encodes local mono WAV PCM 48 kHz /
-   24-bit and computes first-pass technical metrics.
+7. Recording uses `getUserMedia` plus `createPcmRecorder`. Capture prefers an `AudioWorkletNode`
+   and retains a `ScriptProcessorNode` compatibility fallback, then encodes local mono WAV PCM
+   48 kHz / 24-bit and computes first-pass technical metrics.
 8. `finalizeCaptureSession` in `src/app/recording/finalizeCaptureSession.ts` coordinates take
    finalization, audio persistence, workspace projection, and metadata export.
 9. `createRecordedTake` in `src/app/recording/recordedTake.ts` builds transcript, word/phoneme

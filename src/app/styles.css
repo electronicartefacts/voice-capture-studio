@@ -2645,6 +2645,10 @@ body,
 }
 
 .simple-app {
+  --acoustic-air: 0;
+  --acoustic-ambience: 0;
+  --acoustic-bass: 0;
+  --acoustic-presence: 0;
   background:
     radial-gradient(
       circle at calc(var(--pointer-x) * 1%) calc(var(--pointer-y) * 1%),
@@ -2728,23 +2732,24 @@ body,
   background-size: 96px 96px;
   content: "";
   inset: 0;
-  opacity: calc(0.05 + (var(--audio-level) * 0.04));
+  opacity: calc(0.05 + (var(--acoustic-air) * 0.06));
   position: absolute;
   z-index: 1;
 }
 
 .voice-halo {
+  --halo-energy: var(--audio-level);
   animation: halo-drift 14s var(--ease-standard) infinite alternate;
   border-radius: 999px;
   display: block;
-  filter: blur(calc(76px + (var(--audio-level) * 116px)));
+  filter: blur(calc(76px + (var(--halo-energy) * 116px)));
   height: clamp(260px, 44vw, 720px);
   left: 50%;
   mix-blend-mode: screen;
-  opacity: calc(0.16 + (var(--audio-level) * 0.54));
+  opacity: calc(0.1 + (var(--halo-energy) * 0.6));
   position: absolute;
   top: 50%;
-  transform: scale(calc(0.92 + (var(--audio-level) * 0.52)));
+  transform: scale(calc(0.92 + (var(--halo-energy) * 0.52)));
   translate: -50% -50%;
   transition:
     filter var(--motion-fast) var(--ease-standard),
@@ -2762,27 +2767,31 @@ body,
 }
 
 .halo-a {
+  --halo-energy: max(calc(var(--audio-level) * 0.3), var(--acoustic-bass));
   animation-delay: -1.5s;
   background: var(--halo-a);
-  left: calc(24% + (var(--audio-level) * 4%));
+  left: calc(24% + (var(--acoustic-bass) * 4%));
   top: 35%;
 }
 
 .halo-b {
+  --halo-energy: max(calc(var(--audio-level) * 0.24), var(--acoustic-presence));
   animation-delay: -5s;
   background: var(--halo-b);
-  left: calc(74% - (var(--audio-level) * 5%));
+  left: calc(74% - (var(--acoustic-presence) * 5%));
   top: 38%;
 }
 
 .halo-c {
+  --halo-energy: max(calc(var(--audio-level) * 0.2), var(--acoustic-air));
   animation-delay: -8s;
   background: var(--halo-c);
   left: 48%;
-  top: calc(73% - (var(--audio-level) * 5%));
+  top: calc(73% - (var(--acoustic-air) * 5%));
 }
 
 .halo-d {
+  --halo-energy: max(calc(var(--audio-level) * 0.16), var(--acoustic-ambience));
   animation-delay: -11s;
   background: var(--halo-d);
   height: clamp(360px, 60vw, 940px);
