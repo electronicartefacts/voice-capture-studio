@@ -65,7 +65,8 @@ an explicit migration exists.
 - The app shell imports domains; domains do not import the shell.
 - The corpus is shipped as source data and workspaces store prompt identifiers, not prompt text
   copies in progress snapshots.
-- Browser export computes SHA-256 checksums for written bundle artifacts.
+- Browser export computes SHA-256 checksums for written bundle artifacts, using Web Crypto when
+  available and a local fallback when it is not.
 
 ## Current Tensions
 

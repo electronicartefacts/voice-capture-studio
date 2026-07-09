@@ -1,4 +1,5 @@
 import type { Result } from "@shared/index";
+import { sha256Blob } from "./sha256";
 
 type DirectoryHandle = {
   readonly name: string;
@@ -557,17 +558,8 @@ async function writeTrackedBlob(
   artifacts.push({
     path,
     mediaType: blob.type || "application/octet-stream",
-    sha256: await sha256(blob),
+    sha256: await sha256Blob(blob),
   });
-}
-
-async function sha256(blob: Blob): Promise<string> {
-  const buffer = await blob.arrayBuffer();
-  const digest = await crypto.subtle.digest("SHA-256", buffer);
-
-  return Array.from(new Uint8Array(digest))
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
 }
 
 function jsonBlob(value: unknown): Blob {
