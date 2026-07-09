@@ -2257,15 +2257,15 @@ function VoiceWaveformSurface(input: {
 
     function getWaveCenterRatio(state: Screen, width: number): number {
       if (state === "home") {
-        return width < 720 ? 0.28 : width < 980 ? 0.24 : 0.36;
+        return width < 720 ? 0.28 : 0.18;
       }
 
       if (state === "permission") {
-        return width < 720 ? 0.22 : 0.7;
+        return width < 720 ? 0.18 : 0.14;
       }
 
       if (state === "technical") {
-        return width < 720 ? 0.2 : 0.34;
+        return width < 720 ? 0.16 : 0.18;
       }
 
       if (state === "done") {
@@ -2439,17 +2439,20 @@ function VoiceWaveformSurface(input: {
 
       if (state === "done") {
         const progress = Math.max(0, Math.min(1, playbackProgressRef.current));
-        const x = width * progress;
 
-        ctx.save();
-        ctx.strokeStyle = playheadColor;
-        ctx.lineWidth = 1.4;
-        ctx.globalAlpha = waveAlpha * 0.5;
-        ctx.beginPath();
-        ctx.moveTo(x, centerY - visualHeight * 1.08);
-        ctx.lineTo(x, centerY + visualHeight * 1.08);
-        ctx.stroke();
-        ctx.restore();
+        if (progress > 0.01 && progress < 0.995) {
+          const x = width * progress;
+
+          ctx.save();
+          ctx.strokeStyle = playheadColor;
+          ctx.lineWidth = 1.4;
+          ctx.globalAlpha = waveAlpha * 0.5;
+          ctx.beginPath();
+          ctx.moveTo(x, centerY - visualHeight * 1.08);
+          ctx.lineTo(x, centerY + visualHeight * 1.08);
+          ctx.stroke();
+          ctx.restore();
+        }
       }
 
       frameId = window.requestAnimationFrame(draw);

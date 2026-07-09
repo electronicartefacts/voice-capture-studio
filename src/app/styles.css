@@ -3287,12 +3287,19 @@ body,
 
   .simple-app.screen-calibration .ambient-backdrop,
   .simple-app.screen-karaoke .ambient-backdrop {
-    opacity: 0.72;
+    background:
+      radial-gradient(
+        circle at 50% 44%,
+        color-mix(in srgb, var(--accent-a) 5%, transparent),
+        transparent 42%
+      ),
+      var(--bg);
+    opacity: 0.34;
   }
 
   .simple-app.screen-calibration .ambient-backdrop::before,
   .simple-app.screen-karaoke .ambient-backdrop::before {
-    opacity: calc(0.26 - (var(--audio-level) * 0.06));
+    opacity: calc(0.16 - (var(--audio-level) * 0.04));
   }
 
   .simple-app.screen-calibration .ambient-backdrop::after,
@@ -3303,7 +3310,7 @@ body,
   .simple-app.screen-calibration .voice-halo,
   .simple-app.screen-karaoke .voice-halo {
     filter: blur(calc(92px + (var(--audio-level) * 90px)));
-    opacity: calc(0.07 + (var(--audio-level) * 0.1));
+    opacity: calc(0.035 + (var(--audio-level) * 0.07));
   }
 
   .simple-app.screen-calibration .recording-dot,
