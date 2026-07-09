@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security reports
+    url: https://github.com/electronicartefacts/voice-capture-studio/security/advisories/new
+    about: Report private security issues through GitHub Security Advisories when available.

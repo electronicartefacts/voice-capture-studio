@@ -1,0 +1,19 @@
+{
+  "name": "Voice Capture Studio",
+  "short_name": "Voice Studio",
+  "description": "Guided local voice capture with clean audio and session metadata.",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "background_color": "#f6f5f0",
+  "theme_color": "#18201c",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+title: "[Idea]: "
+labels:
+  - idea
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: Idea
+      description: What should Voice Capture Studio explore?
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Include product, corpus, export, or workflow context.
+  - type: textarea
+    id: privacy
+    attributes:
+      label: Privacy considerations
+      description: Note any impact on recordings, local storage, exports, or remote services.

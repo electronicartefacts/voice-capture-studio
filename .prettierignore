@@ -1,0 +1,14 @@
+dist/
+node_modules/
+coverage/
+.playwright-cli/
+output/
+*.tsbuildinfo
+*.aac
+*.flac
+*.m4a
+*.mp3
+*.ogg
+*.pcm
+*.wav
+*.webm

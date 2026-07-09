@@ -1,0 +1,59 @@
+{
+  "name": "voice-capture-studio",
+  "version": "0.1.0",
+  "description": "Local-first browser studio for directed voice capture and dataset-ready metadata.",
+  "license": "MIT",
+  "author": "Electronic Artefacts",
+  "type": "module",
+  "homepage": "https://electronicartefacts.github.io/voice-capture-studio/",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/electronicartefacts/voice-capture-studio.git"
+  },
+  "bugs": {
+    "url": "https://github.com/electronicartefacts/voice-capture-studio/issues"
+  },
+  "keywords": [
+    "audio",
+    "dataset",
+    "local-first",
+    "react",
+    "voice-capture",
+    "web-audio"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "tsc -b && vite build",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "eslint .",
+    "preview": "vite preview --host 127.0.0.1",
+    "serve": "npm run build && vite preview --host 127.0.0.1",
+    "test": "node --import tsx --test tests/*.test.ts",
+    "typecheck": "tsc -b --pretty false",
+    "validate": "npm run format:check && npm run lint && npm run typecheck && npm run test && npm run build"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "lucide-react": "^0.468.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.5"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/react": "^19.0.1",
+    "@types/react-dom": "^19.0.2",
+    "eslint": "^10.6.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.3",
+    "globals": "^17.7.0",
+    "prettier": "^3.9.4",
+    "tsx": "^4.23.0",
+    "typescript-eslint": "^8.63.0"
+  }
+}
