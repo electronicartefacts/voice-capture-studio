@@ -195,9 +195,50 @@ type AmbientMicrophoneMonitor = {
 const workspaceId = "workspace.local.main" as WorkspaceId;
 const workspaceRepository = createBrowserWorkspaceRepository();
 const ROOM_TONE_CAPTURE_MS = 3000;
-const WAVEFORM_DISPLAY_SAMPLES = 220;
+const WAVEFORM_DISPLAY_SAMPLES = 260;
 const DEFAULT_SPEAKER_LANGUAGE =
   supportedLanguages[0]?.code ?? ("fr" as LanguageCode);
+const INPUT_SENSITIVITY_STORAGE_KEY = "voice-capture-studio.input-sensitivity";
+const INPUT_SENSITIVITY_MIN = 0.5;
+const INPUT_SENSITIVITY_MAX = 2.5;
+const REVIEW_WAVEFORM_BAR_COUNT = 92;
+
+function readStoredInputSensitivity(): number {
+  try {
+    const raw = window.localStorage.getItem(INPUT_SENSITIVITY_STORAGE_KEY);
+    const value = raw === null ? Number.NaN : Number.parseFloat(raw);
+
+    return Number.isFinite(value)
+      ? Math.min(INPUT_SENSITIVITY_MAX, Math.max(INPUT_SENSITIVITY_MIN, value))
+      : 1;
+  } catch {
+    return 1;
+  }
+}
+
+function createMicrophoneLabel(stream: MediaStream): string | null {
+  const label = stream.getAudioTracks()[0]?.label.trim() ?? "";
+
+  return label.length > 0 ? label : null;
+}
+
+function voiceActivationThreshold(
+  roomTone: RoomToneCalibration | null,
+): number {
+  if (roomTone === null) {
+    return 0.045;
+  }
+
+  if (roomTone.noiseFloorDbfs >= -46) {
+    return 0.075;
+  }
+
+  if (roomTone.noiseFloorDbfs >= -56) {
+    return 0.058;
+  }
+
+  return 0.045;
+}
 
 type CreateSpeakerInput = {
   readonly displayName: string;
@@ -401,6 +442,12 @@ export function App() {
   const [diagnostics, setDiagnostics] = useState<RuntimeDiagnostics>(() =>
     createRuntimeDiagnosticsSnapshot(),
   );
+  const [microphoneLabel, setMicrophoneLabel] = useState<string | null>(null);
+  const [inputSensitivity, setInputSensitivity] = useState(
+    readStoredInputSensitivity,
+  );
+  const inputSensitivityRef = useRef(inputSensitivity);
+  const renderedAudioLevelRef = useRef(0);
   const workspaceRef = useRef<VoiceWorkspace | null>(null);
   const screenRef = useRef<Screen>("home");
   const activeWordIndexRef = useRef(0);
@@ -573,6 +620,32 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        if (navigator.permissions?.query === undefined) {
+          return;
+        }
+
+        const permission = await navigator.permissions.query({
+          name: "microphone" as PermissionName,
+        });
+
+        if (!cancelled && permission.state === "granted") {
+          void awakenStudio();
+        }
+      } catch {
+        // Browsers without microphone permission introspection keep the manual ritual.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     return () => {
       const recorder = pcmRecorderRef.current;
 
@@ -708,6 +781,8 @@ export function App() {
         channelCount: 1,
       },
     });
+    setMicrophoneLabel(createMicrophoneLabel(stream));
+
     const audioContext = new AudioContextConstructor();
     const source = audioContext.createMediaStreamSource(stream);
     const analyser = audioContext.createAnalyser();
@@ -1276,6 +1351,9 @@ export function App() {
           },
         });
       }
+
+      setMicrophoneLabel(createMicrophoneLabel(stream));
+
       const recorder = await createPcmRecorder(stream, {
         onLevel: updateVisualAudioLevel,
       });
@@ -1308,6 +1386,7 @@ export function App() {
     mediaStreamRef.current = stream;
     pcmRecorderRef.current = recorder;
     visualAudioLevelRef.current = 0;
+    renderedAudioLevelRef.current = 0;
     setAudioLevel(0);
     setActiveWordIndex(0);
     setScreen("karaoke");
@@ -1374,6 +1453,7 @@ export function App() {
         }
 
         lastTranscriptAtRef.current = performance.now();
+        readingGuideLastSpeechAtRef.current = lastTranscriptAtRef.current;
         setRecognizedTranscript(transcript);
         updateReadingGuideIndex(
           alignTranscriptToPrompt(promptWords, transcript),
@@ -1420,11 +1500,15 @@ export function App() {
     readingGuideLastTickAtRef.current = now;
 
     const level = visualAudioLevelRef.current;
-    const isVoiceActive = level >= 0.045;
+    const isVoiceActive = level >= voiceActivationThreshold(sessionRoomTone);
     const recognitionIsFresh =
       readingGuideModeRef.current === "speech-recognition" &&
       lastTranscriptAtRef.current > 0 &&
       now - lastTranscriptAtRef.current < 1600;
+
+    if (isVoiceActive) {
+      readingGuideLastSpeechAtRef.current = now;
+    }
 
     if (!isVoiceActive || recognitionIsFresh) {
       return;
@@ -1438,7 +1522,6 @@ export function App() {
     const speechWeightPerMs = totalWeight / expectedSpeechMs;
     const energyFactor = 0.72 + Math.min(0.55, level * 0.7);
 
-    readingGuideLastSpeechAtRef.current = now;
     readingGuideProgressRef.current = Math.min(
       totalWeight,
       readingGuideProgressRef.current +
@@ -1685,6 +1768,7 @@ export function App() {
   async function persistFinishedSession(recording: FinalizedRecording) {
     stopMediaStream();
     visualAudioLevelRef.current = 0;
+    renderedAudioLevelRef.current = 0;
     setAudioLevel(0);
 
     const currentWorkspace = workspaceRef.current ?? workspace;
@@ -1885,7 +1969,11 @@ export function App() {
   }
 
   function updateVisualAudioLevel(level: number) {
-    const boostedLevel = Math.min(1, Math.max(0, Math.pow(level, 0.58)));
+    const sensitiveLevel = Math.min(
+      1,
+      Math.max(0, level * inputSensitivityRef.current),
+    );
+    const boostedLevel = Math.min(1, Math.pow(sensitiveLevel, 0.58));
     const previousLevel = visualAudioLevelRef.current;
     const nextLevel =
       boostedLevel > previousLevel
@@ -1893,7 +1981,30 @@ export function App() {
         : previousLevel * 0.58 + boostedLevel * 0.42;
 
     visualAudioLevelRef.current = nextLevel;
-    setAudioLevel(nextLevel);
+
+    if (Math.abs(nextLevel - renderedAudioLevelRef.current) > 0.004) {
+      renderedAudioLevelRef.current = nextLevel;
+      setAudioLevel(nextLevel);
+    }
+  }
+
+  function updateInputSensitivity(value: number) {
+    const bounded = Math.min(
+      INPUT_SENSITIVITY_MAX,
+      Math.max(INPUT_SENSITIVITY_MIN, value),
+    );
+
+    inputSensitivityRef.current = bounded;
+    setInputSensitivity(bounded);
+
+    try {
+      window.localStorage.setItem(
+        INPUT_SENSITIVITY_STORAGE_KEY,
+        bounded.toFixed(2),
+      );
+    } catch {
+      // Sensitivity stays session-only when local storage is blocked.
+    }
   }
 
   async function requestRecordingWakeLock() {
@@ -2011,6 +2122,7 @@ export function App() {
 
           {screen === "technical" ? (
             <TechnicalPage
+              audioLevel={audioLevel}
               captureMode={captureMode}
               corpusId={activeCorpus?.id ?? null}
               corpusVersion={activeCorpus?.version ?? null}
@@ -2019,8 +2131,12 @@ export function App() {
               datasetExportState={datasetExportState}
               diagnostics={diagnostics}
               folderName={folderName}
+              inputSensitivity={inputSensitivity}
+              microphoneActive={studioAwake}
+              microphoneLabel={microphoneLabel}
               onBack={() => setScreen("home")}
               onDownloadDataset={downloadDatasetPackage}
+              onInputSensitivityChange={updateInputSensitivity}
               onWriteDatasetToFolder={writeDatasetPackageToFolder}
               recordings={storedRecordings}
               savedSessions={workspace?.sessions.length ?? 0}
@@ -2225,6 +2341,8 @@ function VoiceWaveformSurface(input: {
     const surfaceCanvas = canvas;
     const ctx = context;
     const previousWaveform = new Float32Array(WAVEFORM_DISPLAY_SAMPLES).fill(0);
+    const levelHistory = new Float32Array(WAVEFORM_DISPLAY_SAMPLES).fill(0);
+    let levelHistoryHead = 0;
     let frameId = 0;
 
     function resize() {
@@ -2390,6 +2508,9 @@ function VoiceWaveformSurface(input: {
       );
       const points: { x: number; y: number }[] = [];
 
+      levelHistory[levelHistoryHead] = level;
+      levelHistoryHead = (levelHistoryHead + 1) % WAVEFORM_DISPLAY_SAMPLES;
+
       for (let index = 0; index < WAVEFORM_DISPLAY_SAMPLES; index += 1) {
         const position = index / Math.max(1, WAVEFORM_DISPLAY_SAMPLES - 1);
         const edge = Math.abs(position - 0.5) * 2;
@@ -2397,7 +2518,15 @@ function VoiceWaveformSurface(input: {
           0.5 - 0.5 * Math.cos(Math.PI * Math.max(0, 1 - edge)),
           1.8,
         );
-        const targetSample = createWaveSample(index, timeSeconds, level, state);
+        const pointLevel = isCaptureSurface
+          ? levelHistory[(levelHistoryHead + index) % WAVEFORM_DISPLAY_SAMPLES]
+          : level;
+        const targetSample = createWaveSample(
+          index,
+          timeSeconds,
+          pointLevel,
+          state,
+        );
         const smoothing = state === "karaoke" ? 0.48 : 0.22;
         const sample =
           previousWaveform[index] +
@@ -4408,20 +4537,33 @@ function ListeningReviewSurface(input: {
     () => createReviewWordTimings(input.take),
     [input.take],
   );
+  const [decodedBars, setDecodedBars] = useState<
+    readonly ReviewWaveformBar[] | null
+  >(null);
   const waveformBars = useMemo(
-    () =>
-      Array.from({ length: 92 }, (_, index) => {
-        const primary = Math.abs(Math.sin(index * 0.43));
-        const secondary = Math.abs(Math.sin(index * 0.17 + 1.4));
-        const center = 1 - Math.abs(index / 91 - 0.5) * 1.24;
-
-        return Math.max(
-          18,
-          (0.3 + primary * 0.48 + secondary * 0.22) * 100 * center,
-        );
-      }),
-    [input.take?.id],
+    () => decodedBars ?? createPlaceholderWaveformBars(),
+    [decodedBars],
   );
+
+  useEffect(() => {
+    setDecodedBars(null);
+
+    if (input.audioUrl === null) {
+      return;
+    }
+
+    let cancelled = false;
+
+    void extractReviewWaveformBars(input.audioUrl).then((bars) => {
+      if (!cancelled && bars !== null) {
+        setDecodedBars(bars);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [input.audioUrl]);
   const durationSeconds = Math.max(
     duration,
     (input.take?.durationMs ?? 0) / 1000,
@@ -4670,16 +4812,19 @@ function ListeningReviewSurface(input: {
             width: `${Math.max(0, loopEnd - loopStart) * 100}%`,
           }}
         />
-        {waveformBars.map((height, index) => (
+        {waveformBars.map((bar, index) => (
           <i
             aria-hidden="true"
-            className={
+            className={[
               index / Math.max(1, waveformBars.length - 1) <= playbackProgress
                 ? "is-played"
-                : ""
-            }
+                : "",
+              bar.silent ? "is-silent" : "",
+            ]
+              .filter(Boolean)
+              .join(" ")}
             key={index}
-            style={{ "--bar-height": `${height}%` } as CSSProperties}
+            style={{ "--bar-height": `${bar.heightPercent}%` } as CSSProperties}
           />
         ))}
         <span
@@ -4825,6 +4970,92 @@ function formatPlaybackTime(seconds: number): string {
   return `${minutes}:${remainingSeconds.toString().padStart(2, "0")}`;
 }
 
+type ReviewWaveformBar = {
+  readonly heightPercent: number;
+  readonly silent: boolean;
+};
+
+function createPlaceholderWaveformBars(): readonly ReviewWaveformBar[] {
+  return Array.from({ length: REVIEW_WAVEFORM_BAR_COUNT }, (_, index) => {
+    const center = 1 - Math.abs(index / (REVIEW_WAVEFORM_BAR_COUNT - 1) - 0.5);
+
+    return {
+      heightPercent: 10 + center * 12,
+      silent: false,
+    };
+  });
+}
+
+async function extractReviewWaveformBars(
+  audioUrl: string,
+): Promise<readonly ReviewWaveformBar[] | null> {
+  const AudioContextConstructor =
+    window.AudioContext ??
+    (window as WindowWithAudioContext).webkitAudioContext;
+
+  if (AudioContextConstructor === undefined) {
+    return null;
+  }
+
+  try {
+    const response = await fetch(audioUrl);
+    const encodedAudio = await response.arrayBuffer();
+    const audioContext = new AudioContextConstructor();
+
+    try {
+      const decoded = await audioContext.decodeAudioData(encodedAudio);
+      const samples = decoded.getChannelData(0);
+
+      if (samples.length === 0) {
+        return null;
+      }
+
+      const bucketSize = Math.max(
+        1,
+        Math.floor(samples.length / REVIEW_WAVEFORM_BAR_COUNT),
+      );
+      const buckets: { readonly peak: number; readonly rms: number }[] = [];
+      let maxPeak = 0;
+
+      for (
+        let bucketIndex = 0;
+        bucketIndex < REVIEW_WAVEFORM_BAR_COUNT;
+        bucketIndex += 1
+      ) {
+        const start = bucketIndex * bucketSize;
+        const end = Math.min(samples.length, start + bucketSize);
+        let peak = 0;
+        let sumSquares = 0;
+
+        for (let index = start; index < end; index += 1) {
+          const sample = Math.abs(samples[index]);
+
+          peak = Math.max(peak, sample);
+          sumSquares += sample * sample;
+        }
+
+        const rms = Math.sqrt(sumSquares / Math.max(1, end - start));
+
+        maxPeak = Math.max(maxPeak, peak);
+        buckets.push({ peak, rms });
+      }
+
+      if (maxPeak <= 0) {
+        return null;
+      }
+
+      return buckets.map((bucket) => ({
+        heightPercent: Math.max(6, Math.round((bucket.peak / maxPeak) * 100)),
+        silent: bucket.rms < 0.004,
+      }));
+    } finally {
+      await closeAmbientAudioContext(audioContext);
+    }
+  } catch {
+    return null;
+  }
+}
+
 function DoneScreen(input: {
   readonly downloadUrl: string | null;
   readonly fileName: string | null;
@@ -4869,11 +5100,6 @@ function DoneScreen(input: {
             <strong>Qualité et détails de prise</strong>
             <span>{isKeeper ? "Utilisable" : "À reprendre"}</span>
           </summary>
-          <span>
-            {input.take.quality.verdict === "pass"
-              ? "Utilisable"
-              : "À reprendre"}
-          </span>
           <p>{input.take.review.directorNotes}</p>
           <p className="coach-note">
             {createTakeCoachNote(input.take, input.nextRecommendation)}
@@ -4962,7 +5188,16 @@ function DoneScreen(input: {
             </p>
           </div>
           <div className="stacked-actions">
-            {isKeeper && input.hasNextPrompt && (
+            {!isKeeper ? (
+              <button
+                className="launch-button"
+                onClick={input.onRetake}
+                type="button"
+              >
+                <RotateCcw aria-hidden="true" size={19} />
+                <span>Refaire cette prise</span>
+              </button>
+            ) : input.hasNextPrompt ? (
               <button
                 className="launch-button"
                 onClick={input.onNext}
@@ -4971,8 +5206,7 @@ function DoneScreen(input: {
                 <StepForward aria-hidden="true" size={19} />
                 <span>Phrase suivante</span>
               </button>
-            )}
-            {isKeeper && !input.hasNextPrompt && (
+            ) : (
               <button
                 className="launch-button"
                 onClick={input.onAgain}
@@ -4980,16 +5214,6 @@ function DoneScreen(input: {
               >
                 <Play aria-hidden="true" size={19} />
                 <span>Nouvelle session</span>
-              </button>
-            )}
-            {!isKeeper && (
-              <button
-                className="launch-button"
-                onClick={input.onRetake}
-                type="button"
-              >
-                <RotateCcw aria-hidden="true" size={19} />
-                <span>Refaire cette prise</span>
               </button>
             )}
             {isKeeper && (
@@ -5002,17 +5226,7 @@ function DoneScreen(input: {
                 <span>Refaire cette prise</span>
               </button>
             )}
-            {input.hasNextPrompt && (
-              <button
-                className="folder-button"
-                onClick={input.onAgain}
-                type="button"
-              >
-                <Play aria-hidden="true" size={19} />
-                <span>Nouvelle session</span>
-              </button>
-            )}
-            {!isKeeper && (
+            {(!isKeeper || input.hasNextPrompt) && (
               <button
                 className="folder-button"
                 onClick={input.onAgain}
@@ -5073,7 +5287,83 @@ function DoneScreen(input: {
   );
 }
 
+function MicrophoneControlPanel(input: {
+  readonly active: boolean;
+  readonly audioLevel: number;
+  readonly label: string | null;
+  readonly onSensitivityChange: (value: number) => void;
+  readonly sensitivity: number;
+}) {
+  const level = clampUnit(input.audioLevel);
+  const levelTone = !input.active
+    ? "idle"
+    : level < 0.04
+      ? "low"
+      : level > 0.82
+        ? "hot"
+        : "good";
+  const levelHint = !input.active
+    ? "Active le micro depuis l'accueil pour voir le niveau en direct."
+    : levelTone === "low"
+      ? "Parle normalement : la jauge et la courbe en fond d'écran doivent réagir immédiatement."
+      : levelTone === "hot"
+        ? "Niveau très fort. Éloigne-toi légèrement du micro ou baisse la sensibilité."
+        : "Niveau correct. La capture sera propre à cette distance.";
+
+  return (
+    <section className="microphone-panel" aria-label="Microphone actif">
+      <div className="microphone-panel-header">
+        <div>
+          <p className="soft-label">Microphone</p>
+          <strong>{input.label ?? "Micro par défaut du navigateur"}</strong>
+        </div>
+        <span className={`mic-status is-${input.active ? "live" : "idle"}`}>
+          <Mic aria-hidden="true" size={15} />
+          {input.active ? "Actif" : "En veille"}
+        </span>
+      </div>
+      <div
+        aria-label={`Niveau du micro ${formatPercent(level * 100)}`}
+        className={`microphone-level is-${levelTone}`}
+      >
+        <Volume2 aria-hidden="true" size={18} />
+        <span>
+          <i
+            style={
+              {
+                "--meter-scale": formatMeterScale(level),
+              } as CSSProperties
+            }
+          />
+        </span>
+        <strong>{formatPercent(level * 100)}</strong>
+      </div>
+      <label className="microphone-sensitivity">
+        <span>Sensibilité</span>
+        <input
+          aria-label="Sensibilité logicielle du micro"
+          max={INPUT_SENSITIVITY_MAX}
+          min={INPUT_SENSITIVITY_MIN}
+          onChange={(event) =>
+            input.onSensitivityChange(Number(event.target.value))
+          }
+          step={0.05}
+          type="range"
+          value={input.sensitivity}
+        />
+        <strong>{Math.round(input.sensitivity * 100)}%</strong>
+      </label>
+      <p className="coach-note">{levelHint}</p>
+      <p className="microphone-note">
+        Réglage logiciel appliqué au suivi vocal et à l'affichage. Le WAV
+        exporté reste la capture brute du micro.
+      </p>
+    </section>
+  );
+}
+
 function TechnicalPage(input: {
+  readonly audioLevel: number;
   readonly captureMode: CaptureMode;
   readonly corpusId: CorpusManifest["id"] | null;
   readonly corpusVersion: CorpusManifest["version"] | null;
@@ -5082,8 +5372,12 @@ function TechnicalPage(input: {
   readonly datasetExportState: DatasetExportState;
   readonly diagnostics: RuntimeDiagnostics;
   readonly folderName: string | null;
+  readonly inputSensitivity: number;
+  readonly microphoneActive: boolean;
+  readonly microphoneLabel: string | null;
   readonly onBack: () => void;
   readonly onDownloadDataset: () => void;
+  readonly onInputSensitivityChange: (value: number) => void;
   readonly onWriteDatasetToFolder: () => void;
   readonly recordings: readonly DownloadableRecording[];
   readonly savedSessions: number;
@@ -5105,6 +5399,13 @@ function TechnicalPage(input: {
           <h1>Qualité et exports</h1>
         </div>
       </div>
+      <MicrophoneControlPanel
+        active={input.microphoneActive}
+        audioLevel={input.audioLevel}
+        label={input.microphoneLabel}
+        onSensitivityChange={input.onInputSensitivityChange}
+        sensitivity={input.inputSensitivity}
+      />
       <div className="technical-grid">
         <article>
           <strong>Stockage</strong>

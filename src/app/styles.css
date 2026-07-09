@@ -2038,6 +2038,121 @@ textarea:focus-visible {
   overflow-wrap: anywhere;
 }
 
+.microphone-panel {
+  backdrop-filter: blur(18px);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+}
+
+.microphone-panel-header {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 14px;
+  justify-content: space-between;
+}
+
+.microphone-panel-header strong {
+  color: var(--text);
+  font-size: 17px;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.mic-status {
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-size: 13px;
+  font-weight: 800;
+  gap: 7px;
+  padding: 7px 13px;
+  white-space: nowrap;
+}
+
+.mic-status.is-live {
+  border-color: color-mix(in srgb, var(--accent-a) 42%, var(--line));
+  color: color-mix(in srgb, var(--accent-a) 72%, var(--text));
+}
+
+.microphone-level {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+}
+
+.microphone-level svg {
+  color: var(--muted);
+  flex: 0 0 auto;
+}
+
+.microphone-level > span {
+  background: color-mix(in srgb, var(--muted) 18%, transparent);
+  border-radius: 999px;
+  display: block;
+  flex: 1;
+  height: 10px;
+  overflow: hidden;
+}
+
+.microphone-level i {
+  background: linear-gradient(90deg, var(--accent-a), var(--brand));
+  border-radius: inherit;
+  display: block;
+  height: 100%;
+  transform: scaleX(var(--meter-scale, 0.035));
+  transform-origin: left center;
+  transition: transform var(--motion-fast) var(--ease-standard);
+  width: 100%;
+  will-change: transform;
+}
+
+.microphone-level.is-hot i {
+  background: linear-gradient(90deg, var(--accent-b), var(--accent-c));
+}
+
+.microphone-level > strong,
+.microphone-sensitivity strong {
+  color: var(--text);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  min-width: 4ch;
+  text-align: right;
+}
+
+.microphone-sensitivity {
+  align-items: center;
+  color: var(--muted);
+  display: grid;
+  font-size: 12px;
+  font-weight: 780;
+  gap: 8px 12px;
+  grid-template-columns: auto 1fr auto;
+}
+
+.microphone-sensitivity input[type="range"] {
+  accent-color: var(--accent-a);
+  width: 100%;
+}
+
+.microphone-panel .coach-note {
+  margin: 0;
+}
+
+.microphone-note {
+  color: var(--soft);
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 0;
+}
+
 .dataset-export-panel {
   background: color-mix(in srgb, var(--panel-solid) 7%, transparent);
   border: 1px solid var(--line);
@@ -3106,6 +3221,15 @@ body,
 
 .playback-waveform i.is-played {
   background: color-mix(in srgb, var(--wave-color) 84%, var(--accent-a));
+}
+
+.playback-waveform i.is-silent {
+  background: color-mix(in srgb, var(--wave-color) 10%, transparent);
+  height: max(4px, calc(var(--bar-height) * 0.45));
+}
+
+.playback-waveform i.is-played.is-silent {
+  background: color-mix(in srgb, var(--wave-color) 32%, transparent);
 }
 
 .review-playhead {
