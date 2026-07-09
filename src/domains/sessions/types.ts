@@ -35,11 +35,47 @@ export type RecordedTake = {
   readonly fileName: string;
   readonly durationMs: number;
   readonly recordedAt: IsoDateTime;
+  /** Immutable technical identity of the exact audio object reviewed here. */
+  readonly media: TakeMedia;
   readonly transcript: TakeTranscript;
   readonly timing: TakeTiming;
   readonly intent: TakeIntentMetadata;
   readonly quality: TakeQualityReport;
   readonly review: TakeReview;
+};
+
+export type TakeMedia = {
+  readonly schemaVersion: "voice.media.v1";
+  readonly byteLength: number;
+  readonly container: "WAVE";
+  readonly codec: "PCM";
+  readonly mimeType: "audio/wav";
+  /** Lowercase hexadecimal SHA-256 over the complete WAV container. */
+  readonly sha256: string;
+  readonly capture: AudioCaptureProvenance;
+};
+
+export type AudioCaptureProvenance = {
+  readonly schemaVersion: "voice.capture_provenance.v1";
+  readonly captureApi: "MediaStream";
+  readonly capturedChannelCount: number | null;
+  readonly capturedSampleRateHz: number | null;
+  readonly deviceGroupId: string | null;
+  readonly deviceId: string | null;
+  readonly deviceLabel: string | null;
+  readonly requestedFormat: {
+    readonly bitDepth: 24;
+    readonly channels: 1;
+    readonly sampleRateHz: 48000;
+  };
+  readonly processing: {
+    readonly autoGainControl: boolean | null;
+    readonly echoCancellation: boolean | null;
+    readonly noiseSuppression: boolean | null;
+  };
+  readonly sourceSampleRateHz: number;
+  readonly targetSampleRateHz: number;
+  readonly resampledToTarget: boolean;
 };
 
 export type TakeQuality = "unreviewed" | "keeper" | "maybe" | "reject";
@@ -107,14 +143,24 @@ export type TakeQualityReport = {
 };
 
 export type TechnicalQualityMetrics = {
+  readonly schemaVersion: "voice.audio_metrics.v1";
   readonly sampleRateHz: number;
   readonly bitDepth: number;
   readonly channels: number;
+  readonly sampleCount: number;
   readonly peakDbfs: number;
+  readonly estimatedTruePeakDbfs: number;
+  readonly rmsDbfs: number;
   readonly integratedLufs: number;
   readonly noiseFloorDbfs: number;
   readonly snrDb: number;
+  readonly crestFactorDb: number;
+  readonly dcOffset: number;
   readonly clippingDetected: boolean;
+  readonly clippingSampleCount: number;
+  readonly clippingRate: number;
+  readonly activeSpeechRatio: number;
+  readonly silenceRatio: number;
   readonly reverbScore: number;
   readonly plosiveScore: number;
   readonly mouthNoiseScore: number;
@@ -142,7 +188,13 @@ export type TakeQualityGateResult = {
     | "transcript_match"
     | "phoneme_alignment"
     | "intent_match"
-    | "prosody_balance";
+    | "prosody_balance"
+    | "headroom"
+    | "dc_offset"
+    | "speech_activity"
+    | "plosives"
+    | "mouth_noise"
+    | "reverb";
   readonly label: string;
   readonly status: "pass" | "review" | "fail";
   readonly message: string;

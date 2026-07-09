@@ -13,6 +13,7 @@ import {
   type VoiceWorkspace,
   type WorkspaceRepository,
 } from "../src/domains/workspace";
+import { sha256Blob } from "../src/app/storage/sha256";
 
 const speakerId = initialSpeakers[0].id;
 const language = initialSpeakers[0].primaryLanguage;
@@ -66,6 +67,8 @@ test("capture finalization persists a non-empty keeper take and export bundle", 
   assert.equal(result.audioDownloadAvailable, true);
   assert.equal(savedAudioFileName, result.fileName);
   assert.equal(metadataSaveCount, 1);
+  assert.equal(result.take?.media.sha256, await sha256Blob(result.audioBlob));
+  assert.equal(result.take?.media.byteLength, result.audioBlob.size);
   assert.deepEqual(progress?.completedPrompts, [prompt.id]);
 });
 
@@ -260,6 +263,28 @@ function createRecording(blob: Blob): FinalizedRecording {
     extension: "wav",
     mimeType: "audio/wav",
     metrics: createMetrics(),
+    capture: {
+      schemaVersion: "voice.capture_provenance.v1",
+      captureApi: "MediaStream",
+      capturedChannelCount: 1,
+      capturedSampleRateHz: 48000,
+      deviceGroupId: null,
+      deviceId: null,
+      deviceLabel: "Test microphone",
+      requestedFormat: {
+        bitDepth: 24,
+        channels: 1,
+        sampleRateHz: 48000,
+      },
+      processing: {
+        autoGainControl: false,
+        echoCancellation: false,
+        noiseSuppression: false,
+      },
+      sourceSampleRateHz: 48000,
+      targetSampleRateHz: 48000,
+      resampledToTarget: false,
+    },
   };
 }
 
@@ -267,15 +292,25 @@ function createMetrics(
   patch: Partial<PcmRecordingMetrics> = {},
 ): PcmRecordingMetrics {
   return {
+    schemaVersion: "voice.audio_metrics.v1",
     durationMs: 3200,
     sampleRateHz: 48000,
     bitDepth: 24,
     channels: 1,
+    sampleCount: 153600,
     peakDbfs: -12,
+    estimatedTruePeakDbfs: -12,
+    rmsDbfs: -19.3,
     integratedLufs: -20,
     noiseFloorDbfs: -72,
     snrDb: 36,
+    crestFactorDb: 7.3,
+    dcOffset: 0,
     clippingDetected: false,
+    clippingSampleCount: 0,
+    clippingRate: 0,
+    activeSpeechRatio: 0.8,
+    silenceRatio: 0.1,
     reverbScore: 0.1,
     plosiveScore: 0.02,
     mouthNoiseScore: 0.02,

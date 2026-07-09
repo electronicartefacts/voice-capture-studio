@@ -15,7 +15,7 @@ export type CaptureSessionExportBundle = {
   readonly manifestJson: {
     readonly exportId: string;
     readonly format: "voice.capture_session";
-    readonly formatVersion: "0.2.0";
+    readonly formatVersion: "0.3.0";
     readonly workspaceId: string;
     readonly corpusId: string;
     readonly createdAt: string;
@@ -35,6 +35,7 @@ export type CaptureSessionExportBundle = {
       readonly captureProfile: VoiceWorkspace["settings"]["captureProfile"];
       readonly audioPolicy: {
         readonly requiredFormat: "wav_pcm_mono_48khz";
+        readonly requiredIntegrityAlgorithm: "sha256";
         readonly destructiveNoiseReductionAllowed: false;
         readonly compressedFormatsAllowed: false;
       };
@@ -80,7 +81,7 @@ export function createCaptureSessionExportBundle(input: {
     manifestJson: {
       exportId: `export.${now}`,
       format: "voice.capture_session",
-      formatVersion: "0.2.0",
+      formatVersion: "0.3.0",
       workspaceId: input.workspace.workspaceId,
       corpusId: input.corpus.id,
       createdAt: now,
@@ -100,6 +101,7 @@ export function createCaptureSessionExportBundle(input: {
         captureProfile: input.workspace.settings.captureProfile,
         audioPolicy: {
           requiredFormat: "wav_pcm_mono_48khz",
+          requiredIntegrityAlgorithm: "sha256",
           destructiveNoiseReductionAllowed: false,
           compressedFormatsAllowed: false,
         },
@@ -213,6 +215,23 @@ export function createVoiceCaptureReports(input: {
       keeperTakeCount: keeperTakes.length,
       totalDurationMs,
       latestTechnical: latestTake?.quality.technical ?? null,
+      averageRmsDbfs: averageFinite(
+        input.takes.map((take) => take.quality.technical.rmsDbfs),
+      ),
+      averageActiveSpeechRatio: averageFinite(
+        input.takes.map((take) => take.quality.technical.activeSpeechRatio),
+      ),
+      highestEstimatedTruePeakDbfs: maximumFinite(
+        input.takes.map((take) => take.quality.technical.estimatedTruePeakDbfs),
+      ),
+      dcOffsetReviewCount: input.takes.filter(
+        (take) => Math.abs(take.quality.technical.dcOffset) > 0.02,
+      ).length,
+      integrityLinkedTakeCount: input.takes.filter(
+        (take) =>
+          typeof take.media?.sha256 === "string" &&
+          take.media.sha256.length === 64,
+      ).length,
       failedGates: input.takes.flatMap((take) =>
         take.quality.gates
           .filter((gate) => gate.status === "fail")
@@ -408,4 +427,16 @@ function average(values: readonly number[]): number {
       (values.reduce((total, value) => total + value, 0) / values.length) * 100,
     ) / 100
   );
+}
+
+function averageFinite(values: readonly number[]): number | null {
+  const finiteValues = values.filter(Number.isFinite);
+
+  return finiteValues.length === 0 ? null : average(finiteValues);
+}
+
+function maximumFinite(values: readonly number[]): number | null {
+  const finiteValues = values.filter(Number.isFinite);
+
+  return finiteValues.length === 0 ? null : Math.max(...finiteValues);
 }

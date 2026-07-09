@@ -6,6 +6,7 @@ import {
   resampleLinear,
   type PcmRecordingMetrics,
 } from "./pcmAudio";
+import type { AudioCaptureProvenance } from "@domains/sessions";
 
 export type { PcmRecordingMetrics } from "./pcmAudio";
 
@@ -14,6 +15,7 @@ export type PcmRecordingResult = {
   readonly extension: "wav";
   readonly mimeType: "audio/wav";
   readonly metrics: PcmRecordingMetrics;
+  readonly capture: AudioCaptureProvenance;
 };
 
 export type PcmRecorder = {
@@ -110,6 +112,10 @@ export async function createPcmRecorder(
   }
 
   const audioContext = createCompatibleAudioContext(AudioContextConstructor);
+  const captureSettings = readCaptureProvenance(
+    stream,
+    audioContext.sampleRate,
+  );
   const sampleBuffer = new PcmSampleBuffer({
     maxSamples:
       options.maxDurationMs === undefined
@@ -175,12 +181,59 @@ export async function createPcmRecorder(
           extension: "wav",
           mimeType: "audio/wav",
           metrics,
+          capture: {
+            ...captureSettings,
+            resampledToTarget: sourceSampleRate !== PCM_TARGET_SAMPLE_RATE,
+          },
         };
       })();
 
       return stopPromise;
     },
   };
+}
+
+function readCaptureProvenance(
+  stream: MediaStream,
+  sourceSampleRateHz: number,
+): AudioCaptureProvenance {
+  const track = stream.getAudioTracks()[0];
+  const settings = track?.getSettings();
+
+  return {
+    schemaVersion: "voice.capture_provenance.v1",
+    captureApi: "MediaStream",
+    capturedChannelCount: numberOrNull(settings?.channelCount),
+    capturedSampleRateHz: numberOrNull(settings?.sampleRate),
+    deviceGroupId: nonEmptyStringOrNull(settings?.groupId),
+    deviceId: nonEmptyStringOrNull(settings?.deviceId),
+    deviceLabel: nonEmptyStringOrNull(track?.label),
+    requestedFormat: {
+      bitDepth: 24,
+      channels: 1,
+      sampleRateHz: PCM_TARGET_SAMPLE_RATE,
+    },
+    processing: {
+      autoGainControl: booleanOrNull(settings?.autoGainControl),
+      echoCancellation: booleanOrNull(settings?.echoCancellation),
+      noiseSuppression: booleanOrNull(settings?.noiseSuppression),
+    },
+    sourceSampleRateHz,
+    targetSampleRateHz: PCM_TARGET_SAMPLE_RATE,
+    resampledToTarget: sourceSampleRateHz !== PCM_TARGET_SAMPLE_RATE,
+  };
+}
+
+function numberOrNull(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function booleanOrNull(value: unknown): boolean | null {
+  return typeof value === "boolean" ? value : null;
+}
+
+function nonEmptyStringOrNull(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value : null;
 }
 
 async function createCapturePipeline(

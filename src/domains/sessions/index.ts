@@ -1,4 +1,5 @@
 export type {
+  AudioCaptureProvenance,
   CaptureSession,
   PerformanceQualityMetrics,
   PhraseTiming,
@@ -6,6 +7,7 @@ export type {
   SessionId,
   TakeId,
   TakeIntentMetadata,
+  TakeMedia,
   TakeQuality,
   TakeQualityGateResult,
   TakeQualityReport,

@@ -2,6 +2,7 @@ import type { PromptDefinition } from "../../domains/corpus";
 import type {
   CaptureSession,
   RecordedTake,
+  TakeMedia,
   TakeId,
 } from "../../domains/sessions";
 import type { CaptureProfile } from "../../domains/workspace";
@@ -14,6 +15,7 @@ import type { PcmRecordingMetrics } from "../audio/pcmRecorder";
 export function createRecordedTake(input: {
   readonly durationMs: number;
   readonly fileName: string;
+  readonly media: TakeMedia;
   readonly metrics: PcmRecordingMetrics;
   readonly profile: CaptureProfile;
   readonly prompt: PromptDefinition;
@@ -43,6 +45,15 @@ export function createRecordedTake(input: {
       ? "review"
       : "pass";
   const clippingStatus = input.metrics.clippingDetected ? "fail" : "pass";
+  const headroomStatus = getHeadroomStatus(input.metrics.estimatedTruePeakDbfs);
+  const dcOffsetStatus =
+    Math.abs(input.metrics.dcOffset) > 0.02 ? "review" : "pass";
+  const speechActivityStatus =
+    input.metrics.activeSpeechRatio < 0.25 ? "review" : "pass";
+  const plosiveStatus = input.metrics.plosiveScore > 0.08 ? "review" : "pass";
+  const mouthNoiseStatus =
+    input.metrics.mouthNoiseScore > 0.08 ? "review" : "pass";
+  const reverbStatus = input.metrics.reverbScore > 0.65 ? "review" : "pass";
   const signalStatus =
     input.metrics.peakDbfs <= -55 || input.metrics.integratedLufs <= -60
       ? "fail"
@@ -58,6 +69,7 @@ export function createRecordedTake(input: {
   const snrStatus = input.metrics.snrDb < 24 ? "review" : "pass";
   const verdict =
     clippingStatus === "fail" ||
+    headroomStatus === "fail" ||
     signalStatus === "fail" ||
     transcriptStatus === "fail"
       ? "reject"
@@ -65,6 +77,12 @@ export function createRecordedTake(input: {
           signalStatus === "pass" &&
           noiseStatus === "pass" &&
           snrStatus === "pass" &&
+          headroomStatus === "pass" &&
+          dcOffsetStatus === "pass" &&
+          speechActivityStatus === "pass" &&
+          plosiveStatus === "pass" &&
+          mouthNoiseStatus === "pass" &&
+          reverbStatus === "pass" &&
           phonemeAlignmentStatus === "pass" &&
           input.profile.roomToneCaptured
         ? "pass"
@@ -83,6 +101,7 @@ export function createRecordedTake(input: {
     fileName: input.fileName,
     durationMs: input.durationMs,
     recordedAt: input.recordedAt.toISOString() as RecordedTake["recordedAt"],
+    media: input.media,
     transcript: {
       schemaVersion: "voice.transcript.v2",
       originalText: input.prompt.text,
@@ -134,14 +153,24 @@ export function createRecordedTake(input: {
     quality: {
       schemaVersion: "voice.quality.v2",
       technical: {
+        schemaVersion: input.metrics.schemaVersion,
         sampleRateHz: input.metrics.sampleRateHz,
         bitDepth: input.metrics.bitDepth,
         channels: input.metrics.channels,
+        sampleCount: input.metrics.sampleCount,
         peakDbfs: input.metrics.peakDbfs,
+        estimatedTruePeakDbfs: input.metrics.estimatedTruePeakDbfs,
+        rmsDbfs: input.metrics.rmsDbfs,
         integratedLufs: input.metrics.integratedLufs,
         noiseFloorDbfs: input.metrics.noiseFloorDbfs,
         snrDb: input.metrics.snrDb,
+        crestFactorDb: input.metrics.crestFactorDb,
+        dcOffset: input.metrics.dcOffset,
         clippingDetected: input.metrics.clippingDetected,
+        clippingSampleCount: input.metrics.clippingSampleCount,
+        clippingRate: input.metrics.clippingRate,
+        activeSpeechRatio: input.metrics.activeSpeechRatio,
+        silenceRatio: input.metrics.silenceRatio,
         reverbScore: input.metrics.reverbScore,
         plosiveScore: input.metrics.plosiveScore,
         mouthNoiseScore: input.metrics.mouthNoiseScore,
@@ -175,6 +204,62 @@ export function createRecordedTake(input: {
               : signalStatus === "review"
                 ? "Signal un peu faible. Rapproche-toi ou monte légèrement le gain."
                 : "Signal exploitable.",
+        },
+        {
+          id: "headroom",
+          label: "Marge numérique",
+          status: headroomStatus,
+          message:
+            headroomStatus === "fail"
+              ? "Pic inter-échantillon trop proche de 0 dBFS. Réduis le gain et reprends."
+              : headroomStatus === "review"
+                ? `Marge réduite : pic estimé ${input.metrics.estimatedTruePeakDbfs} dBFS.`
+                : `Marge saine : pic estimé ${input.metrics.estimatedTruePeakDbfs} dBFS.`,
+        },
+        {
+          id: "dc_offset",
+          label: "Offset DC",
+          status: dcOffsetStatus,
+          message:
+            dcOffsetStatus === "pass"
+              ? "Offset DC négligeable."
+              : "Offset DC élevé détecté. Vérifie la chaîne micro/interface avant entraînement.",
+        },
+        {
+          id: "speech_activity",
+          label: "Activité vocale",
+          status: speechActivityStatus,
+          message:
+            speechActivityStatus === "pass"
+              ? `${Math.round(input.metrics.activeSpeechRatio * 100)} % des fenêtres contiennent de la voix exploitable.`
+              : "Trop peu de voix détectée dans la prise. Vérifie les silences ou le niveau micro.",
+        },
+        {
+          id: "plosives",
+          label: "Plosives",
+          status: plosiveStatus,
+          message:
+            plosiveStatus === "pass"
+              ? "Pas de concentration problématique de plosives."
+              : "Plosives marquées. Utilise un filtre anti-pop ou ajuste l'angle du micro.",
+        },
+        {
+          id: "mouth_noise",
+          label: "Bruits de bouche",
+          status: mouthNoiseStatus,
+          message:
+            mouthNoiseStatus === "pass"
+              ? "Bruits transitoires dans la plage attendue."
+              : "Bruits de bouche/transitoires élevés. Hydrate-toi et reprends si possible.",
+        },
+        {
+          id: "reverb",
+          label: "Réverbération estimée",
+          status: reverbStatus,
+          message:
+            reverbStatus === "pass"
+              ? "Queue sonore compatible avec une prise sèche."
+              : "Queue sonore longue estimée. Réduis les réflexions de la pièce.",
         },
         {
           id: "noise_floor",
@@ -251,6 +336,16 @@ function getTranscriptGateStatus(
   }
 
   return "pass";
+}
+
+function getHeadroomStatus(
+  estimatedTruePeakDbfs: number,
+): RecordedTake["quality"]["gates"][number]["status"] {
+  if (estimatedTruePeakDbfs >= -1) {
+    return "fail";
+  }
+
+  return estimatedTruePeakDbfs >= -3 ? "review" : "pass";
 }
 
 function createTranscriptGateMessage(

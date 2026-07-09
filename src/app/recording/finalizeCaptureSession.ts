@@ -1,7 +1,11 @@
 import type { CorpusManifest, PromptDefinition } from "../../domains/corpus";
 import { summarizeCoverage } from "../../domains/coverage";
 import type { SpeakerProfile } from "../../domains/speakers";
-import type { CaptureSession, RecordedTake } from "../../domains/sessions";
+import type {
+  AudioCaptureProvenance,
+  CaptureSession,
+  RecordedTake,
+} from "../../domains/sessions";
 import {
   completePlannedSession,
   type VoiceWorkspace,
@@ -9,6 +13,7 @@ import {
 } from "../../domains/workspace";
 import type { Result } from "../../shared";
 import type { PcmRecordingMetrics } from "../audio/pcmRecorder";
+import { sha256Blob } from "../storage/sha256";
 import {
   createRecordingFileName,
   createTakeId,
@@ -22,6 +27,7 @@ export type FinalizedRecording = {
   readonly extension: "wav";
   readonly mimeType: "audio/wav";
   readonly metrics: PcmRecordingMetrics;
+  readonly capture: AudioCaptureProvenance;
 };
 
 export type RecordingSaveReceipt = {
@@ -42,7 +48,7 @@ export type MetadataSaveResult = Result<
 export type SessionMetadata = CaptureSession & {
   readonly captureProfile: VoiceWorkspace["settings"]["captureProfile"];
   readonly exportFormat: "voice.capture_session";
-  readonly exportFormatVersion: "0.2.0";
+  readonly exportFormatVersion: "0.3.0";
 };
 
 export type CaptureFinalizationResult = {
@@ -87,6 +93,7 @@ export async function finalizeCaptureSession(input: {
     >["reportsJson"];
     readonly sessionId: string;
     readonly speakerJson: unknown;
+    readonly takeJson: unknown;
     readonly takeId: string;
     readonly transcriptText: string;
     readonly timingJson: unknown;
@@ -110,6 +117,9 @@ export async function finalizeCaptureSession(input: {
     takeId,
   });
   const audioDownloadAvailable = audioBlob.size > 0;
+  const audioSha256 = audioDownloadAvailable
+    ? await sha256Blob(audioBlob)
+    : null;
   const audioSaveResult = audioDownloadAvailable
     ? await input.saveRecording(fileName, audioBlob)
     : ({
@@ -125,6 +135,15 @@ export async function finalizeCaptureSession(input: {
             input.recording.metrics.durationMs ||
             estimateDurationMs(input.activePrompt.text),
           fileName,
+          media: {
+            schemaVersion: "voice.media.v1",
+            byteLength: audioBlob.size,
+            container: "WAVE",
+            codec: "PCM",
+            mimeType: input.recording.mimeType,
+            sha256: audioSha256 ?? "",
+            capture: input.recording.capture,
+          },
           metrics: input.recording.metrics,
           profile: input.workspace.settings.captureProfile,
           prompt: input.activePrompt,
@@ -146,7 +165,7 @@ export async function finalizeCaptureSession(input: {
     ...completedSession,
     captureProfile: input.workspace.settings.captureProfile,
     exportFormat: "voice.capture_session",
-    exportFormatVersion: "0.2.0",
+    exportFormatVersion: "0.3.0",
   };
   const nextWorkspace = completePlannedSession(
     input.workspace,
@@ -179,6 +198,7 @@ export async function finalizeCaptureSession(input: {
       reportsJson: exportBundle.reportsJson,
       sessionId: completedSession.id,
       speakerJson: exportBundle.speakerJson,
+      takeJson: take,
       takeId: take.id,
       transcriptText: take.transcript.spokenText,
       timingJson: take.timing,

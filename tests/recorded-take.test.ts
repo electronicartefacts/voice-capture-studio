@@ -24,6 +24,7 @@ test("recorded take becomes keeper when technical gates and room tone pass", () 
   const take = createRecordedTake({
     durationMs: 3200,
     fileName: "take.wav",
+    media: createMedia(),
     metrics: createMetrics(),
     profile: createCaptureProfile({ roomToneCaptured: true }),
     prompt,
@@ -51,6 +52,7 @@ test("recorded take rejects clear transcript mismatch from speech recognition", 
   const take = createRecordedTake({
     durationMs: 3200,
     fileName: "take.wav",
+    media: createMedia(),
     metrics: createMetrics(),
     profile: createCaptureProfile({ roomToneCaptured: true }),
     prompt,
@@ -70,6 +72,7 @@ test("recorded take is rejected when clipping is detected", () => {
   const take = createRecordedTake({
     durationMs: 3200,
     fileName: "take.wav",
+    media: createMedia(),
     metrics: createMetrics({ clippingDetected: true }),
     profile: createCaptureProfile({ roomToneCaptured: true }),
     prompt,
@@ -88,6 +91,7 @@ test("recorded take is rejected when signal level is effectively silent", () => 
   const take = createRecordedTake({
     durationMs: 3200,
     fileName: "take.wav",
+    media: createMedia(),
     metrics: createMetrics({
       peakDbfs: -60,
       integratedLufs: -62,
@@ -109,6 +113,7 @@ test("recorded take remains review when room tone has not been captured", () => 
   const take = createRecordedTake({
     durationMs: 3200,
     fileName: "take.wav",
+    media: createMedia(),
     metrics: createMetrics(),
     profile: createCaptureProfile({ roomToneCaptured: false }),
     prompt,
@@ -127,6 +132,7 @@ test("recorded take reviews noisy calibrated room tone", () => {
   const take = createRecordedTake({
     durationMs: 3200,
     fileName: "take.wav",
+    media: createMedia(),
     metrics: createMetrics({ noiseFloorDbfs: -72 }),
     profile: createCaptureProfile({
       roomToneCaptured: true,
@@ -147,6 +153,7 @@ test("recorded take remains review when prompt duration bounds are missed", () =
   const take = createRecordedTake({
     durationMs: prompt.qa.minDurationMs - 1,
     fileName: "take.wav",
+    media: createMedia(),
     metrics: createMetrics(),
     profile: createCaptureProfile({ roomToneCaptured: true }),
     prompt,
@@ -202,19 +209,62 @@ function createMetrics(
   patch: Partial<PcmRecordingMetrics> = {},
 ): PcmRecordingMetrics {
   return {
+    schemaVersion: "voice.audio_metrics.v1",
     durationMs: 3200,
     sampleRateHz: 48000,
     bitDepth: 24,
     channels: 1,
+    sampleCount: 153600,
     peakDbfs: -12,
+    estimatedTruePeakDbfs: -12,
+    rmsDbfs: -19.3,
     integratedLufs: -20,
     noiseFloorDbfs: -72,
     snrDb: 36,
+    crestFactorDb: 7.3,
+    dcOffset: 0,
     clippingDetected: false,
+    clippingSampleCount: 0,
+    clippingRate: 0,
+    activeSpeechRatio: 0.8,
+    silenceRatio: 0.1,
     reverbScore: 0.1,
     plosiveScore: 0.02,
     mouthNoiseScore: 0.02,
     ...patch,
+  };
+}
+
+function createMedia() {
+  return {
+    schemaVersion: "voice.media.v1" as const,
+    byteLength: 460844,
+    container: "WAVE" as const,
+    codec: "PCM" as const,
+    mimeType: "audio/wav" as const,
+    sha256: "a".repeat(64),
+    capture: {
+      schemaVersion: "voice.capture_provenance.v1" as const,
+      captureApi: "MediaStream" as const,
+      capturedChannelCount: 1,
+      capturedSampleRateHz: 48000,
+      deviceGroupId: null,
+      deviceId: null,
+      deviceLabel: "SM7B",
+      requestedFormat: {
+        bitDepth: 24,
+        channels: 1,
+        sampleRateHz: 48000,
+      },
+      processing: {
+        autoGainControl: false,
+        echoCancellation: false,
+        noiseSuppression: false,
+      },
+      sourceSampleRateHz: 48000,
+      targetSampleRateHz: 48000,
+      resampledToTarget: false,
+    },
   };
 }
 

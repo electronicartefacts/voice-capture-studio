@@ -58,6 +58,25 @@ test("PCM analysis sanitizes non-finite samples instead of leaking NaN metrics",
   assert.equal(metrics.noiseFloorDbfs, -96);
   assert.equal(metrics.snrDb, 0);
   assert.equal(metrics.clippingDetected, false);
+  assert.equal(metrics.sampleCount, 3);
+  assert.equal(metrics.clippingSampleCount, 0);
+  assert.equal(metrics.activeSpeechRatio, 0);
+  assert.equal(metrics.silenceRatio, 1);
+});
+
+test("PCM analysis preserves detailed, finite signal provenance metrics", () => {
+  const metrics = analyzePcmSamples(
+    new Float32Array([0, 0.2, -0.2, 0.4, -0.4, 0]),
+    48_000,
+  );
+
+  assert.equal(metrics.schemaVersion, "voice.audio_metrics.v1");
+  assert.equal(metrics.sampleCount, 6);
+  assert.ok(metrics.estimatedTruePeakDbfs >= metrics.peakDbfs);
+  assert.ok(Number.isFinite(metrics.rmsDbfs));
+  assert.ok(Number.isFinite(metrics.crestFactorDb));
+  assert.ok(Number.isFinite(metrics.dcOffset));
+  assert.equal(metrics.clippingRate, 0);
 });
 
 test("linear resampling keeps endpoints stable", () => {

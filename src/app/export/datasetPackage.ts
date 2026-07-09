@@ -78,6 +78,8 @@ export function createDatasetPackagePlan(input: {
           promptId: take.promptId,
           durationMs: take.durationMs,
           recordedAt: take.recordedAt,
+          media: take.media,
+          transcript: take.transcript,
           timing: take.timing,
           intent: take.intent,
           quality: take.quality,
@@ -88,6 +90,9 @@ export function createDatasetPackagePlan(input: {
       const prompt = promptById.get(take.promptId);
       const rawAudioPath = `raw/${takeSlug}.wav`;
       const processedAudioPath = `processed/${takeSlug}.wav`;
+      // Browser workspaces created before v0.3 do not have an immutable media
+      // record. They remain exportable, with unavailable provenance explicit.
+      const media = take.media;
 
       jsonFiles.push({
         path: `phonemes/${takeSlug}.json`,
@@ -123,7 +128,11 @@ export function createDatasetPackagePlan(input: {
           raw_path: rawAudioPath,
           processed_path: processedAudioPath,
           format: "wav_pcm_mono_48khz",
+          byte_length: media?.byteLength ?? null,
+          sha256: media?.sha256 ?? null,
+          mime_type: media?.mimeType ?? "audio/wav",
         },
+        capture: media?.capture ?? null,
         transcript: take.transcript.spokenText,
         observed_transcript: take.transcript.observedText ?? null,
         duration_ms: take.durationMs,
@@ -272,7 +281,8 @@ Keeper takes: ${input.keeperCount} / ${input.takeCount} recorded takes
 - \`processed/\` - Placeholder for post-processed audio. Currently identical to \`raw/\`;
   reserved for future normalization or denoising passes.
 - \`transcripts/\` - Plain text transcript per keeper take.
-- \`metadata/\` - Timing, intent, quality, and review metadata per keeper take.
+- \`metadata/\` - Immutable media identity (SHA-256), capture provenance, transcript,
+  timing, intent, quality, and review metadata per keeper take.
 - \`phonemes/\` - Word-to-phoneme timing maps, estimated phone intervals, and prompt targets.
 - \`manifests/training_manifest.jsonl\` - One keeper take per line for fine-tuning pipelines.
 - \`reports/\` - Aggregate dataset diagnostics (audio quality, transcript alignment,
@@ -280,7 +290,8 @@ Keeper takes: ${input.keeperCount} / ${input.takeCount} recorded takes
 - \`speaker.json\` - Speaker profile and capture conditions.
 - \`session.json\` - Session history summary across the whole workspace.
 
-Only keeper-rated takes are included. Word and phoneme timing is browser-estimated from prompt text
+Only keeper-rated takes are included. Every audio object is SHA-256 linked to its manifest row.
+Word and phoneme timing is browser-estimated from prompt text
 and take duration; run acoustic forced alignment before final model training acceptance. This
 dataset was produced entirely client-side by Voice Capture Studio; no audio was uploaded to a
 remote service.

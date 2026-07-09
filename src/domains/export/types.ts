@@ -31,6 +31,7 @@ export type VoiceCaptureProvenance = {
   readonly captureToolVersion: Semver;
   readonly audioPolicy: {
     readonly requiredFormat: "wav_pcm_mono_48khz";
+    readonly requiredIntegrityAlgorithm: "sha256";
     readonly destructiveNoiseReductionAllowed: false;
     readonly compressedFormatsAllowed: false;
   };

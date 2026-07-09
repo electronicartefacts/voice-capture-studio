@@ -3,15 +3,25 @@ export const PCM_TARGET_BIT_DEPTH = 24;
 const MIN_DBFS = -96;
 
 export type PcmRecordingMetrics = {
+  readonly schemaVersion: "voice.audio_metrics.v1";
   readonly durationMs: number;
   readonly sampleRateHz: number;
   readonly bitDepth: 24;
   readonly channels: 1;
+  readonly sampleCount: number;
   readonly peakDbfs: number;
+  readonly estimatedTruePeakDbfs: number;
+  readonly rmsDbfs: number;
   readonly integratedLufs: number;
   readonly noiseFloorDbfs: number;
   readonly snrDb: number;
+  readonly crestFactorDb: number;
+  readonly dcOffset: number;
   readonly clippingDetected: boolean;
+  readonly clippingSampleCount: number;
+  readonly clippingRate: number;
+  readonly activeSpeechRatio: number;
+  readonly silenceRatio: number;
   readonly reverbScore: number;
   readonly plosiveScore: number;
   readonly mouthNoiseScore: number;
@@ -133,6 +143,7 @@ export function analyzePcmSamples(
   const durationMs = Math.round((samples.length / normalizedSampleRate) * 1000);
   let peak = 0;
   let sumSquares = 0;
+  let sum = 0;
   let clippedSamples = 0;
   let plosiveSamples = 0;
   let highDelta = 0;
@@ -144,6 +155,7 @@ export function analyzePcmSamples(
 
     peak = Math.max(peak, abs);
     sumSquares += sample * sample;
+    sum += sample;
 
     if (abs >= 0.999) {
       clippedSamples += 1;
@@ -165,6 +177,9 @@ export function analyzePcmSamples(
   const noiseFloorDbfs = percentile(frameRmsDbfs, 0.1) ?? MIN_DBFS;
   const peakDbfs = amplitudeToDbfs(peak);
   const rmsDbfs = amplitudeToDbfs(rms);
+  const estimatedTruePeakDbfs = amplitudeToDbfs(
+    estimateInterSamplePeak(samples, peak),
+  );
   const integratedLufs = clamp(round(rmsDbfs - 0.691, 1), MIN_DBFS, 0);
   const snrDb = clamp(round(rmsDbfs - noiseFloorDbfs, 1), 0, 96);
   const clippingDetected =
@@ -172,15 +187,25 @@ export function analyzePcmSamples(
   const tailScore = computeTailScore(samples, normalizedSampleRate);
 
   return {
+    schemaVersion: "voice.audio_metrics.v1",
     durationMs,
     sampleRateHz: normalizedSampleRate,
     bitDepth: PCM_TARGET_BIT_DEPTH,
     channels: 1,
+    sampleCount: samples.length,
     peakDbfs,
+    estimatedTruePeakDbfs,
+    rmsDbfs,
     integratedLufs,
     noiseFloorDbfs,
     snrDb,
+    crestFactorDb: clamp(round(peakDbfs - rmsDbfs, 1), 0, 96),
+    dcOffset: round(sum / Math.max(samples.length, 1), 6),
     clippingDetected,
+    clippingSampleCount: clippedSamples,
+    clippingRate: round(clippedSamples / Math.max(samples.length, 1), 6),
+    activeSpeechRatio: computeFrameActivityRatio(frameRmsDbfs, -45, true),
+    silenceRatio: computeFrameActivityRatio(frameRmsDbfs, -55, false),
     reverbScore: tailScore,
     plosiveScore: clamp(
       round(plosiveSamples / Math.max(samples.length, 1), 3),
@@ -193,6 +218,44 @@ export function analyzePcmSamples(
       1,
     ),
   };
+}
+
+function estimateInterSamplePeak(
+  samples: Float32Array,
+  samplePeak: number,
+): number {
+  let peak = samplePeak;
+
+  for (let index = 1; index < samples.length; index += 1) {
+    const previous = normalizeSample(samples[index - 1]);
+    const current = normalizeSample(samples[index]);
+    // 4x linear interpolation is intentionally labelled "estimated": it is
+    // a conservative, dependency-free guardrail rather than IEC true-peak metering.
+    for (let step = 1; step < 4; step += 1) {
+      peak = Math.max(
+        peak,
+        Math.abs(previous + ((current - previous) * step) / 4),
+      );
+    }
+  }
+
+  return peak;
+}
+
+function computeFrameActivityRatio(
+  frameRmsDbfs: readonly number[],
+  thresholdDbfs: number,
+  active: boolean,
+): number {
+  if (frameRmsDbfs.length === 0) {
+    return 0;
+  }
+
+  const matchingFrames = frameRmsDbfs.filter((value) =>
+    active ? value >= thresholdDbfs : value < thresholdDbfs,
+  ).length;
+
+  return round(matchingFrames / frameRmsDbfs.length, 3);
 }
 
 export function encodeWav24(

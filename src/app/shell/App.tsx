@@ -212,6 +212,14 @@ const INPUT_SENSITIVITY_MIN = 0.5;
 const INPUT_SENSITIVITY_MAX = 3;
 const DEFAULT_INPUT_SENSITIVITY = 1.6;
 const REVIEW_WAVEFORM_BAR_COUNT = 92;
+const RAW_MICROPHONE_CONSTRAINTS: MediaTrackConstraints = {
+  autoGainControl: false,
+  channelCount: { ideal: 1 },
+  echoCancellation: false,
+  noiseSuppression: false,
+  sampleRate: { ideal: 48_000 },
+  sampleSize: { ideal: 24 },
+};
 const AUDIO_UI_UPDATE_INTERVAL_MS = 80;
 const KARAOKE_STYLE_UPDATE_INTERVAL_MS = 1000 / 30;
 
@@ -774,12 +782,7 @@ export function App() {
     }
 
     const stream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: false,
-        noiseSuppression: false,
-        autoGainControl: false,
-        channelCount: 1,
-      },
+      audio: RAW_MICROPHONE_CONSTRAINTS,
     });
     setMicrophoneLabel(createMicrophoneLabel(stream));
 
@@ -1379,11 +1382,7 @@ export function App() {
         stream = ambientStream.clone();
       } else {
         stream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            echoCancellation: false,
-            noiseSuppression: false,
-            autoGainControl: false,
-          },
+          audio: RAW_MICROPHONE_CONSTRAINTS,
         });
       }
 
@@ -4819,6 +4818,7 @@ function DoneScreen(input: {
   readonly take: RecordedTake | null;
 }) {
   const isKeeper = input.take?.quality.verdict === "pass";
+  const integrityHash = input.take?.media?.sha256 ?? null;
 
   return (
     <div className="focus-card" aria-live="polite">
@@ -4976,6 +4976,18 @@ function DoneScreen(input: {
               <dd>{input.take.quality.technical.snrDb} dB</dd>
             </div>
             <div>
+              <dt>True peak estimé</dt>
+              <dd>{input.take.quality.technical.estimatedTruePeakDbfs} dBFS</dd>
+            </div>
+            <div>
+              <dt>Activité vocale</dt>
+              <dd>
+                {formatPercent(
+                  input.take.quality.technical.activeSpeechRatio * 100,
+                )}
+              </dd>
+            </div>
+            <div>
               <dt>Format</dt>
               <dd>
                 {input.take.quality.technical.sampleRateHz / 1000} kHz /{" "}
@@ -4997,6 +5009,14 @@ function DoneScreen(input: {
                   (input.take.quality.performance.alignmentConfidence ?? 0) *
                     100,
                 )}
+              </dd>
+            </div>
+            <div>
+              <dt>Intégrité WAV</dt>
+              <dd title={integrityHash ?? undefined}>
+                {integrityHash === null
+                  ? "Indisponible (prise historique)"
+                  : `SHA-256 ${integrityHash.slice(0, 12)}…`}
               </dd>
             </div>
             <div>
