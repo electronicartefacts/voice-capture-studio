@@ -1377,6 +1377,40 @@ textarea:focus-visible {
   width: min(100%, 390px);
 }
 
+.permission-actions {
+  align-items: stretch;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  max-width: 620px;
+  width: 100%;
+}
+
+.permission-actions .folder-button,
+.permission-actions .launch-button {
+  background: color-mix(in srgb, var(--panel-solid) 7%, transparent);
+  border-color: var(--line);
+  box-shadow: none;
+  color: var(--text);
+}
+
+.permission-actions .launch-button {
+  background: color-mix(in srgb, var(--accent-a) 12%, transparent);
+  border-color: color-mix(in srgb, var(--accent-a) 38%, var(--line));
+}
+
+.permission-actions .quiet-button {
+  grid-column: 1 / -1;
+  justify-self: start;
+}
+
+.screen-permission .director-heading {
+  gap: 0;
+}
+
+.screen-permission .director-heading > .section-icon {
+  display: none;
+}
+
 .room-tone-screen {
   align-content: center;
   display: grid;
@@ -2399,8 +2433,14 @@ textarea:focus-visible {
   }
 
   .simple-header .quiet-button {
-    min-width: 40px;
-    padding-inline: 10px;
+    aspect-ratio: 1;
+    border: 1px solid var(--line-strong);
+    border-radius: 50%;
+    height: 44px;
+    justify-content: center;
+    min-width: 44px;
+    padding: 0;
+    width: 44px;
   }
 
   .simple-header .quiet-button span {
@@ -2493,6 +2533,14 @@ textarea:focus-visible {
   .director-heading {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .permission-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .permission-actions .quiet-button {
+    grid-column: auto;
   }
 
   .prompt-direction blockquote {
@@ -3632,6 +3680,10 @@ body,
 /* Keep the signal legible when the mobile layout leaves less open background
    around the fixed waveform surface. */
 @media (max-width: 720px) {
+  body {
+    min-width: 0;
+  }
+
   .simple-app {
     --wave-surface-color: rgba(115, 220, 255, 0.92);
     --wave-surface-guide: rgba(115, 220, 255, 0.3);
@@ -3711,6 +3763,77 @@ body,
   .simple-app.screen-done {
     --wave-surface-alpha: 0.82;
   }
+
+  .simple-app.screen-done .session-stage {
+    align-items: stretch;
+    overflow-x: clip;
+    width: 100%;
+  }
+
+  .simple-app.screen-done .focus-card,
+  .simple-app.screen-done .focus-card > *,
+  .simple-app.screen-done .listening-review,
+  .simple-app.screen-done .listening-header,
+  .simple-app.screen-done .listening-header > div,
+  .simple-app.screen-done .result-action-grid,
+  .simple-app.screen-done .next-step-panel,
+  .simple-app.screen-done .export-panel,
+  .simple-app.screen-done .take-score {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .simple-app.screen-done .focus-card {
+    overflow: hidden;
+    width: 100%;
+  }
+
+  .simple-app.screen-done .listening-header {
+    align-items: start;
+    gap: 6px;
+  }
+
+  .simple-app.screen-done .listening-header h2 {
+    display: -webkit-box;
+    font-size: 15px;
+    line-height: 1.2;
+    max-width: 100%;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
+  .simple-app.screen-done .listening-header > span {
+    white-space: normal;
+  }
+
+  .simple-app.screen-done .playback-controls {
+    grid-template-columns: minmax(0, 1fr);
+    min-width: 0;
+    width: 100%;
+  }
+
+  .simple-app.screen-done .playback-controls > *,
+  .simple-app.screen-done .loop-editor,
+  .simple-app.screen-done .review-transcript,
+  .simple-app.screen-done .review-word,
+  .simple-app.screen-done .file-receipt {
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .simple-app.screen-done .playback-controls > * {
+    width: 100%;
+  }
+
+  .simple-app.screen-done .review-transcript,
+  .simple-app.screen-done .review-word,
+  .simple-app.screen-done .file-receipt strong,
+  .simple-app.screen-done .file-receipt span {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
 }
 
 @media (max-width: 720px) and (prefers-color-scheme: light) {
@@ -3747,4 +3870,118 @@ body,
     align-items: stretch;
     flex-direction: column;
   }
+}
+
+/* Home actions: one clear primary action, one quiet utility action. */
+.home-workbench .primary-actions {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+}
+
+.home-workbench .primary-actions .launch-button,
+.home-workbench .primary-actions .folder-button {
+  border-radius: 14px;
+  box-shadow: none;
+  font-size: 14px;
+  min-height: 46px;
+  padding: 11px 15px;
+  width: auto;
+}
+
+.home-workbench .primary-actions .launch-button {
+  flex: 1 1 auto;
+  justify-content: flex-start;
+  padding-inline: 16px;
+}
+
+.home-workbench .primary-actions .folder-button {
+  background: transparent;
+  border-color: color-mix(in srgb, var(--line-strong) 72%, transparent);
+  color: var(--muted);
+  flex: 0 0 auto;
+}
+
+.home-workbench .primary-actions .folder-button:hover {
+  background: color-mix(in srgb, var(--panel) 72%, transparent);
+  color: var(--text);
+}
+
+@media (max-width: 720px) {
+  .home-workbench .primary-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .home-workbench .primary-actions .launch-button {
+    justify-content: center;
+  }
+
+  .home-workbench .primary-actions .folder-button {
+    width: 100%;
+  }
+}
+
+.microphone-sensitivity {
+  gap: 8px 14px;
+}
+
+.microphone-sensitivity input[type="range"] {
+  appearance: none;
+  background: linear-gradient(
+    90deg,
+    var(--accent-a) 0 var(--range-progress),
+    color-mix(in srgb, var(--text) 12%, transparent) var(--range-progress) 100%
+  );
+  border: 1px solid color-mix(in srgb, var(--accent-a) 18%, var(--line));
+  border-radius: 999px;
+  height: 6px;
+  outline: none;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease;
+}
+
+.microphone-sensitivity input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  background: var(--accent-a);
+  border: 3px solid var(--bg-elevated);
+  border-radius: 999px;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-a) 50%, transparent);
+  height: 16px;
+  width: 16px;
+}
+
+.microphone-sensitivity input[type="range"]::-moz-range-thumb {
+  background: var(--accent-a);
+  border: 3px solid var(--bg-elevated);
+  border-radius: 999px;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-a) 50%, transparent);
+  height: 10px;
+  width: 10px;
+}
+
+.microphone-sensitivity input[type="range"]:focus-visible {
+  border-color: var(--accent-a);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-a) 18%, transparent);
+}
+
+.microphone-sensitivity strong {
+  color: var(--accent-a);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+/* Keep dataset export actions in the same quiet visual family as the panel. */
+.dataset-export-actions .download-action {
+  background: color-mix(in srgb, var(--panel-solid) 7%, transparent);
+  border-color: var(--line);
+  box-shadow: none;
+  color: var(--text);
+}
+
+.dataset-export-actions .download-action:hover {
+  background: color-mix(in srgb, var(--wave-color) 10%, transparent);
+  border-color: color-mix(in srgb, var(--wave-color) 34%, var(--line));
 }

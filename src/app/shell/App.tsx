@@ -4009,7 +4009,7 @@ function PermissionScreen(input: {
           <span>Vérifie les liens WAV et JSON dès que la prise est finie.</span>
         </li>
       </ul>
-      <div className="stacked-actions">
+      <div className="stacked-actions permission-actions">
         <button
           className="folder-button"
           disabled={input.prompt === undefined}
@@ -5253,6 +5253,10 @@ function MicrophoneControlPanel(input: {
   readonly sensitivity: number;
 }) {
   const level = clampUnit(input.audioLevel);
+  const sensitivityProgress =
+    ((input.sensitivity - INPUT_SENSITIVITY_MIN) /
+      (INPUT_SENSITIVITY_MAX - INPUT_SENSITIVITY_MIN)) *
+    100;
   const levelHint = !input.active
     ? "Active le micro depuis l'accueil : la courbe en fond d'écran devient ton repère."
     : level < 0.07
@@ -5283,6 +5287,11 @@ function MicrophoneControlPanel(input: {
             input.onSensitivityChange(Number(event.target.value))
           }
           step={0.05}
+          style={
+            {
+              "--range-progress": `${sensitivityProgress}%`,
+            } as CSSProperties
+          }
           type="range"
           value={input.sensitivity}
         />
