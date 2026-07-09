@@ -7,13 +7,13 @@ const en = "en" as LanguageCode;
 export const initialSpeakers: readonly SpeakerProfile[] = [
   {
     id: "speaker.primary" as SpeakerId,
-    displayName: "Primary Voice",
+    displayName: "Voix 1",
     primaryLanguage: fr,
     supportedLanguages: [fr, en],
   },
   {
     id: "speaker.secondary" as SpeakerId,
-    displayName: "Secondary Voice",
+    displayName: "Voix 2",
     primaryLanguage: en,
     supportedLanguages: [en],
   },

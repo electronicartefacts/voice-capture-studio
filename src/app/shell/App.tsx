@@ -7,6 +7,8 @@ import {
   type CSSProperties,
   type ChangeEvent,
   type DragEvent,
+  type FormEvent,
+  type KeyboardEvent,
   type PointerEvent,
   type RefObject,
 } from "react";
@@ -26,6 +28,7 @@ import {
   Info,
   Mic,
   Music,
+  Pause,
   Play,
   RotateCcw,
   ShieldCheck,
@@ -35,6 +38,7 @@ import {
   Timer,
   Trash2,
   Upload,
+  UserPlus,
   Volume2,
 } from "lucide-react";
 import {
@@ -54,19 +58,28 @@ import {
   type CaptureSession,
   type RecordedTake,
 } from "@domains/sessions";
-import { initialSpeakers, type SpeakerId } from "@domains/speakers";
+import {
+  initialSpeakers,
+  type SpeakerId,
+  type SpeakerProfile,
+} from "@domains/speakers";
 import {
   DEFAULT_CAPTURE_PROFILE,
   createEmptyWorkspace,
   reconcileWorkspaceProgress,
   type CaptureProfile,
   type VoiceWorkspace,
+  type WorkspaceSpeaker,
   type WorkspaceDurability,
   type WorkspaceId,
   type WorkspaceOpenError,
   type WorkspaceReceipt,
 } from "@domains/workspace";
-import { formatLanguage, type LanguageCode } from "@shared/index";
+import {
+  formatLanguage,
+  supportedLanguages,
+  type LanguageCode,
+} from "@shared/index";
 import {
   createPcmRecorder,
   type PcmRecorder,
@@ -120,6 +133,7 @@ type DatasetExportState =
     }
   | { readonly status: "error"; readonly message: string };
 type ReadingGuideMode = "speech-recognition" | "voice-activity";
+type RitualStatus = "idle" | "requesting" | "denied";
 type RoomToneCalibration = {
   readonly durationMs: number;
   readonly peakDbfs: number;
@@ -172,10 +186,105 @@ type NavigatorWithWakeLock = Navigator & {
     request: (type: "screen") => Promise<RecordingWakeLockSentinel>;
   };
 };
+type AmbientMicrophoneMonitor = {
+  readonly stream: MediaStream;
+  readonly stop: () => void;
+};
 
 const workspaceId = "workspace.local.main" as WorkspaceId;
 const workspaceRepository = createBrowserWorkspaceRepository();
 const ROOM_TONE_CAPTURE_MS = 3000;
+const WAVEFORM_DISPLAY_SAMPLES = 220;
+const DEFAULT_SPEAKER_LANGUAGE =
+  supportedLanguages[0]?.code ?? ("fr" as LanguageCode);
+
+type CreateSpeakerInput = {
+  readonly displayName: string;
+  readonly languages: readonly LanguageCode[];
+};
+
+function createSpeakerProfiles(
+  workspaceSpeakers: readonly WorkspaceSpeaker[] | undefined,
+): readonly SpeakerProfile[] {
+  if (workspaceSpeakers !== undefined && workspaceSpeakers.length > 0) {
+    return workspaceSpeakers.map((speaker, index) =>
+      createSpeakerProfileFromWorkspaceSpeaker(speaker, index),
+    );
+  }
+
+  return initialSpeakers.map((speaker, index) => ({
+    ...speaker,
+    displayName: normalizeSpeakerDisplayName(speaker.displayName, index),
+    supportedLanguages: normalizeSpeakerLanguages(speaker.supportedLanguages),
+  }));
+}
+
+function createSpeakerProfileFromWorkspaceSpeaker(
+  speaker: WorkspaceSpeaker,
+  index: number,
+): SpeakerProfile {
+  const languages = normalizeSpeakerLanguages(speaker.languages);
+
+  return {
+    id: speaker.speakerId,
+    displayName: normalizeSpeakerDisplayName(speaker.displayName, index),
+    primaryLanguage: languages[0] ?? DEFAULT_SPEAKER_LANGUAGE,
+    supportedLanguages: languages,
+  };
+}
+
+function createWorkspaceSpeakerFromProfile(
+  speaker: SpeakerProfile,
+): WorkspaceSpeaker {
+  return {
+    speakerId: speaker.id,
+    displayName: speaker.displayName,
+    languages: speaker.supportedLanguages,
+  };
+}
+
+function normalizeSpeakerLanguages(
+  languages: readonly LanguageCode[] | undefined,
+): readonly LanguageCode[] {
+  const normalized: LanguageCode[] = [];
+
+  for (const language of languages ?? []) {
+    if (
+      supportedLanguages.some((candidate) => candidate.code === language) &&
+      !normalized.includes(language)
+    ) {
+      normalized.push(language);
+    }
+  }
+
+  return normalized.length > 0 ? normalized : [DEFAULT_SPEAKER_LANGUAGE];
+}
+
+function normalizeSpeakerDisplayName(
+  displayName: string,
+  index: number,
+): string {
+  const trimmed = displayName.trim();
+
+  if (trimmed === "Primary Voice") {
+    return "Voix 1";
+  }
+
+  if (trimmed === "Secondary Voice") {
+    return "Voix 2";
+  }
+
+  return trimmed.length > 0 ? trimmed : `Voix ${index + 1}`;
+}
+
+function createSpeakerId(): SpeakerId {
+  const suffix =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
+  return `speaker.${suffix}` as SpeakerId;
+}
 
 function revokeObjectUrl(url: string | null): void {
   if (url !== null) {
@@ -183,11 +292,47 @@ function revokeObjectUrl(url: string | null): void {
   }
 }
 
+function disconnectAudioNode(node: AudioNode | null): void {
+  try {
+    node?.disconnect();
+  } catch {
+    // Browser implementations can throw when a node is already disconnected.
+  }
+}
+
+async function closeAmbientAudioContext(
+  audioContext: AudioContext,
+): Promise<void> {
+  try {
+    if (audioContext.state !== "closed") {
+      await audioContext.close();
+    }
+  } catch {
+    // Closing the ambient monitor should never block the recording workflow.
+  }
+}
+
 function clampPercent(value: number): number {
   return Math.min(100, Math.max(0, value));
 }
 
+function softLimitWaveSample(
+  value: number,
+  threshold: number,
+  ratio: number,
+): number {
+  const absoluteValue = Math.abs(value);
+
+  if (absoluteValue <= threshold) {
+    return value;
+  }
+
+  return Math.sign(value) * (threshold + (absoluteValue - threshold) / ratio);
+}
+
 export function App() {
+  const [studioAwake, setStudioAwake] = useState(false);
+  const [ritualStatus, setRitualStatus] = useState<RitualStatus>("idle");
   const [screen, setScreen] = useState<Screen>("home");
   const [workspace, setWorkspace] = useState<VoiceWorkspace | null>(null);
   const [workspaceDurability, setWorkspaceDurability] =
@@ -241,6 +386,7 @@ export function App() {
   const [roomToneProgress, setRoomToneProgress] = useState(0);
   const [sessionRoomTone, setSessionRoomTone] =
     useState<RoomToneCalibration | null>(null);
+  const [reviewPlaybackProgress, setReviewPlaybackProgress] = useState(0);
   const [isFinalizing, setIsFinalizing] = useState(false);
   const [isSpeakingReference, setIsSpeakingReference] = useState(false);
   const [diagnostics, setDiagnostics] = useState<RuntimeDiagnostics>(() =>
@@ -261,6 +407,7 @@ export function App() {
   const backingTrackUrlRef = useRef<string | null>(null);
   const storedRecordingUrlsRef = useRef<readonly string[]>([]);
   const datasetZipUrlRef = useRef<string | null>(null);
+  const ambientMonitorRef = useRef<AmbientMicrophoneMonitor | null>(null);
   const isPersistingRef = useRef(false);
   const roomToneCaptureTimerRef = useRef<number | null>(null);
   const roomToneProgressTimerRef = useRef<number | null>(null);
@@ -276,7 +423,11 @@ export function App() {
   const finishRecordingRef = useRef<() => void>(() => undefined);
   const hasCalibratedCurrentSessionRef = useRef(false);
 
-  const selectedSpeaker = initialSpeakers.find(
+  const speakerProfiles = useMemo(
+    () => createSpeakerProfiles(workspace?.speakers),
+    [workspace?.speakers],
+  );
+  const selectedSpeaker = speakerProfiles.find(
     (speaker) => speaker.id === selectedSpeakerId,
   );
   const localCorpus = useMemo<LocalTextCorpus | null>(() => {
@@ -321,6 +472,24 @@ export function App() {
     activePrompt && coverage
       ? explainPromptChoice(activePrompt, coverage)
       : null;
+
+  useEffect(() => {
+    const fallbackSpeaker = speakerProfiles[0];
+
+    if (fallbackSpeaker === undefined) {
+      return;
+    }
+
+    const nextSpeaker = selectedSpeaker ?? fallbackSpeaker;
+
+    if (nextSpeaker.id !== selectedSpeakerId) {
+      setSelectedSpeakerId(nextSpeaker.id);
+    }
+
+    if (!nextSpeaker.supportedLanguages.includes(selectedLanguage)) {
+      setSelectedLanguage(nextSpeaker.primaryLanguage);
+    }
+  }, [selectedLanguage, selectedSpeaker, selectedSpeakerId, speakerProfiles]);
 
   useEffect(() => {
     setFolderName(getRememberedFolderName());
@@ -405,6 +574,7 @@ export function App() {
       }
 
       releaseRecordingWakeLock();
+      stopAmbientMicrophoneMonitor();
       revokeObjectUrl(downloadUrlRef.current);
       revokeObjectUrl(metadataDownloadUrlRef.current);
       revokeObjectUrl(workspaceBackupUrlRef.current);
@@ -469,6 +639,119 @@ export function App() {
   useEffect(() => {
     finishRecordingRef.current = finishRecording;
   });
+
+  async function awakenStudio() {
+    if (studioAwake || ritualStatus === "requesting") {
+      return;
+    }
+
+    const captureBlocker = getCaptureBlocker(diagnostics);
+
+    if (captureBlocker !== null) {
+      setRitualStatus("denied");
+      setMessage(captureBlocker);
+      return;
+    }
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setRitualStatus("denied");
+      setMessage(
+        "Micro indisponible ici. Ouvre le site en HTTPS et autorise le micro.",
+      );
+      return;
+    }
+
+    setRitualStatus("requesting");
+
+    try {
+      const monitor = await createAmbientMicrophoneMonitor();
+
+      stopAmbientMicrophoneMonitor();
+      ambientMonitorRef.current = monitor;
+      setStudioAwake(true);
+      setRitualStatus("idle");
+      setMessage(createRuntimeHomeMessage(diagnostics));
+    } catch (error) {
+      setRitualStatus("denied");
+      setMessage(createMicrophoneErrorMessage(error));
+      void refreshDiagnostics(false);
+    }
+  }
+
+  async function createAmbientMicrophoneMonitor(): Promise<AmbientMicrophoneMonitor> {
+    const AudioContextConstructor =
+      window.AudioContext ??
+      (window as WindowWithAudioContext).webkitAudioContext;
+
+    if (AudioContextConstructor === undefined) {
+      throw new Error("AudioContext is not available in this browser.");
+    }
+
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false,
+        channelCount: 1,
+      },
+    });
+    const audioContext = new AudioContextConstructor();
+    const source = audioContext.createMediaStreamSource(stream);
+    const analyser = audioContext.createAnalyser();
+    const frequencyData = new Uint8Array(analyser.frequencyBinCount);
+    const timeData = new Uint8Array(analyser.fftSize);
+    let frameId = 0;
+    let smoothedLevel = 0;
+
+    analyser.fftSize = 2048;
+    analyser.minDecibels = -100;
+    analyser.maxDecibels = -8;
+    analyser.smoothingTimeConstant = 0.42;
+    source.connect(analyser);
+
+    if (audioContext.state === "suspended") {
+      await audioContext.resume();
+    }
+
+    function updateAmbientLevel() {
+      analyser.getByteFrequencyData(frequencyData);
+      analyser.getByteTimeDomainData(timeData);
+
+      let sumSquares = 0;
+
+      for (const value of timeData) {
+        const normalized = (value - 128) / 128;
+
+        sumSquares += normalized * normalized;
+      }
+
+      const rms = Math.sqrt(sumSquares / Math.max(1, timeData.length));
+      smoothedLevel += (rms - smoothedLevel) * 0.12;
+
+      if (pcmRecorderRef.current === null && !isPersistingRef.current) {
+        updateVisualAudioLevel(Math.min(1, smoothedLevel * 4.8));
+      }
+
+      frameId = window.requestAnimationFrame(updateAmbientLevel);
+    }
+
+    frameId = window.requestAnimationFrame(updateAmbientLevel);
+
+    return {
+      stream,
+      stop() {
+        window.cancelAnimationFrame(frameId);
+        disconnectAudioNode(source);
+        stream.getTracks().forEach((track) => track.stop());
+        void closeAmbientAudioContext(audioContext);
+      },
+    };
+  }
+
+  function stopAmbientMicrophoneMonitor() {
+    ambientMonitorRef.current?.stop();
+    ambientMonitorRef.current = null;
+  }
 
   useEffect(() => {
     if (screen !== "karaoke" || words.length === 0) {
@@ -752,6 +1035,74 @@ export function App() {
     }
   }
 
+  function selectSpeaker(speakerId: SpeakerId) {
+    const speaker = speakerProfiles.find((item) => item.id === speakerId);
+
+    setSelectedSpeakerId(speakerId);
+    setSelectedLanguage(speaker?.primaryLanguage ?? selectedLanguage);
+    setSession(null);
+    resetTakeOutputState();
+  }
+
+  async function createSpeaker(input: CreateSpeakerInput): Promise<boolean> {
+    const currentWorkspace = await ensureWorkspace().catch(() => null);
+
+    if (currentWorkspace === null) {
+      return false;
+    }
+
+    const existingSpeakers =
+      currentWorkspace.speakers.length > 0
+        ? currentWorkspace.speakers
+        : speakerProfiles.map(createWorkspaceSpeakerFromProfile);
+    const requestedName = input.displayName.trim();
+    const baseDisplayName =
+      requestedName.length > 0
+        ? requestedName
+        : `Voix ${existingSpeakers.length + 1}`;
+    const existingNames = new Set(
+      existingSpeakers.map((speaker, index) =>
+        normalizeSpeakerDisplayName(
+          speaker.displayName,
+          index,
+        ).toLocaleLowerCase("fr-FR"),
+      ),
+    );
+    let displayName = baseDisplayName;
+    let suffix = 2;
+
+    while (existingNames.has(displayName.toLocaleLowerCase("fr-FR"))) {
+      displayName = `${baseDisplayName} ${suffix}`;
+      suffix += 1;
+    }
+
+    const languages = normalizeSpeakerLanguages(input.languages);
+    const nextSpeaker: WorkspaceSpeaker = {
+      speakerId: createSpeakerId(),
+      displayName,
+      languages,
+    };
+    const nextWorkspace: VoiceWorkspace = {
+      ...currentWorkspace,
+      updatedAt: new Date().toISOString() as VoiceWorkspace["updatedAt"],
+      speakers: [...existingSpeakers, nextSpeaker],
+    };
+    const result = await workspaceRepository.save(nextWorkspace);
+
+    if (!result.ok) {
+      setMessage(result.message);
+      return false;
+    }
+
+    applyWorkspaceReceipt(result.value);
+    setSelectedSpeakerId(nextSpeaker.speakerId);
+    setSelectedLanguage(languages[0] ?? DEFAULT_SPEAKER_LANGUAGE);
+    setSession(null);
+    resetTakeOutputState();
+    setMessage(`${displayName} créée.`);
+    return true;
+  }
+
   async function prepareSession() {
     const captureBlocker = getCaptureBlocker(diagnostics);
 
@@ -895,13 +1246,23 @@ export function App() {
     let stream: MediaStream | null = null;
 
     try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: false,
-          noiseSuppression: false,
-          autoGainControl: false,
-        },
-      });
+      const ambientStream = ambientMonitorRef.current?.stream ?? null;
+      const ambientStreamIsLive =
+        ambientStream
+          ?.getAudioTracks()
+          .some((track) => track.readyState === "live") ?? false;
+
+      if (ambientStream !== null && ambientStreamIsLive) {
+        stream = ambientStream.clone();
+      } else {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false,
+          },
+        });
+      }
       const recorder = await createPcmRecorder(stream, {
         onLevel: updateVisualAudioLevel,
       });
@@ -1448,6 +1809,7 @@ export function App() {
     setActiveWordIndex(0);
     setRecognizedTranscript("");
     setLastTake(null);
+    setReviewPlaybackProgress(0);
     setSavedFileName(null);
     setSavedLocation(null);
     replaceDownloadUrl(null);
@@ -1565,197 +1927,505 @@ export function App() {
   }
 
   const isCapturing = screen === "calibration" || screen === "karaoke";
+  const appClassName = [
+    "simple-app",
+    `screen-${screen}`,
+    studioAwake ? "is-awake" : "is-ritual",
+    isCapturing ? "is-recording" : "",
+    isFinalizing ? "is-finalizing" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   return (
     <main
-      className={`simple-app${isCapturing ? " is-recording" : ""}`}
+      className={appClassName}
       onPointerDown={updateAmbientPointer}
       onPointerLeave={settleAmbientPointer}
       onPointerMove={updateAmbientPointer}
       style={{ "--audio-level": audioLevel } as CSSProperties}
     >
-      <AmbientBackdrop />
-      <header className="simple-header">
-        <button
-          className="brand-button"
-          disabled={isCapturing || isFinalizing}
-          onClick={() => setScreen("home")}
-          type="button"
-        >
-          <span>
-            <em>electronic</em>
-            <b>Artefacts</b>
-          </span>
-          <strong>Voice Capture Studio</strong>
-        </button>
-        <div className="header-actions">
-          <a
-            className="site-signature"
-            href="https://www.electronicartefacts.com"
-            rel="noreferrer"
-            target="_blank"
-          >
-            www.electronicartefacts.com
-          </a>
-          <button
-            className="quiet-button"
-            aria-label="Qualité et exports"
-            disabled={isCapturing || isFinalizing}
-            onClick={() => setScreen("technical")}
-            type="button"
-          >
-            <Info aria-hidden="true" size={17} />
-            <span>Qualité</span>
-          </button>
-        </div>
-      </header>
+      <AmbientBackdrop awake={studioAwake} />
+      <VoiceWaveformSurface
+        audioLevel={audioLevel}
+        awake={studioAwake}
+        playbackProgress={reviewPlaybackProgress}
+        screen={screen}
+      />
 
-      {screen === "technical" ? (
-        <TechnicalPage
-          captureMode={captureMode}
-          corpusId={activeCorpus?.id ?? null}
-          corpusVersion={activeCorpus?.version ?? null}
-          coverage={coverage}
-          coveragePercent={coverage?.percent ?? 0}
-          datasetExportState={datasetExportState}
-          diagnostics={diagnostics}
-          folderName={folderName}
-          onBack={() => setScreen("home")}
-          onDownloadDataset={downloadDatasetPackage}
-          onWriteDatasetToFolder={writeDatasetPackageToFolder}
-          recordings={storedRecordings}
-          savedSessions={workspace?.sessions.length ?? 0}
-          storageMode={
-            canChooseSystemFolder() ? "folder-capable" : "browser-downloads"
-          }
+      {!studioAwake ? (
+        <OpeningRitual
+          onAwaken={() => void awakenStudio()}
+          status={ritualStatus}
         />
       ) : (
-        <section className="session-stage">
-          {screen === "home" && (
-            <HomeScreen
-              backingAudioRef={backingAudioRef}
-              backingTrack={backingTrack}
-              backingTrackLoop={backingTrackLoop}
-              backingTrackVolume={backingTrackVolume}
-              captureProfile={workspace?.settings.captureProfile}
+        <>
+          <header className="simple-header">
+            <button
+              className="brand-button"
+              disabled={isCapturing || isFinalizing}
+              onClick={() => setScreen("home")}
+              type="button"
+            >
+              <span>
+                <em>electronic</em>
+                <b>Artefacts</b>
+              </span>
+              <strong>Voice Capture Studio</strong>
+            </button>
+            <div className="header-actions">
+              <a
+                className="site-signature"
+                href="https://www.electronicartefacts.com"
+                rel="noreferrer"
+                target="_blank"
+              >
+                www.electronicartefacts.com
+              </a>
+              <button
+                className="quiet-button"
+                aria-label="Qualité et exports"
+                disabled={isCapturing || isFinalizing}
+                onClick={() => setScreen("technical")}
+                type="button"
+              >
+                <Info aria-hidden="true" size={17} />
+                <span>Qualité</span>
+              </button>
+            </div>
+          </header>
+
+          {screen === "technical" ? (
+            <TechnicalPage
               captureMode={captureMode}
+              corpusId={activeCorpus?.id ?? null}
+              corpusVersion={activeCorpus?.version ?? null}
               coverage={coverage}
-              customCorpusSourceName={customCorpusSourceName}
-              customCorpusText={customCorpusText}
+              coveragePercent={coverage?.percent ?? 0}
+              datasetExportState={datasetExportState}
               diagnostics={diagnostics}
               folderName={folderName}
-              language={selectedLanguage}
-              localCorpusSummary={localCorpus?.summary ?? null}
-              onBackingTrackChange={loadBackingTrackFile}
-              onBackingTrackClear={clearBackingTrack}
-              onBackingTrackLoopChange={setBackingTrackLoop}
-              onBackingTrackVolumeChange={setBackingTrackVolume}
-              onCaptureModeChange={selectCaptureMode}
-              message={message}
-              onChooseFolder={selectFolder}
-              onCustomCorpusFile={loadCustomCorpusFile}
-              onCustomCorpusTextChange={(text) =>
-                updateCustomCorpusText(
-                  text,
-                  customCorpusSourceName ?? "Texte libre",
-                )
-              }
-              onLanguageChange={setSelectedLanguage}
-              onProfileChange={updateCaptureProfile}
-              onRefreshDiagnostics={() => void refreshDiagnostics()}
-              onSpeakerChange={(speakerId) => {
-                const speaker = initialSpeakers.find(
-                  (item) => item.id === speakerId,
-                );
-                setSelectedSpeakerId(speakerId);
-                setSelectedLanguage(
-                  speaker?.primaryLanguage ?? selectedLanguage,
-                );
-              }}
-              onStart={prepareSession}
-              savedSessions={workspace?.sessions.length ?? 0}
-              selectedSpeaker={selectedSpeaker}
-              selectedSpeakerId={selectedSpeakerId}
-              workspaceBackupFileName={workspaceBackupFileName}
-              workspaceBackupUrl={workspaceBackupUrl}
-              workspaceDurability={workspaceDurability}
-            />
-          )}
-
-          {screen === "permission" && (
-            <PermissionScreen
-              insight={activePromptInsight}
-              diagnostics={diagnostics}
-              isSpeakingReference={isSpeakingReference}
-              message={message}
-              prompt={activePrompt}
-              onAllow={allowMicrophoneAndStart}
               onBack={() => setScreen("home")}
-              onReference={
-                isSpeakingReference ? stopPromptReference : speakPromptReference
+              onDownloadDataset={downloadDatasetPackage}
+              onWriteDatasetToFolder={writeDatasetPackageToFolder}
+              recordings={storedRecordings}
+              savedSessions={workspace?.sessions.length ?? 0}
+              storageMode={
+                canChooseSystemFolder() ? "folder-capable" : "browser-downloads"
               }
             />
-          )}
+          ) : (
+            <section className="session-stage">
+              {screen === "home" && (
+                <HomeScreen
+                  backingAudioRef={backingAudioRef}
+                  backingTrack={backingTrack}
+                  backingTrackLoop={backingTrackLoop}
+                  backingTrackVolume={backingTrackVolume}
+                  captureProfile={workspace?.settings.captureProfile}
+                  captureMode={captureMode}
+                  coverage={coverage}
+                  customCorpusSourceName={customCorpusSourceName}
+                  customCorpusText={customCorpusText}
+                  diagnostics={diagnostics}
+                  folderName={folderName}
+                  language={selectedLanguage}
+                  localCorpusSummary={localCorpus?.summary ?? null}
+                  onBackingTrackChange={loadBackingTrackFile}
+                  onBackingTrackClear={clearBackingTrack}
+                  onBackingTrackLoopChange={setBackingTrackLoop}
+                  onBackingTrackVolumeChange={setBackingTrackVolume}
+                  onCaptureModeChange={selectCaptureMode}
+                  message={message}
+                  onChooseFolder={selectFolder}
+                  onCustomCorpusFile={loadCustomCorpusFile}
+                  onCustomCorpusTextChange={(text) =>
+                    updateCustomCorpusText(
+                      text,
+                      customCorpusSourceName ?? "Texte libre",
+                    )
+                  }
+                  onLanguageChange={setSelectedLanguage}
+                  onProfileChange={updateCaptureProfile}
+                  onRefreshDiagnostics={() => void refreshDiagnostics()}
+                  onSpeakerChange={selectSpeaker}
+                  onSpeakerCreate={createSpeaker}
+                  onStart={prepareSession}
+                  savedSessions={workspace?.sessions.length ?? 0}
+                  speakers={speakerProfiles}
+                  selectedSpeaker={selectedSpeaker}
+                  selectedSpeakerId={selectedSpeakerId}
+                  workspaceBackupFileName={workspaceBackupFileName}
+                  workspaceBackupUrl={workspaceBackupUrl}
+                  workspaceDurability={workspaceDurability}
+                />
+              )}
 
-          {screen === "calibration" && (
-            <RoomToneCalibrationScreen
-              audioLevel={audioLevel}
-              progress={roomToneProgress}
-              totalMs={ROOM_TONE_CAPTURE_MS}
-            />
-          )}
+              {screen === "permission" && (
+                <PermissionScreen
+                  insight={activePromptInsight}
+                  diagnostics={diagnostics}
+                  isSpeakingReference={isSpeakingReference}
+                  message={message}
+                  prompt={activePrompt}
+                  onAllow={allowMicrophoneAndStart}
+                  onBack={() => setScreen("home")}
+                  onReference={
+                    isSpeakingReference
+                      ? stopPromptReference
+                      : speakPromptReference
+                  }
+                />
+              )}
 
-          {screen === "karaoke" && (
-            <KaraokeScreen
-              activeWordIndex={activeWordIndex}
-              audioLevel={audioLevel}
-              currentPromptIndex={currentPromptIndex}
-              isFinalizing={isFinalizing}
-              onStop={finishRecording}
-              prompt={activePrompt}
-              readingGuideMode={readingGuideMode}
-              recognizedTranscript={recognizedTranscript}
-              roomTone={sessionRoomTone}
-              totalPrompts={session?.plannedPromptIds.length ?? 0}
-              words={words}
-            />
-          )}
+              {screen === "calibration" && (
+                <RoomToneCalibrationScreen
+                  audioLevel={audioLevel}
+                  progress={roomToneProgress}
+                  totalMs={ROOM_TONE_CAPTURE_MS}
+                />
+              )}
 
-          {screen === "done" && (
-            <DoneScreen
-              downloadUrl={downloadUrl}
-              fileName={savedFileName}
-              location={savedLocation}
-              metadataDownloadUrl={metadataDownloadUrl}
-              message={message}
-              nextRecommendation={coverage?.nextRecommendation ?? null}
-              progressLabel={
-                session === null
-                  ? null
-                  : `Phrase ${Math.min(currentPromptIndex + 1, session.plannedPromptIds.length)} sur ${
-                      session.plannedPromptIds.length
-                    }`
-              }
-              take={lastTake}
-              hasNextPrompt={
-                session !== null &&
-                currentPromptIndex < session.plannedPromptIds.length - 1 &&
-                lastTake?.quality.verdict === "pass"
-              }
-              onAgain={prepareSession}
-              onNext={continueToNextPrompt}
-              onHome={() => setScreen("home")}
-              onRetake={retakeCurrentPrompt}
-            />
+              {screen === "karaoke" && (
+                <KaraokeScreen
+                  activeWordIndex={activeWordIndex}
+                  audioLevel={audioLevel}
+                  currentPromptIndex={currentPromptIndex}
+                  isFinalizing={isFinalizing}
+                  onStop={finishRecording}
+                  prompt={activePrompt}
+                  readingGuideMode={readingGuideMode}
+                  recognizedTranscript={recognizedTranscript}
+                  roomTone={sessionRoomTone}
+                  totalPrompts={session?.plannedPromptIds.length ?? 0}
+                  words={words}
+                />
+              )}
+
+              {screen === "done" && (
+                <DoneScreen
+                  downloadUrl={downloadUrl}
+                  fileName={savedFileName}
+                  location={savedLocation}
+                  metadataDownloadUrl={metadataDownloadUrl}
+                  message={message}
+                  nextRecommendation={coverage?.nextRecommendation ?? null}
+                  onPlaybackEnergyChange={updateVisualAudioLevel}
+                  onPlaybackProgressChange={setReviewPlaybackProgress}
+                  progressLabel={
+                    session === null
+                      ? null
+                      : `Phrase ${Math.min(currentPromptIndex + 1, session.plannedPromptIds.length)} sur ${
+                          session.plannedPromptIds.length
+                        }`
+                  }
+                  take={lastTake}
+                  hasNextPrompt={
+                    session !== null &&
+                    currentPromptIndex < session.plannedPromptIds.length - 1 &&
+                    lastTake?.quality.verdict === "pass"
+                  }
+                  onAgain={prepareSession}
+                  onNext={continueToNextPrompt}
+                  onHome={() => setScreen("home")}
+                  onRetake={retakeCurrentPrompt}
+                />
+              )}
+            </section>
           )}
-        </section>
+        </>
       )}
     </main>
   );
 }
 
-function AmbientBackdrop() {
-  return <div aria-hidden="true" className="ambient-backdrop" />;
+function OpeningRitual(input: {
+  readonly onAwaken: () => void;
+  readonly status: RitualStatus;
+}) {
+  const buttonLabel =
+    input.status === "requesting"
+      ? "Listening..."
+      : input.status === "denied"
+        ? "Try microphone again"
+        : "Enable your microphone";
+
+  return (
+    <section className="opening-ritual" aria-live="polite">
+      <div>
+        <h1>Welcome to Voice Capture Studio.</h1>
+        <button
+          className="ritual-button"
+          disabled={input.status === "requesting"}
+          onClick={input.onAwaken}
+          type="button"
+        >
+          <Mic aria-hidden="true" size={18} />
+          <span>{buttonLabel}</span>
+        </button>
+        {input.status === "denied" && (
+          <p>Microphone access is required to enter the studio.</p>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function VoiceWaveformSurface(input: {
+  readonly audioLevel: number;
+  readonly awake: boolean;
+  readonly playbackProgress: number;
+  readonly screen: Screen;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const audioLevelRef = useRef(input.audioLevel);
+  const awakeRef = useRef(input.awake);
+  const playbackProgressRef = useRef(input.playbackProgress);
+  const screenRef = useRef(input.screen);
+
+  useEffect(() => {
+    audioLevelRef.current = input.audioLevel;
+  }, [input.audioLevel]);
+
+  useEffect(() => {
+    awakeRef.current = input.awake;
+  }, [input.awake]);
+
+  useEffect(() => {
+    playbackProgressRef.current = input.playbackProgress;
+  }, [input.playbackProgress]);
+
+  useEffect(() => {
+    screenRef.current = input.screen;
+  }, [input.screen]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const context = canvas?.getContext("2d");
+
+    if (canvas === null || context === undefined || context === null) {
+      return;
+    }
+
+    const surfaceCanvas = canvas;
+    const ctx = context;
+    const previousWaveform = new Float32Array(WAVEFORM_DISPLAY_SAMPLES).fill(0);
+    let frameId = 0;
+
+    function resize() {
+      const dpr = window.devicePixelRatio || 1;
+
+      surfaceCanvas.width = Math.floor(window.innerWidth * dpr);
+      surfaceCanvas.height = Math.floor(window.innerHeight * dpr);
+      surfaceCanvas.style.width = `${window.innerWidth}px`;
+      surfaceCanvas.style.height = `${window.innerHeight}px`;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+
+    function readColor(variableName: string, fallback: string): string {
+      return (
+        getComputedStyle(document.documentElement)
+          .getPropertyValue(variableName)
+          .trim() || fallback
+      );
+    }
+
+    function createWaveSample(
+      index: number,
+      timeSeconds: number,
+      level: number,
+      state: Screen,
+    ): number {
+      const position = index / Math.max(1, WAVEFORM_DISPLAY_SAMPLES - 1);
+      const phase = position * Math.PI * 2;
+      const recordingGain =
+        state === "karaoke" ? 1 : state === "calibration" ? 0.42 : 0.22;
+      const reviewGain = state === "done" ? 0.52 : 0;
+      const quietMotion = 0.018 + (state === "home" ? 0.012 : 0);
+      const gain = quietMotion + level * (recordingGain + reviewGain);
+      const carrier =
+        Math.sin(phase * 2.8 + timeSeconds * 1.7) * 0.42 +
+        Math.sin(phase * 5.7 - timeSeconds * 1.15) * 0.27 +
+        Math.sin(phase * 11.2 + timeSeconds * 0.72) * 0.13;
+      const breath =
+        Math.sin(timeSeconds * 0.85 + index * 0.037) * (0.03 + level * 0.08);
+
+      return softLimitWaveSample(carrier * gain + breath, 0.88, 4.8);
+    }
+
+    function drawSpline(
+      points: readonly { readonly x: number; readonly y: number }[],
+      offsetScale: number,
+      lineWidth: number,
+      alpha: number,
+      color: string,
+    ) {
+      if (points.length < 2) {
+        return;
+      }
+
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.strokeStyle = color;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.lineWidth = lineWidth;
+      ctx.beginPath();
+      ctx.moveTo(points[0].x, points[0].y);
+
+      for (let index = 0; index < points.length - 1; index += 1) {
+        const p0 = index > 0 ? points[index - 1] : points[0];
+        const p1 = points[index];
+        const p2 = points[index + 1];
+        const p3 =
+          index + 2 < points.length ? points[index + 2] : (points.at(-1) ?? p2);
+        const dx = p2.x - p1.x;
+        const dy = p2.y - p1.y;
+        const length = Math.max(1, Math.hypot(dx, dy));
+        const normalX = (-dy / length) * offsetScale;
+        const normalY = (dx / length) * offsetScale;
+        const cp1x = p1.x + (p2.x - p0.x) / 6 + normalX;
+        const cp1y = p1.y + (p2.y - p0.y) / 6 + normalY;
+        const cp2x = p2.x - (p3.x - p1.x) / 6 + normalX;
+        const cp2y = p2.y - (p3.y - p1.y) / 6 + normalY;
+
+        ctx.bezierCurveTo(
+          cp1x,
+          cp1y,
+          cp2x,
+          cp2y,
+          p2.x + normalX,
+          p2.y + normalY,
+        );
+      }
+
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function draw() {
+      const width = window.innerWidth;
+      const height = window.innerHeight;
+      const timeSeconds = performance.now() * 0.001;
+      const waveColor = readColor("--wave-color", "rgba(255,255,255,0.96)");
+      const guideColor = readColor("--wave-guide", "rgba(255,255,255,0.16)");
+      const playheadColor = readColor(
+        "--wave-playhead",
+        "rgba(122,220,255,0.9)",
+      );
+      const state = screenRef.current;
+      const isAwake = awakeRef.current;
+      const level = isAwake
+        ? Math.max(0, Math.min(1, audioLevelRef.current))
+        : 0;
+
+      ctx.clearRect(0, 0, width, height);
+
+      if (!isAwake) {
+        frameId = window.requestAnimationFrame(draw);
+        return;
+      }
+
+      const centerRatio =
+        state === "home"
+          ? width < 720
+            ? 0.31
+            : 0.52
+          : state === "permission"
+            ? width < 720
+              ? 0.24
+              : 0.34
+            : 0.5;
+      const centerY = height * centerRatio;
+      const visualHeight = Math.min(260, height * 0.25);
+      const points: { x: number; y: number }[] = [];
+
+      for (let index = 0; index < WAVEFORM_DISPLAY_SAMPLES; index += 1) {
+        const position = index / Math.max(1, WAVEFORM_DISPLAY_SAMPLES - 1);
+        const edge = Math.abs(position - 0.5) * 2;
+        const envelope = Math.pow(
+          0.5 - 0.5 * Math.cos(Math.PI * Math.max(0, 1 - edge)),
+          1.8,
+        );
+        const targetSample = createWaveSample(index, timeSeconds, level, state);
+        const smoothing = state === "karaoke" ? 0.48 : 0.22;
+        const sample =
+          previousWaveform[index] +
+          (targetSample - previousWaveform[index]) * smoothing;
+
+        previousWaveform[index] = sample;
+        points.push({
+          x: width * position,
+          y: centerY + sample * (0.08 + envelope * 0.92) * visualHeight,
+        });
+      }
+
+      if (["calibration", "karaoke", "done"].includes(state)) {
+        ctx.save();
+        ctx.strokeStyle = guideColor;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(width / 2, centerY - visualHeight * 1.22);
+        ctx.lineTo(width / 2, centerY + visualHeight * 1.22);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      drawSpline(points, -4, 0.26, 0.04, waveColor);
+      drawSpline(points, -2.4, 0.42, 0.09, waveColor);
+      drawSpline(points, -1.1, 0.74, 0.2, waveColor);
+      drawSpline(points, -0.4, 1.18, 0.34, waveColor);
+      drawSpline(points, 0, state === "karaoke" ? 3.9 : 3.2, 0.92, waveColor);
+      drawSpline(points, 0.4, 1.18, 0.34, waveColor);
+      drawSpline(points, 1.1, 0.74, 0.2, waveColor);
+      drawSpline(points, 2.4, 0.42, 0.09, waveColor);
+      drawSpline(points, 4, 0.26, 0.04, waveColor);
+
+      if (state === "done") {
+        const progress = Math.max(0, Math.min(1, playbackProgressRef.current));
+        const x = width * progress;
+
+        ctx.save();
+        ctx.strokeStyle = playheadColor;
+        ctx.lineWidth = 1.4;
+        ctx.globalAlpha = 0.82;
+        ctx.beginPath();
+        ctx.moveTo(x, centerY - visualHeight * 1.08);
+        ctx.lineTo(x, centerY + visualHeight * 1.08);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      frameId = window.requestAnimationFrame(draw);
+    }
+
+    resize();
+    window.addEventListener("resize", resize);
+    frameId = window.requestAnimationFrame(draw);
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      window.removeEventListener("resize", resize);
+    };
+  }, []);
+
+  return (
+    <canvas aria-hidden="true" className="voice-wave-canvas" ref={canvasRef} />
+  );
+}
+
+function AmbientBackdrop(input: { readonly awake: boolean }) {
+  return (
+    <div
+      aria-hidden="true"
+      className={`ambient-backdrop${input.awake ? " is-awake" : ""}`}
+    >
+      <span className="voice-halo halo-a" />
+      <span className="voice-halo halo-b" />
+      <span className="voice-halo halo-c" />
+      <span className="voice-halo halo-d" />
+    </div>
+  );
 }
 
 function createModeMessage(mode: CaptureMode): string {
@@ -2262,9 +2932,11 @@ function HomeScreen(input: {
   readonly onProfileChange: (profile: CaptureProfile) => void;
   readonly onRefreshDiagnostics: () => void;
   readonly onSpeakerChange: (speakerId: SpeakerId) => void;
+  readonly onSpeakerCreate: (speaker: CreateSpeakerInput) => Promise<boolean>;
   readonly onStart: () => void;
   readonly savedSessions: number;
-  readonly selectedSpeaker: (typeof initialSpeakers)[number] | undefined;
+  readonly speakers: readonly SpeakerProfile[];
+  readonly selectedSpeaker: SpeakerProfile | undefined;
   readonly selectedSpeakerId: SpeakerId;
   readonly workspaceBackupFileName: string | null;
   readonly workspaceBackupUrl: string | null;
@@ -2417,41 +3089,15 @@ function HomeScreen(input: {
             </div>
           )}
 
-        <div className="simple-form">
-          <label>
-            <span>Qui parle ?</span>
-            <select
-              value={input.selectedSpeakerId}
-              onChange={(event) =>
-                input.onSpeakerChange(event.target.value as SpeakerId)
-              }
-            >
-              {initialSpeakers.map((speaker) => (
-                <option key={speaker.id} value={speaker.id}>
-                  {speaker.displayName}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label>
-            <span>Langue</span>
-            <select
-              value={input.language}
-              onChange={(event) =>
-                input.onLanguageChange(event.target.value as LanguageCode)
-              }
-            >
-              {(input.selectedSpeaker?.supportedLanguages ?? []).map(
-                (language) => (
-                  <option key={language} value={language}>
-                    {formatLanguage(language)}
-                  </option>
-                ),
-              )}
-            </select>
-          </label>
-        </div>
+        <VoiceManager
+          language={input.language}
+          onLanguageChange={input.onLanguageChange}
+          onSpeakerChange={input.onSpeakerChange}
+          onSpeakerCreate={input.onSpeakerCreate}
+          selectedSpeaker={input.selectedSpeaker}
+          selectedSpeakerId={input.selectedSpeakerId}
+          speakers={input.speakers}
+        />
 
         {input.captureMode !== "training" && (
           <LocalCorpusEditor
@@ -2532,6 +3178,137 @@ function HomeScreen(input: {
   );
 }
 
+function VoiceManager(input: {
+  readonly language: LanguageCode;
+  readonly onLanguageChange: (language: LanguageCode) => void;
+  readonly onSpeakerChange: (speakerId: SpeakerId) => void;
+  readonly onSpeakerCreate: (speaker: CreateSpeakerInput) => Promise<boolean>;
+  readonly selectedSpeaker: SpeakerProfile | undefined;
+  readonly selectedSpeakerId: SpeakerId;
+  readonly speakers: readonly SpeakerProfile[];
+}) {
+  const [draftName, setDraftName] = useState("");
+  const [draftLanguages, setDraftLanguages] = useState<readonly LanguageCode[]>(
+    [input.language],
+  );
+  const [isCreating, setIsCreating] = useState(false);
+  const languageOptions = normalizeSpeakerLanguages([
+    input.language,
+    ...(input.selectedSpeaker?.supportedLanguages ?? []),
+  ]);
+  const nextDefaultName = `Voix ${input.speakers.length + 1}`;
+
+  function toggleDraftLanguage(language: LanguageCode) {
+    setDraftLanguages((current) => {
+      if (!current.includes(language)) {
+        return [...current, language];
+      }
+
+      return current.length > 1
+        ? current.filter((item) => item !== language)
+        : current;
+    });
+  }
+
+  async function submitSpeaker(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (isCreating) {
+      return;
+    }
+
+    setIsCreating(true);
+
+    try {
+      const created = await input.onSpeakerCreate({
+        displayName: draftName.trim() || nextDefaultName,
+        languages: draftLanguages,
+      });
+
+      if (created) {
+        setDraftName("");
+        setDraftLanguages([input.language]);
+      }
+    } finally {
+      setIsCreating(false);
+    }
+  }
+
+  return (
+    <section className="voice-manager" aria-label="Voix">
+      <div className="simple-form voice-selectors">
+        <label>
+          <span>Voix</span>
+          <select
+            value={input.selectedSpeakerId}
+            onChange={(event) =>
+              input.onSpeakerChange(event.target.value as SpeakerId)
+            }
+          >
+            {input.speakers.map((speaker) => (
+              <option key={speaker.id} value={speaker.id}>
+                {speaker.displayName}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label>
+          <span>Langue</span>
+          <select
+            value={input.language}
+            onChange={(event) =>
+              input.onLanguageChange(event.target.value as LanguageCode)
+            }
+          >
+            {languageOptions.map((language) => (
+              <option key={language} value={language}>
+                {formatLanguage(language)}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      <form className="voice-create" onSubmit={submitSpeaker}>
+        <label className="voice-name-field">
+          <span>Nouvelle voix</span>
+          <input
+            disabled={isCreating}
+            onChange={(event) => setDraftName(event.target.value)}
+            placeholder={nextDefaultName}
+            type="text"
+            value={draftName}
+          />
+        </label>
+
+        <div className="voice-language-toggles" aria-label="Langues">
+          {supportedLanguages.map((language) => (
+            <label className="language-toggle" key={language.code}>
+              <input
+                checked={draftLanguages.includes(language.code)}
+                disabled={isCreating}
+                onChange={() => toggleDraftLanguage(language.code)}
+                type="checkbox"
+              />
+              <span>{formatLanguage(language.code)}</span>
+            </label>
+          ))}
+        </div>
+
+        <button
+          className="folder-button compact voice-create-button"
+          disabled={isCreating}
+          type="submit"
+        >
+          <UserPlus aria-hidden="true" size={17} />
+          <span>{isCreating ? "Création" : "Créer"}</span>
+        </button>
+      </form>
+    </section>
+  );
+}
+
 const captureModeOptions: readonly {
   readonly mode: CaptureMode;
   readonly icon: typeof Mic;
@@ -2547,9 +3324,9 @@ const captureModeOptions: readonly {
     icon: Mic,
     title: "Dataset ML",
     pill: "Corpus intégré",
-    kicker: "Capture vocale guidée",
-    headline: "Corpus ML propre pour entraîner une voix.",
-    workbenchTitle: "Session dataset",
+    kicker: "Laboratoire dataset",
+    headline: "Une voix stable, captée comme une matière vivante.",
+    workbenchTitle: "Console dataset",
     summary:
       "Phrases calibrées, progression phonétique et exports d'entraînement.",
   },
@@ -2558,9 +3335,9 @@ const captureModeOptions: readonly {
     icon: Clapperboard,
     title: "Doublage",
     pill: "Script local",
-    kicker: "Doublage cinéma",
-    headline: "Répliques locales pour une prise de doublage.",
-    workbenchTitle: "Session doublage",
+    kicker: "Laboratoire doublage",
+    headline: "Une surface d'écoute pour habiter chaque réplique.",
+    workbenchTitle: "Console doublage",
     summary: "Texte collé ou fichier découpé en répliques enregistrables.",
   },
   {
@@ -2568,9 +3345,9 @@ const captureModeOptions: readonly {
     icon: Headphones,
     title: "Master audio",
     pill: "Retour casque",
-    kicker: "Master voix",
-    headline: "Prises voix avec musique au casque.",
-    workbenchTitle: "Session master",
+    kicker: "Laboratoire master",
+    headline: "Une prise voix centrée dans son environnement sonore.",
+    workbenchTitle: "Console master",
     summary: "Texte local, piste de référence et capture voix séparée.",
   },
 ];
@@ -3081,8 +3858,8 @@ function PermissionScreen(input: {
           <ShieldCheck aria-hidden="true" size={28} />
         </div>
         <div>
-          <p className="soft-label">Consigne de prise</p>
-          <h1>Prépare la phrase, puis lance la prise.</h1>
+          <p className="soft-label">Seuil de prise</p>
+          <h1>La surface attend ta voix.</h1>
         </div>
       </div>
       <p aria-live="polite">{input.message}</p>
@@ -3514,6 +4291,445 @@ function createKaraokeVisualLines(
   return lines;
 }
 
+function ListeningReviewSurface(input: {
+  readonly audioUrl: string | null;
+  readonly fileName: string | null;
+  readonly onEnergyChange: (level: number) => void;
+  readonly onProgressChange: (progress: number) => void;
+  readonly take: RecordedTake | null;
+}) {
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const onEnergyChangeRef = useRef(input.onEnergyChange);
+  const onProgressChangeRef = useRef(input.onProgressChange);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(
+    Math.max(0, (input.take?.durationMs ?? 0) / 1000),
+  );
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [loopEnabled, setLoopEnabled] = useState(false);
+  const [loopStart, setLoopStart] = useState(0);
+  const [loopEnd, setLoopEnd] = useState(1);
+  const wordTimings = useMemo(
+    () => createReviewWordTimings(input.take),
+    [input.take],
+  );
+  const waveformBars = useMemo(
+    () =>
+      Array.from({ length: 92 }, (_, index) => {
+        const primary = Math.abs(Math.sin(index * 0.43));
+        const secondary = Math.abs(Math.sin(index * 0.17 + 1.4));
+        const center = 1 - Math.abs(index / 91 - 0.5) * 1.24;
+
+        return Math.max(
+          18,
+          (0.3 + primary * 0.48 + secondary * 0.22) * 100 * center,
+        );
+      }),
+    [input.take?.id],
+  );
+  const durationSeconds = Math.max(
+    duration,
+    (input.take?.durationMs ?? 0) / 1000,
+  );
+  const playbackProgress =
+    durationSeconds <= 0
+      ? 0
+      : Math.max(0, Math.min(1, currentTime / durationSeconds));
+  const loopStartTime = loopStart * durationSeconds;
+  const loopEndTime = loopEnd * durationSeconds;
+  const activeWordIndex = findActiveReviewWordIndex(
+    wordTimings,
+    currentTime * 1000,
+  );
+
+  useEffect(() => {
+    onEnergyChangeRef.current = input.onEnergyChange;
+    onProgressChangeRef.current = input.onProgressChange;
+  }, [input.onEnergyChange, input.onProgressChange]);
+
+  useEffect(() => {
+    setCurrentTime(0);
+    setDuration(Math.max(0, (input.take?.durationMs ?? 0) / 1000));
+    setIsPlaying(false);
+    setLoopEnabled(false);
+    setLoopStart(0);
+    setLoopEnd(1);
+    onProgressChangeRef.current(0);
+    onEnergyChangeRef.current(0);
+  }, [input.audioUrl, input.take]);
+
+  useEffect(() => {
+    if (!isPlaying) {
+      onEnergyChangeRef.current(0.04);
+      return;
+    }
+
+    let frameId = 0;
+
+    function animatePlaybackEnergy() {
+      const audio = audioRef.current;
+      const progress =
+        audio === null || durationSeconds <= 0
+          ? playbackProgress
+          : audio.currentTime / durationSeconds;
+      const wordPulse = Math.abs(
+        Math.sin(progress * Math.PI * Math.max(2, wordTimings.length)),
+      );
+      const phrasePulse = Math.abs(Math.sin(progress * Math.PI * 2.2));
+
+      onEnergyChangeRef.current(
+        Math.min(1, 0.08 + wordPulse * 0.34 + phrasePulse * 0.18),
+      );
+      frameId = window.requestAnimationFrame(animatePlaybackEnergy);
+    }
+
+    frameId = window.requestAnimationFrame(animatePlaybackEnergy);
+
+    return () => window.cancelAnimationFrame(frameId);
+  }, [durationSeconds, isPlaying, playbackProgress, wordTimings.length]);
+
+  function updateTime(nextTime: number) {
+    const boundedTime = Math.max(0, Math.min(durationSeconds, nextTime));
+
+    setCurrentTime(boundedTime);
+    onProgressChangeRef.current(
+      durationSeconds <= 0
+        ? 0
+        : Math.max(0, Math.min(1, boundedTime / durationSeconds)),
+    );
+  }
+
+  function handleLoadedMetadata() {
+    const audio = audioRef.current;
+    const nextDuration =
+      audio === null || !Number.isFinite(audio.duration)
+        ? Math.max(0, (input.take?.durationMs ?? 0) / 1000)
+        : audio.duration;
+
+    setDuration(nextDuration);
+  }
+
+  function handleTimeUpdate() {
+    const audio = audioRef.current;
+
+    if (audio === null) {
+      return;
+    }
+
+    let nextTime = audio.currentTime;
+
+    if (
+      loopEnabled &&
+      durationSeconds > 0 &&
+      loopEndTime - loopStartTime > 0.24 &&
+      nextTime >= loopEndTime
+    ) {
+      audio.currentTime = loopStartTime;
+      nextTime = loopStartTime;
+    }
+
+    updateTime(nextTime);
+  }
+
+  function seekToProgress(nextProgress: number) {
+    const audio = audioRef.current;
+    const nextTime = Math.max(0, Math.min(1, nextProgress)) * durationSeconds;
+
+    if (audio !== null) {
+      audio.currentTime = nextTime;
+    }
+
+    updateTime(nextTime);
+  }
+
+  function seekToWord(index: number) {
+    const timing = wordTimings[index];
+
+    if (timing === undefined) {
+      return;
+    }
+
+    seekToProgress(
+      durationSeconds <= 0 ? 0 : timing.startMs / 1000 / durationSeconds,
+    );
+  }
+
+  function handleWaveformSeek(event: PointerEvent<HTMLDivElement>) {
+    const bounds = event.currentTarget.getBoundingClientRect();
+
+    if (bounds.width === 0) {
+      return;
+    }
+
+    seekToProgress((event.clientX - bounds.left) / bounds.width);
+  }
+
+  function handleWaveformKeyboard(event: KeyboardEvent<HTMLDivElement>) {
+    const step = event.shiftKey ? 0.1 : 0.025;
+
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      seekToProgress(playbackProgress - step);
+    }
+
+    if (event.key === "ArrowRight") {
+      event.preventDefault();
+      seekToProgress(playbackProgress + step);
+    }
+
+    if (event.key === "Home") {
+      event.preventDefault();
+      seekToProgress(0);
+    }
+
+    if (event.key === "End") {
+      event.preventDefault();
+      seekToProgress(1);
+    }
+  }
+
+  async function togglePlayback() {
+    const audio = audioRef.current;
+
+    if (audio === null) {
+      return;
+    }
+
+    if (isPlaying) {
+      audio.pause();
+      return;
+    }
+
+    if (loopEnabled && currentTime >= loopEndTime) {
+      audio.currentTime = loopStartTime;
+    }
+
+    await audio.play().catch(() => undefined);
+  }
+
+  function replay() {
+    const audio = audioRef.current;
+    const startTime = loopEnabled ? loopStartTime : 0;
+
+    if (audio !== null) {
+      audio.currentTime = startTime;
+      void audio.play().catch(() => undefined);
+    }
+
+    updateTime(startTime);
+  }
+
+  if (input.take === null) {
+    return (
+      <section className="listening-review" aria-label="Écoute de la prise">
+        <p className="soft-label">Écoute</p>
+        <p className="empty-export-state">
+          La prise apparaîtra ici quand le fichier audio sera disponible.
+        </p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="listening-review" aria-label="Écoute de la prise">
+      {input.audioUrl !== null && (
+        <audio
+          onEnded={() => {
+            setIsPlaying(false);
+            onEnergyChangeRef.current(0);
+          }}
+          onLoadedMetadata={handleLoadedMetadata}
+          onPause={() => setIsPlaying(false)}
+          onPlay={() => setIsPlaying(true)}
+          onTimeUpdate={handleTimeUpdate}
+          ref={audioRef}
+          src={input.audioUrl}
+        />
+      )}
+      <div className="listening-header">
+        <div>
+          <p className="soft-label">Écoute</p>
+          <h2>{input.fileName ?? input.take.fileName}</h2>
+        </div>
+        <span>
+          {formatPlaybackTime(currentTime)} /{" "}
+          {formatPlaybackTime(durationSeconds)}
+        </span>
+      </div>
+      <div
+        aria-label="Surface de lecture de la prise"
+        aria-valuemax={100}
+        aria-valuemin={0}
+        aria-valuenow={Math.round(playbackProgress * 100)}
+        className="playback-waveform"
+        onKeyDown={handleWaveformKeyboard}
+        onPointerDown={handleWaveformSeek}
+        role="slider"
+        tabIndex={0}
+      >
+        <span
+          aria-hidden="true"
+          className="loop-region"
+          style={{
+            left: `${loopStart * 100}%`,
+            width: `${Math.max(0, loopEnd - loopStart) * 100}%`,
+          }}
+        />
+        {waveformBars.map((height, index) => (
+          <i
+            aria-hidden="true"
+            className={
+              index / Math.max(1, waveformBars.length - 1) <= playbackProgress
+                ? "is-played"
+                : ""
+            }
+            key={index}
+            style={{ "--bar-height": `${height}%` } as CSSProperties}
+          />
+        ))}
+        <span
+          aria-hidden="true"
+          className="review-playhead"
+          style={{ left: `${playbackProgress * 100}%` }}
+        />
+      </div>
+      <div className="playback-controls">
+        <button
+          className="launch-button compact"
+          disabled={input.audioUrl === null}
+          onClick={() => void togglePlayback()}
+          type="button"
+        >
+          {isPlaying ? (
+            <Pause aria-hidden="true" size={18} />
+          ) : (
+            <Play aria-hidden="true" size={18} />
+          )}
+          <span>{isPlaying ? "Pause" : "Replay"}</span>
+        </button>
+        <button
+          className="folder-button compact"
+          disabled={input.audioUrl === null}
+          onClick={replay}
+          type="button"
+        >
+          <RotateCcw aria-hidden="true" size={17} />
+          <span>Reprendre</span>
+        </button>
+        <label className="inline-toggle loop-toggle">
+          <input
+            checked={loopEnabled}
+            onChange={(event) => setLoopEnabled(event.target.checked)}
+            type="checkbox"
+          />
+          <span>Boucle</span>
+        </label>
+      </div>
+      <div className="loop-editor" aria-label="Section de boucle">
+        <label>
+          <span>Début</span>
+          <input
+            max={Math.max(0, loopEnd - 0.04)}
+            min={0}
+            onChange={(event) =>
+              setLoopStart(Math.min(Number(event.target.value), loopEnd - 0.04))
+            }
+            step={0.01}
+            type="range"
+            value={loopStart}
+          />
+        </label>
+        <label>
+          <span>Fin</span>
+          <input
+            max={1}
+            min={Math.min(1, loopStart + 0.04)}
+            onChange={(event) =>
+              setLoopEnd(Math.max(Number(event.target.value), loopStart + 0.04))
+            }
+            step={0.01}
+            type="range"
+            value={loopEnd}
+          />
+        </label>
+      </div>
+      <div className="review-transcript" aria-label="Transcript synchronisé">
+        {wordTimings.map((timing, index) => (
+          <button
+            className={[
+              "review-word",
+              index === activeWordIndex ? "is-active" : "",
+              index < activeWordIndex ? "is-spoken" : "",
+            ]
+              .filter(Boolean)
+              .join(" ")}
+            key={`${timing.word}-${index}`}
+            onClick={() => seekToWord(index)}
+            type="button"
+          >
+            {timing.word}
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function createReviewWordTimings(take: RecordedTake | null): readonly {
+  readonly word: string;
+  readonly startMs: number;
+  readonly endMs: number;
+}[] {
+  if (take === null) {
+    return [];
+  }
+
+  if (take.timing.words.length > 0) {
+    return take.timing.words;
+  }
+
+  const words = take.transcript.spokenText.split(/\s+/).filter(Boolean);
+  const durationMs = Math.max(1, take.durationMs);
+
+  return words.map((word, index) => ({
+    word,
+    startMs: Math.round((durationMs / Math.max(1, words.length)) * index),
+    endMs: Math.round((durationMs / Math.max(1, words.length)) * (index + 1)),
+  }));
+}
+
+function findActiveReviewWordIndex(
+  wordTimings: readonly { readonly startMs: number; readonly endMs: number }[],
+  currentTimeMs: number,
+): number {
+  if (wordTimings.length === 0) {
+    return -1;
+  }
+
+  const exactIndex = wordTimings.findIndex(
+    (timing) =>
+      currentTimeMs >= timing.startMs && currentTimeMs <= timing.endMs,
+  );
+
+  if (exactIndex >= 0) {
+    return exactIndex;
+  }
+
+  const nextIndex = wordTimings.findIndex(
+    (timing) => currentTimeMs < timing.startMs,
+  );
+
+  return nextIndex === -1 ? wordTimings.length - 1 : Math.max(0, nextIndex - 1);
+}
+
+function formatPlaybackTime(seconds: number): string {
+  const boundedSeconds = Math.max(0, Number.isFinite(seconds) ? seconds : 0);
+  const minutes = Math.floor(boundedSeconds / 60);
+  const remainingSeconds = Math.floor(boundedSeconds % 60);
+
+  return `${minutes}:${remainingSeconds.toString().padStart(2, "0")}`;
+}
+
 function DoneScreen(input: {
   readonly downloadUrl: string | null;
   readonly fileName: string | null;
@@ -3525,6 +4741,8 @@ function DoneScreen(input: {
   readonly onAgain: () => void;
   readonly onHome: () => void;
   readonly onNext: () => void;
+  readonly onPlaybackEnergyChange: (level: number) => void;
+  readonly onPlaybackProgressChange: (progress: number) => void;
   readonly onRetake: () => void;
   readonly progressLabel: string | null;
   readonly take: RecordedTake | null;
@@ -3533,23 +4751,29 @@ function DoneScreen(input: {
 
   return (
     <div className="focus-card" aria-live="polite">
-      <div className={`result-mark${isKeeper ? " is-keeper" : ""}`}>
-        {isKeeper ? (
-          <Check aria-hidden="true" size={28} />
-        ) : (
-          <AlertTriangle aria-hidden="true" size={28} />
-        )}
+      <div className="result-mark is-listening">
+        <Volume2 aria-hidden="true" size={28} />
       </div>
       <div className="result-heading">
         {input.progressLabel !== null && (
           <p className="soft-label">{input.progressLabel}</p>
         )}
-        <h1>{isKeeper ? "Prise utilisable." : "Prise à reprendre."}</h1>
+        <h1>Écoute la prise.</h1>
       </div>
       <p>{input.message}</p>
+      <ListeningReviewSurface
+        audioUrl={input.downloadUrl}
+        fileName={input.fileName}
+        onEnergyChange={input.onPlaybackEnergyChange}
+        onProgressChange={input.onPlaybackProgressChange}
+        take={input.take}
+      />
       {input.take !== null && (
-        <div className="take-score">
-          <strong>Verdict</strong>
+        <details className="take-score progressive-review">
+          <summary>
+            <strong>Qualité et détails de prise</strong>
+            <span>{isKeeper ? "Utilisable" : "À reprendre"}</span>
+          </summary>
           <span>
             {input.take.quality.verdict === "pass"
               ? "Utilisable"
@@ -3587,7 +4811,7 @@ function DoneScreen(input: {
               </small>
             ))}
           </div>
-        </div>
+        </details>
       )}
       {(input.location !== null || input.fileName !== null) && (
         <div className="file-receipt">

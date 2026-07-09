@@ -956,7 +956,20 @@ textarea:focus-visible {
   grid-template-columns: 1fr 1fr;
 }
 
+.voice-manager {
+  display: grid;
+  gap: 12px;
+}
+
+.voice-create {
+  align-items: end;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
 .simple-form label,
+.voice-name-field,
 .capture-profile label {
   color: var(--muted);
   display: grid;
@@ -966,6 +979,7 @@ textarea:focus-visible {
 }
 
 .simple-form select,
+.voice-name-field input,
 .capture-profile input {
   appearance: none;
   background: color-mix(in srgb, var(--panel-solid) 8%, transparent);
@@ -982,8 +996,13 @@ textarea:focus-visible {
 }
 
 .simple-form select:hover,
+.voice-name-field input:hover,
 .capture-profile input:hover {
   border-color: var(--line-strong);
+}
+
+.voice-name-field input::placeholder {
+  color: color-mix(in srgb, var(--muted) 70%, transparent);
 }
 
 .simple-form select {
@@ -996,6 +1015,32 @@ textarea:focus-visible {
   background-repeat: no-repeat;
   background-size: 5px 5px;
   padding-right: 34px;
+}
+
+.voice-language-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.language-toggle {
+  align-items: center;
+  background: color-mix(in srgb, var(--panel-solid) 7%, transparent);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--text);
+  display: inline-flex;
+  font-size: 13px;
+  font-weight: 820;
+  gap: 8px;
+  min-height: 40px;
+  padding: 9px 11px;
+}
+
+.language-toggle input {
+  accent-color: var(--accent-a);
+  height: 16px;
+  width: 16px;
 }
 
 .capture-profile {
@@ -1316,6 +1361,12 @@ textarea:focus-visible {
 .result-mark.is-keeper {
   background: color-mix(in srgb, var(--accent-a) 14%, transparent);
   border-color: color-mix(in srgb, var(--accent-a) 38%, var(--line));
+  color: var(--accent-a);
+}
+
+.result-mark.is-listening {
+  background: color-mix(in srgb, var(--accent-a) 12%, transparent);
+  border-color: color-mix(in srgb, var(--accent-a) 32%, var(--line));
   color: var(--accent-a);
 }
 
@@ -2278,6 +2329,7 @@ textarea:focus-visible {
   .backing-track-controls,
   .capture-mode-grid,
   .capture-profile,
+  .voice-create,
   .result-action-grid,
   .room-tone-summary dl,
   .session-flow-guide,
@@ -2409,5 +2461,781 @@ textarea:focus-visible {
   .ambient-backdrop::after,
   .karaoke-char {
     transform: none;
+  }
+}
+
+/* Voice laboratory redesign */
+:root {
+  --bg: #020203;
+  --bg-elevated: rgba(9, 10, 12, 0.64);
+  --panel: rgba(255, 255, 255, 0.045);
+  --panel-strong: rgba(255, 255, 255, 0.08);
+  --panel-solid: #ffffff;
+  --text: #f8f8f6;
+  --muted: rgba(248, 248, 246, 0.66);
+  --soft: rgba(248, 248, 246, 0.42);
+  --line: rgba(255, 255, 255, 0.12);
+  --line-strong: rgba(255, 255, 255, 0.24);
+  --brand: #f8f8f6;
+  --brand-contrast: #020203;
+  --accent-a: #73dcff;
+  --accent-b: #b789ff;
+  --accent-c: #ff6e9f;
+  --accent-d: #6af0c8;
+  --accent-e: #ffc86f;
+  --halo-a: rgba(0, 132, 255, 0.62);
+  --halo-b: rgba(180, 64, 255, 0.56);
+  --halo-c: rgba(0, 255, 190, 0.36);
+  --halo-d: rgba(255, 72, 136, 0.24);
+  --wave-color: rgba(255, 255, 255, 0.96);
+  --wave-guide: rgba(255, 255, 255, 0.14);
+  --wave-playhead: rgba(115, 220, 255, 0.9);
+  --shadow: none;
+  --shadow-soft: none;
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #fafaf8;
+    --bg-elevated: rgba(255, 255, 255, 0.66);
+    --panel: rgba(12, 18, 22, 0.035);
+    --panel-strong: rgba(12, 18, 22, 0.07);
+    --panel-solid: #0f1418;
+    --text: #121416;
+    --muted: rgba(18, 20, 22, 0.66);
+    --soft: rgba(18, 20, 22, 0.44);
+    --line: rgba(15, 20, 24, 0.12);
+    --line-strong: rgba(15, 20, 24, 0.24);
+    --brand: #111416;
+    --brand-contrast: #ffffff;
+    --accent-a: #007ca7;
+    --accent-b: #6b48b8;
+    --accent-c: #b73868;
+    --accent-d: #008a70;
+    --accent-e: #9a6900;
+    --halo-a: rgba(0, 150, 210, 0.16);
+    --halo-b: rgba(126, 76, 210, 0.14);
+    --halo-c: rgba(20, 188, 150, 0.13);
+    --halo-d: rgba(255, 109, 154, 0.1);
+    --wave-color: rgba(12, 14, 16, 0.9);
+    --wave-guide: rgba(12, 14, 16, 0.12);
+    --wave-playhead: rgba(0, 124, 167, 0.82);
+    color-scheme: light;
+  }
+}
+
+html,
+body,
+#root {
+  background: var(--bg);
+}
+
+.simple-app {
+  background:
+    radial-gradient(
+      circle at calc(var(--pointer-x) * 1%) calc(var(--pointer-y) * 1%),
+      color-mix(
+        in srgb,
+        var(--wave-color) calc(2% + (var(--pointer-intensity) * 2%)),
+        transparent
+      ),
+      transparent 31%
+    ),
+    var(--bg);
+  display: grid;
+  grid-template-rows: auto 1fr;
+  overflow: hidden auto;
+  transition:
+    background 420ms ease,
+    color 420ms ease;
+}
+
+.simple-app.is-ritual {
+  grid-template-rows: 1fr;
+  overflow: hidden;
+}
+
+.simple-app > :not(.ambient-backdrop):not(.voice-wave-canvas) {
+  position: relative;
+  z-index: 3;
+}
+
+.ambient-backdrop {
+  background:
+    radial-gradient(
+      circle at 50% 50%,
+      color-mix(in srgb, var(--wave-color) 4%, transparent),
+      transparent 35%
+    ),
+    var(--bg);
+  inset: 0;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+  position: fixed;
+  transition: opacity 900ms ease;
+  z-index: 0;
+}
+
+.ambient-backdrop.is-awake {
+  opacity: 1;
+}
+
+.ambient-backdrop::before {
+  background:
+    linear-gradient(
+      180deg,
+      transparent,
+      color-mix(in srgb, var(--bg) 74%, transparent)
+    ),
+    radial-gradient(
+      circle at 50% 55%,
+      transparent 0 32%,
+      color-mix(in srgb, var(--bg) 50%, transparent) 75%
+    );
+  content: "";
+  inset: 0;
+  opacity: calc(0.68 - (var(--audio-level) * 0.12));
+  position: absolute;
+  z-index: 2;
+}
+
+.ambient-backdrop::after {
+  background-image:
+    linear-gradient(
+      color-mix(in srgb, var(--wave-color) 4%, transparent) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--wave-color) 3%, transparent) 1px,
+      transparent 1px
+    );
+  background-size: 96px 96px;
+  content: "";
+  inset: 0;
+  opacity: calc(0.05 + (var(--audio-level) * 0.04));
+  position: absolute;
+  z-index: 1;
+}
+
+.voice-halo {
+  animation: halo-drift 14s ease-in-out infinite alternate;
+  border-radius: 999px;
+  display: block;
+  filter: blur(calc(76px + (var(--audio-level) * 116px)));
+  height: clamp(260px, 44vw, 720px);
+  left: 50%;
+  mix-blend-mode: screen;
+  opacity: calc(0.16 + (var(--audio-level) * 0.54));
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%)
+    scale(calc(0.92 + (var(--audio-level) * 0.52)));
+  transition:
+    filter 120ms linear,
+    opacity 120ms linear,
+    transform 120ms linear;
+  width: clamp(260px, 44vw, 720px);
+  will-change: filter, opacity, transform;
+}
+
+@media (prefers-color-scheme: light) {
+  .voice-halo {
+    mix-blend-mode: multiply;
+    opacity: calc(0.18 + (var(--audio-level) * 0.22));
+  }
+}
+
+.halo-a {
+  animation-delay: -1.5s;
+  background: var(--halo-a);
+  left: calc(24% + (var(--audio-level) * 4%));
+  top: 35%;
+}
+
+.halo-b {
+  animation-delay: -5s;
+  background: var(--halo-b);
+  left: calc(74% - (var(--audio-level) * 5%));
+  top: 38%;
+}
+
+.halo-c {
+  animation-delay: -8s;
+  background: var(--halo-c);
+  left: 48%;
+  top: calc(73% - (var(--audio-level) * 5%));
+}
+
+.halo-d {
+  animation-delay: -11s;
+  background: var(--halo-d);
+  height: clamp(360px, 60vw, 940px);
+  width: clamp(360px, 60vw, 940px);
+}
+
+@keyframes halo-drift {
+  0% {
+    margin-left: -28px;
+    margin-top: 12px;
+  }
+
+  50% {
+    margin-left: 34px;
+    margin-top: -26px;
+  }
+
+  100% {
+    margin-left: -8px;
+    margin-top: 34px;
+  }
+}
+
+.voice-wave-canvas {
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+  position: fixed;
+  transition: opacity 1000ms ease;
+  z-index: 1;
+}
+
+.simple-app.is-awake .voice-wave-canvas {
+  opacity: 1;
+}
+
+.opening-ritual {
+  align-items: center;
+  display: grid;
+  justify-items: center;
+  min-height: 100vh;
+  padding: 24px;
+  text-align: center;
+}
+
+.opening-ritual > div {
+  animation: ritual-enter 900ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  display: grid;
+  gap: 28px;
+  justify-items: center;
+}
+
+.opening-ritual h1 {
+  color: var(--text);
+  font-size: clamp(28px, 5vw, 54px);
+  font-weight: 520;
+  line-height: 1.05;
+  margin: 0;
+  max-width: 16ch;
+  text-wrap: balance;
+}
+
+.opening-ritual p {
+  color: var(--muted);
+  font-size: 14px;
+  margin: 0;
+}
+
+.ritual-button {
+  align-items: center;
+  background: color-mix(in srgb, var(--wave-color) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--wave-color) 18%, transparent);
+  border-radius: 999px;
+  color: var(--text);
+  display: inline-flex;
+  font-weight: 760;
+  gap: 10px;
+  min-height: 50px;
+  padding: 13px 18px;
+  transition:
+    background 180ms ease,
+    border-color 180ms ease,
+    transform 180ms ease;
+}
+
+.ritual-button:hover {
+  background: color-mix(in srgb, var(--wave-color) 13%, transparent);
+  border-color: color-mix(in srgb, var(--wave-color) 28%, transparent);
+  transform: translateY(-1px);
+}
+
+@keyframes ritual-enter {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.992);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.simple-header,
+.session-stage,
+.technical-page {
+  animation: materialize 720ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes materialize {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.simple-header {
+  border-bottom: 0;
+  padding: 20px clamp(18px, 4vw, 48px);
+}
+
+.simple-header::before {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--bg) 74%, transparent),
+    transparent
+  );
+  backdrop-filter: blur(18px);
+}
+
+.brand-button {
+  color: var(--text);
+  font-weight: 760;
+}
+
+.brand-button strong,
+.soft-label {
+  color: var(--soft);
+}
+
+.site-signature {
+  border-color: transparent;
+  background: transparent;
+}
+
+.quiet-button,
+.folder-button,
+.download-action,
+.launch-button,
+.stop-button,
+.system-refresh {
+  border-radius: 999px;
+}
+
+.session-stage {
+  align-items: center;
+  min-height: calc(100vh - 82px);
+  padding: clamp(22px, 4vw, 54px);
+}
+
+.home-card {
+  align-items: start;
+  gap: clamp(30px, 7vw, 92px);
+  grid-template-columns: minmax(0, 0.96fr) minmax(320px, 540px);
+  max-width: 1280px;
+}
+
+.home-hero {
+  gap: 24px;
+  min-height: auto;
+  padding-top: clamp(156px, 28vh, 210px);
+  place-content: start;
+}
+
+.home-card h1,
+.focus-card h1,
+.director-panel h1,
+.technical-page h1 {
+  font-size: clamp(38px, 5.8vw, 72px);
+  font-weight: 520;
+  line-height: 0.98;
+  max-width: 13ch;
+}
+
+.home-card h1 {
+  font-size: clamp(36px, 4.5vw, 58px);
+  max-width: 15ch;
+}
+
+.home-workbench,
+.focus-card,
+.director-panel,
+.technical-page,
+.dataset-score,
+.dataset-export-panel,
+.take-score,
+.next-step-panel,
+.export-panel,
+.system-health,
+.local-corpus-panel,
+.backing-track-panel,
+.coverage-console,
+.flow-step,
+.capture-mode-option,
+.workspace-backup,
+.prompt-direction,
+.prep-checklist li,
+.room-tone-readout div,
+.technical-grid article,
+.recordings-list a,
+.recordings-empty,
+.domain-panel,
+.responsibility-list article,
+.file-receipt {
+  backdrop-filter: blur(24px) saturate(1.08);
+  background: color-mix(in srgb, var(--bg-elevated) 62%, transparent);
+  border-color: color-mix(in srgb, var(--line) 72%, transparent);
+  box-shadow: none;
+}
+
+.home-workbench,
+.focus-card,
+.director-panel,
+.technical-page {
+  background: transparent;
+  border: 0;
+  backdrop-filter: none;
+}
+
+.home-workbench {
+  gap: 18px;
+  padding: 0;
+}
+
+.capture-mode-option,
+.flow-step,
+.system-check,
+.local-corpus-panel textarea,
+.simple-form select,
+.voice-name-field input,
+.capture-profile input {
+  background: color-mix(in srgb, var(--bg-elevated) 44%, transparent);
+}
+
+.capture-mode-option.is-active,
+.flow-step.is-current,
+.premium-pill {
+  background: color-mix(in srgb, var(--accent-a) 12%, transparent);
+  border-color: color-mix(in srgb, var(--accent-a) 34%, var(--line));
+}
+
+.launch-button,
+.download-action {
+  background: var(--wave-color);
+  border-color: color-mix(in srgb, var(--wave-color) 76%, transparent);
+  color: var(--brand-contrast);
+}
+
+.folder-button,
+.stop-button,
+.quiet-button,
+.system-refresh {
+  background: color-mix(in srgb, var(--wave-color) 5%, transparent);
+  border: 1px solid color-mix(in srgb, var(--wave-color) 13%, transparent);
+  color: var(--text);
+}
+
+.status-strip div,
+.recording-dot,
+.recording-cue,
+.recording-meter {
+  background: color-mix(in srgb, var(--bg-elevated) 46%, transparent);
+  border-color: color-mix(in srgb, var(--line) 76%, transparent);
+  border-radius: 999px;
+}
+
+.karaoke-screen,
+.room-tone-screen {
+  min-height: calc(100vh - 120px);
+}
+
+.karaoke-line {
+  color: var(--text);
+  font-size: clamp(40px, 8vw, 112px);
+  font-weight: 420;
+}
+
+.karaoke-char {
+  color: color-mix(
+    in srgb,
+    var(--text) calc(68% + (var(--motion-wave) * 30%)),
+    var(--accent-a) calc(var(--detail-wave) * 12%)
+  );
+}
+
+.read-progress {
+  background: color-mix(in srgb, var(--wave-color) 12%, transparent);
+}
+
+.read-progress span {
+  background: linear-gradient(
+    90deg,
+    var(--accent-a),
+    var(--accent-b),
+    var(--accent-d)
+  );
+}
+
+.room-tone-core {
+  background: radial-gradient(
+    circle,
+    color-mix(
+        in srgb,
+        var(--accent-a) calc(16% + (var(--audio-level) * 34%)),
+        transparent
+      )
+      0 28%,
+    color-mix(in srgb, var(--accent-b) 10%, transparent) 29% 55%,
+    transparent 56%
+  );
+  border-color: color-mix(in srgb, var(--accent-a) 22%, var(--line));
+}
+
+.listening-review {
+  display: grid;
+  gap: 18px;
+  width: min(100%, 900px);
+}
+
+.listening-review audio {
+  display: none;
+}
+
+.listening-header {
+  align-items: end;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.listening-header h2 {
+  color: var(--text);
+  font-size: clamp(22px, 4vw, 42px);
+  font-weight: 560;
+  line-height: 1.04;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.listening-header span {
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 780;
+  white-space: nowrap;
+}
+
+.playback-waveform {
+  --progress: 0;
+  align-items: center;
+  cursor: pointer;
+  display: flex;
+  gap: 3px;
+  height: clamp(150px, 23vh, 250px);
+  outline-offset: 8px;
+  padding: 14px 0;
+  position: relative;
+  touch-action: manipulation;
+  width: 100%;
+}
+
+.playback-waveform i {
+  background: color-mix(in srgb, var(--wave-color) 24%, transparent);
+  border-radius: 999px;
+  display: block;
+  flex: 1 1 0;
+  height: max(12px, var(--bar-height));
+  min-width: 2px;
+  transition:
+    background 120ms linear,
+    height 120ms ease;
+}
+
+.playback-waveform i.is-played {
+  background: color-mix(in srgb, var(--wave-color) 84%, var(--accent-a));
+}
+
+.review-playhead {
+  background: var(--wave-playhead);
+  bottom: 10%;
+  box-shadow: 0 0 22px color-mix(in srgb, var(--wave-playhead) 58%, transparent);
+  position: absolute;
+  top: 10%;
+  transform: translateX(-50%);
+  width: 2px;
+}
+
+.loop-region {
+  background: color-mix(in srgb, var(--accent-b) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent-b) 26%, transparent);
+  border-radius: 999px;
+  bottom: 15%;
+  position: absolute;
+  top: 15%;
+}
+
+.playback-controls,
+.loop-editor {
+  align-items: center;
+  display: grid;
+  gap: 10px;
+}
+
+.playback-controls {
+  grid-template-columns: auto auto minmax(130px, 0.32fr);
+}
+
+.loop-editor {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.loop-editor label {
+  color: var(--muted);
+  display: grid;
+  font-size: 12px;
+  font-weight: 780;
+  gap: 8px;
+}
+
+.loop-editor input,
+.backing-track-controls input[type="range"] {
+  accent-color: var(--accent-a);
+}
+
+.review-transcript {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  justify-content: center;
+  padding-block: 4px;
+}
+
+.review-word {
+  background: transparent;
+  border: 0;
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: clamp(18px, 2.7vw, 28px);
+  font-weight: 460;
+  line-height: 1.1;
+  padding: 4px 2px;
+  transition:
+    color 120ms linear,
+    text-shadow 120ms linear,
+    transform 120ms ease;
+}
+
+.review-word.is-spoken {
+  color: color-mix(in srgb, var(--text) 72%, var(--accent-a));
+}
+
+.review-word.is-active {
+  color: var(--text);
+  text-shadow: 0 0 18px color-mix(in srgb, var(--accent-a) 24%, transparent);
+  transform: translateY(-1px);
+}
+
+.progressive-review {
+  width: min(100%, 900px);
+}
+
+.progressive-review summary {
+  align-items: center;
+  color: var(--text);
+  cursor: pointer;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  list-style: none;
+}
+
+.progressive-review summary::-webkit-details-marker {
+  display: none;
+}
+
+.progressive-review summary span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 780;
+}
+
+.progressive-review[open] summary {
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 4px;
+  padding-bottom: 12px;
+}
+
+.result-action-grid {
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 0.72fr);
+}
+
+.technical-page {
+  padding-inline: clamp(22px, 5vw, 68px);
+}
+
+.technical-grid article,
+.score-grid div,
+.gap-list div {
+  min-height: 98px;
+}
+
+@media (max-width: 980px) {
+  .home-card {
+    align-items: stretch;
+    grid-template-columns: 1fr;
+  }
+
+  .home-hero {
+    min-height: auto;
+  }
+}
+
+@media (max-width: 720px) {
+  .session-stage {
+    min-height: calc(100vh - 76px);
+    padding: 18px;
+  }
+
+  .home-card h1,
+  .focus-card h1,
+  .director-panel h1,
+  .technical-page h1 {
+    font-size: clamp(34px, 12vw, 54px);
+  }
+
+  .playback-controls,
+  .loop-editor,
+  .listening-header {
+    align-items: stretch;
+    grid-template-columns: 1fr;
+  }
+
+  .listening-header {
+    display: grid;
+  }
+
+  .playback-waveform {
+    gap: 2px;
+    height: 150px;
+  }
+
+  .review-word {
+    font-size: clamp(17px, 6vw, 24px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .voice-halo,
+  .opening-ritual > div,
+  .simple-header,
+  .session-stage,
+  .technical-page {
+    animation: none !important;
   }
 }
