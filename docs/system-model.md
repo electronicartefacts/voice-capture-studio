@@ -29,10 +29,12 @@ documentation, and deployment configuration. User voice data belongs outside the
    24-bit and computes first-pass technical metrics.
 8. `finalizeCaptureSession` in `src/app/recording/finalizeCaptureSession.ts` coordinates take
    finalization, audio persistence, workspace projection, and metadata export.
-9. `createRecordedTake` in `src/app/recording/recordedTake.ts` builds transcript, timing, intent,
-   quality, and review metadata from the prompt plus local metrics. Each take receives a stable take
-   identifier that is also used in the fallback WAV file name, so multi-prompt sessions do not
-   overwrite earlier browser recordings.
+9. `createRecordedTake` in `src/app/recording/recordedTake.ts` builds transcript, word/phoneme
+   timing, intent, quality, and review metadata from the prompt plus local metrics. It uses a
+   deterministic browser-side grapheme-to-phoneme estimate so every word is linked to phoneme
+   intervals, while marking the alignment as requiring acoustic forced-alignment validation. Each
+   take receives a stable take identifier that is also used in the fallback WAV file name, so
+   multi-prompt sessions do not overwrite earlier browser recordings.
 10. Empty audio blobs do not create takes and therefore cannot credit corpus coverage.
 11. Audio is persisted through IndexedDB, File System Access, or explicit download fallback. If
     the WAV cannot be accepted by durable browser or folder storage, the take is marked rejected
@@ -104,3 +106,5 @@ than a larger incoherent one.
 4. Promote app-level recording/export services behind domain ports when a second implementation or
    export shape appears.
 5. Audit bundle size and route splitting once more app-level services are introduced.
+6. Add an external forced-alignment import path so TextGrid or JSON phone tiers can replace the
+   browser estimate after MFA, WhisperX, or another acoustic aligner runs.

@@ -71,6 +71,7 @@ export async function finalizeCaptureSession(input: {
   readonly folderName: string | null;
   readonly recording: FinalizedRecording;
   readonly recordedAt?: Date;
+  readonly recognizedTranscript?: string;
   readonly saveRecording: (
     fileName: string,
     audioBlob: Blob,
@@ -89,6 +90,7 @@ export async function finalizeCaptureSession(input: {
     readonly takeId: string;
     readonly transcriptText: string;
     readonly timingJson: unknown;
+    readonly phonemesJson: unknown;
     readonly intentJson: unknown;
     readonly qualityJson: unknown;
     readonly sessionJson: unknown;
@@ -127,6 +129,7 @@ export async function finalizeCaptureSession(input: {
           profile: input.workspace.settings.captureProfile,
           prompt: input.activePrompt,
           recordedAt,
+          recognizedTranscript: input.recognizedTranscript,
           session: input.session,
           takeId,
         });
@@ -179,6 +182,21 @@ export async function finalizeCaptureSession(input: {
       takeId: take.id,
       transcriptText: take.transcript.spokenText,
       timingJson: take.timing,
+      phonemesJson: {
+        schemaVersion: "voice.take_phonemes.v1",
+        takeId: take.id,
+        promptId: take.promptId,
+        alignment: take.timing.alignment ?? null,
+        wordPhonemeMap: take.timing.words.map((word) => ({
+          word: word.word,
+          normalized: word.normalized ?? word.word.toLowerCase(),
+          startMs: word.startMs,
+          endMs: word.endMs,
+          confidence: word.confidence ?? null,
+          phonemes: word.phonemes ?? [],
+        })),
+        inventory: take.timing.alignment?.inventory ?? [],
+      },
       intentJson: take.intent,
       qualityJson: take.quality,
       sessionJson: sessionMetadata,

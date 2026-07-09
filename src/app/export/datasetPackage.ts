@@ -49,6 +49,7 @@ export function createDatasetPackagePlan(input: {
   const jsonFiles: DatasetJsonFile[] = [];
   const textFiles: DatasetTextFile[] = [];
   const audioFiles: DatasetAudioFile[] = [];
+  const manifestRows: unknown[] = [];
 
   for (const session of input.workspace.capturedSessions) {
     for (const take of session.takes) {
@@ -85,17 +86,65 @@ export function createDatasetPackagePlan(input: {
       });
 
       const prompt = promptById.get(take.promptId);
+      const rawAudioPath = `raw/${takeSlug}.wav`;
+      const processedAudioPath = `processed/${takeSlug}.wav`;
+
       jsonFiles.push({
         path: `phonemes/${takeSlug}.json`,
         json: {
+          schemaVersion: "voice.dataset_phonemes.v1",
           takeId: take.id,
+          sessionId: session.id,
           promptId: take.promptId,
+          language: session.language,
+          durationMs: take.durationMs,
+          alignment: take.timing.alignment ?? null,
+          wordPhonemeMap: take.timing.words.map((word) => ({
+            word: word.word,
+            normalized: word.normalized ?? word.word.toLowerCase(),
+            startMs: word.startMs,
+            endMs: word.endMs,
+            confidence: word.confidence ?? null,
+            phonemes: word.phonemes ?? [],
+          })),
+          inventory: take.timing.alignment?.inventory ?? [],
           focus: prompt?.phonetics.focus ?? [],
           coverage: prompt?.phonetics.coverage ?? [],
           difficulty: prompt?.phonetics.difficulty ?? null,
         },
       });
+      manifestRows.push({
+        take_id: take.id,
+        session_id: session.id,
+        speaker_id: session.speakerId,
+        language: session.language,
+        prompt_id: take.promptId,
+        audio: {
+          raw_path: rawAudioPath,
+          processed_path: processedAudioPath,
+          format: "wav_pcm_mono_48khz",
+        },
+        transcript: take.transcript.spokenText,
+        observed_transcript: take.transcript.observedText ?? null,
+        duration_ms: take.durationMs,
+        transcript_match: take.quality.performance.transcriptMatch,
+        alignment_confidence:
+          take.quality.performance.alignmentConfidence ?? null,
+        word_phoneme_link_rate:
+          take.quality.performance.wordPhonemeLinkRate ?? null,
+        phoneme_inventory: take.timing.alignment?.inventory ?? [],
+        intent: take.intent.intent.primary,
+        pace: take.intent.delivery.pace,
+        energy: take.intent.delivery.energy,
+      });
     }
+  }
+
+  if (manifestRows.length > 0) {
+    textFiles.push({
+      path: "manifests/training_manifest.jsonl",
+      text: `${manifestRows.map((row) => JSON.stringify(row)).join("\n")}\n`,
+    });
   }
 
   const coverageSummaries = summarizeAllCoverage(input);
@@ -224,14 +273,17 @@ Keeper takes: ${input.keeperCount} / ${input.takeCount} recorded takes
   reserved for future normalization or denoising passes.
 - \`transcripts/\` - Plain text transcript per keeper take.
 - \`metadata/\` - Timing, intent, quality, and review metadata per keeper take.
-- \`phonemes/\` - Phonetic focus and coverage targets per keeper take.
+- \`phonemes/\` - Word-to-phoneme timing maps, estimated phone intervals, and prompt targets.
+- \`manifests/training_manifest.jsonl\` - One keeper take per line for fine-tuning pipelines.
 - \`reports/\` - Aggregate dataset diagnostics (audio quality, transcript alignment,
   phonetic coverage, intent balance, prosody distribution, dataset readiness).
 - \`speaker.json\` - Speaker profile and capture conditions.
 - \`session.json\` - Session history summary across the whole workspace.
 
-Only keeper-rated takes are included. This dataset was produced entirely client-side by
-Voice Capture Studio; no audio was uploaded to a remote service.
+Only keeper-rated takes are included. Word and phoneme timing is browser-estimated from prompt text
+and take duration; run acoustic forced alignment before final model training acceptance. This
+dataset was produced entirely client-side by Voice Capture Studio; no audio was uploaded to a
+remote service.
 `;
 }
 

@@ -51,6 +51,7 @@ import {
   type PromptDefinition,
 } from "@domains/corpus";
 import { summarizeCoverage, type CoverageSummary } from "@domains/coverage";
+import { alignPromptToPhonemes } from "@domains/phonetics";
 import {
   findPrompt,
   findPromptText,
@@ -316,6 +317,14 @@ function clampPercent(value: number): number {
   return Math.min(100, Math.max(0, value));
 }
 
+function clampUnit(value: number): number {
+  return Math.min(1, Math.max(0, value));
+}
+
+function formatMeterScale(value: number): string {
+  return Math.max(0.035, clampUnit(value)).toFixed(3);
+}
+
 function softLimitWaveSample(
   value: number,
   threshold: number,
@@ -459,6 +468,10 @@ export function App() {
     () => promptText.split(/\s+/).filter(Boolean),
     [promptText],
   );
+
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [screen]);
   const coverage =
     workspace && activeCorpus !== null
       ? summarizeCoverage({
@@ -1691,6 +1704,7 @@ export function App() {
       activePrompt,
       corpus: activeCorpus,
       folderName,
+      recognizedTranscript,
       recording,
       saveRecording: saveRecordingToWorkspaceFolder,
       saveTakeMetadata: saveTakeMetadataToWorkspaceFolder,
@@ -2094,6 +2108,7 @@ export function App() {
                   isFinalizing={isFinalizing}
                   onStop={finishRecording}
                   prompt={activePrompt}
+                  language={selectedLanguage}
                   readingGuideMode={readingGuideMode}
                   recognizedTranscript={recognizedTranscript}
                   roomTone={sessionRoomTone}
@@ -2230,6 +2245,36 @@ function VoiceWaveformSurface(input: {
       );
     }
 
+    function readNumber(variableName: string, fallback: number): number {
+      const value = Number.parseFloat(
+        getComputedStyle(document.documentElement).getPropertyValue(
+          variableName,
+        ),
+      );
+
+      return Number.isFinite(value) ? value : fallback;
+    }
+
+    function getWaveCenterRatio(state: Screen, width: number): number {
+      if (state === "home") {
+        return width < 720 ? 0.28 : width < 980 ? 0.24 : 0.36;
+      }
+
+      if (state === "permission") {
+        return width < 720 ? 0.22 : 0.7;
+      }
+
+      if (state === "technical") {
+        return width < 720 ? 0.2 : 0.34;
+      }
+
+      if (state === "done") {
+        return width < 720 ? 0.58 : 0.64;
+      }
+
+      return 0.5;
+    }
+
     function createWaveSample(
       index: number,
       timeSeconds: number,
@@ -2307,12 +2352,19 @@ function VoiceWaveformSurface(input: {
       const width = window.innerWidth;
       const height = window.innerHeight;
       const timeSeconds = performance.now() * 0.001;
-      const waveColor = readColor("--wave-color", "rgba(255,255,255,0.96)");
-      const guideColor = readColor("--wave-guide", "rgba(255,255,255,0.16)");
+      const waveColor = readColor(
+        "--wave-surface-color",
+        "rgba(255,255,255,0.72)",
+      );
+      const guideColor = readColor(
+        "--wave-surface-guide",
+        "rgba(255,255,255,0.14)",
+      );
       const playheadColor = readColor(
-        "--wave-playhead",
+        "--wave-surface-playhead",
         "rgba(122,220,255,0.9)",
       );
+      const waveAlpha = clampUnit(readNumber("--wave-surface-alpha", 0.72));
       const state = screenRef.current;
       const isAwake = awakeRef.current;
       const level = isAwake
@@ -2326,18 +2378,16 @@ function VoiceWaveformSurface(input: {
         return;
       }
 
-      const centerRatio =
-        state === "home"
-          ? width < 720
-            ? 0.31
-            : 0.52
-          : state === "permission"
-            ? width < 720
-              ? 0.24
-              : 0.34
-            : 0.5;
+      const centerRatio = getWaveCenterRatio(state, width);
       const centerY = height * centerRatio;
-      const visualHeight = Math.min(260, height * 0.25);
+      const isCaptureSurface = state === "calibration" || state === "karaoke";
+      const isQuietSurface = ["home", "permission", "technical"].includes(
+        state,
+      );
+      const visualHeight = Math.min(
+        isQuietSurface ? 180 : 260,
+        height * (isQuietSurface ? 0.16 : 0.25),
+      );
       const points: { x: number; y: number }[] = [];
 
       for (let index = 0; index < WAVEFORM_DISPLAY_SAMPLES; index += 1) {
@@ -2364,6 +2414,7 @@ function VoiceWaveformSurface(input: {
         ctx.save();
         ctx.strokeStyle = guideColor;
         ctx.lineWidth = 1;
+        ctx.globalAlpha = isCaptureSurface ? 0.48 : 0.34;
         ctx.beginPath();
         ctx.moveTo(width / 2, centerY - visualHeight * 1.22);
         ctx.lineTo(width / 2, centerY + visualHeight * 1.22);
@@ -2371,15 +2422,20 @@ function VoiceWaveformSurface(input: {
         ctx.restore();
       }
 
-      drawSpline(points, -4, 0.26, 0.04, waveColor);
-      drawSpline(points, -2.4, 0.42, 0.09, waveColor);
-      drawSpline(points, -1.1, 0.74, 0.2, waveColor);
-      drawSpline(points, -0.4, 1.18, 0.34, waveColor);
-      drawSpline(points, 0, state === "karaoke" ? 3.9 : 3.2, 0.92, waveColor);
-      drawSpline(points, 0.4, 1.18, 0.34, waveColor);
-      drawSpline(points, 1.1, 0.74, 0.2, waveColor);
-      drawSpline(points, 2.4, 0.42, 0.09, waveColor);
-      drawSpline(points, 4, 0.26, 0.04, waveColor);
+      const quietAlpha = isQuietSurface ? 0.24 : 1;
+      const captureAlpha = isCaptureSurface ? 0.56 : 1;
+      const alpha = waveAlpha * quietAlpha * captureAlpha;
+      const primaryWidth = state === "karaoke" ? 3.1 : 2.8;
+
+      drawSpline(points, -4, 0.26, alpha * 0.04, waveColor);
+      drawSpline(points, -2.4, 0.42, alpha * 0.09, waveColor);
+      drawSpline(points, -1.1, 0.74, alpha * 0.18, waveColor);
+      drawSpline(points, -0.4, 1.18, alpha * 0.28, waveColor);
+      drawSpline(points, 0, primaryWidth, alpha * 0.68, waveColor);
+      drawSpline(points, 0.4, 1.18, alpha * 0.28, waveColor);
+      drawSpline(points, 1.1, 0.74, alpha * 0.18, waveColor);
+      drawSpline(points, 2.4, 0.42, alpha * 0.09, waveColor);
+      drawSpline(points, 4, 0.26, alpha * 0.04, waveColor);
 
       if (state === "done") {
         const progress = Math.max(0, Math.min(1, playbackProgressRef.current));
@@ -2388,7 +2444,7 @@ function VoiceWaveformSurface(input: {
         ctx.save();
         ctx.strokeStyle = playheadColor;
         ctx.lineWidth = 1.4;
-        ctx.globalAlpha = 0.82;
+        ctx.globalAlpha = waveAlpha * 0.5;
         ctx.beginPath();
         ctx.moveTo(x, centerY - visualHeight * 1.08);
         ctx.lineTo(x, centerY + visualHeight * 1.08);
@@ -3972,7 +4028,13 @@ function RoomToneCalibrationScreen(input: {
         <div className="recording-meter" aria-label="Niveau de salle">
           <Volume2 aria-hidden="true" size={18} />
           <span>
-            <i style={{ width: formatPercent(input.audioLevel * 100) }} />
+            <i
+              style={
+                {
+                  "--meter-scale": formatMeterScale(input.audioLevel),
+                } as CSSProperties
+              }
+            />
           </span>
         </div>
       </div>
@@ -4015,6 +4077,7 @@ function KaraokeScreen(input: {
   readonly audioLevel: number;
   readonly currentPromptIndex: number;
   readonly isFinalizing: boolean;
+  readonly language: LanguageCode;
   readonly onStop: () => void;
   readonly prompt: PromptDefinition | undefined;
   readonly readingGuideMode: ReadingGuideMode;
@@ -4031,6 +4094,22 @@ function KaraokeScreen(input: {
     input.readingGuideMode === "speech-recognition"
       ? "Suivi des mots"
       : "Suivi vocal";
+  const alignmentPreview = useMemo(
+    () =>
+      input.prompt === undefined
+        ? null
+        : alignPromptToPhonemes({
+            durationMs: Math.round(
+              (input.prompt.qa.minDurationMs + input.prompt.qa.maxDurationMs) /
+                2,
+            ),
+            language: input.language,
+            text: input.prompt.spokenText ?? input.prompt.text,
+          }),
+    [input.language, input.prompt],
+  );
+  const activeWordAlignment =
+    alignmentPreview?.words[input.activeWordIndex] ?? null;
 
   return (
     <div className="karaoke-screen" aria-busy={input.isFinalizing}>
@@ -4042,7 +4121,13 @@ function KaraokeScreen(input: {
         <div className="recording-meter" aria-label="Niveau micro">
           <Volume2 aria-hidden="true" size={18} />
           <span>
-            <i style={{ width: formatPercent(input.audioLevel * 100) }} />
+            <i
+              style={
+                {
+                  "--meter-scale": formatMeterScale(input.audioLevel),
+                } as CSSProperties
+              }
+            />
           </span>
         </div>
         <div className="recording-cue">
@@ -4075,6 +4160,13 @@ function KaraokeScreen(input: {
         activeWordIndex={input.activeWordIndex}
         words={input.words}
       />
+      {activeWordAlignment !== null && (
+        <div className="phoneme-ribbon" aria-label="Phonèmes du mot actif">
+          {activeWordAlignment.phonemes.map((phoneme, index) => (
+            <span key={`${phoneme.phoneme}-${index}`}>{phoneme.phoneme}</span>
+          ))}
+        </div>
+      )}
       <p className="recording-assist" aria-live="polite">
         {input.isFinalizing
           ? "Ne ferme pas l'onglet. Le WAV et les métadonnées sont en préparation."
@@ -4801,6 +4893,38 @@ function DoneScreen(input: {
               <dd>
                 {input.take.quality.technical.sampleRateHz / 1000} kHz /{" "}
                 {input.take.quality.technical.bitDepth}-bit
+              </dd>
+            </div>
+            <div>
+              <dt>Transcript</dt>
+              <dd>
+                {formatPercent(
+                  input.take.quality.performance.transcriptMatch * 100,
+                )}
+              </dd>
+            </div>
+            <div>
+              <dt>Alignement</dt>
+              <dd>
+                {formatPercent(
+                  (input.take.quality.performance.alignmentConfidence ?? 0) *
+                    100,
+                )}
+              </dd>
+            </div>
+            <div>
+              <dt>Phonèmes</dt>
+              <dd>
+                {input.take.quality.performance.phonemeInventoryCount ?? 0}
+              </dd>
+            </div>
+            <div>
+              <dt>Liens mot/phonème</dt>
+              <dd>
+                {formatPercent(
+                  (input.take.quality.performance.wordPhonemeLinkRate ?? 0) *
+                    100,
+                )}
               </dd>
             </div>
           </dl>

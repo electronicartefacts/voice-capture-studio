@@ -186,6 +186,25 @@ export function createVoiceCaptureReports(input: {
   const phoneticFocus = Array.from(
     new Set(keeperPromptInstances.flatMap((prompt) => prompt.phonetics.focus)),
   );
+  const alignmentSummaries = input.takes.map(summarizeTakeAlignment);
+  const alignedTakeCount = alignmentSummaries.filter(
+    (summary) => summary.wordCount > 0,
+  ).length;
+  const linkedWordCount = alignmentSummaries.reduce(
+    (total, summary) => total + summary.linkedWordCount,
+    0,
+  );
+  const totalAlignedWordCount = alignmentSummaries.reduce(
+    (total, summary) => total + summary.wordCount,
+    0,
+  );
+  const phonemeInventory = Array.from(
+    new Set(
+      input.takes.flatMap(
+        (take) => take.timing.phonemes?.map((phoneme) => phoneme.phoneme) ?? [],
+      ),
+    ),
+  ).sort();
 
   return {
     audioQuality: {
@@ -206,11 +225,24 @@ export function createVoiceCaptureReports(input: {
     },
     transcriptAlignment: {
       schemaVersion: "report.transcript_alignment.v1",
-      alignmentMode: "browser_estimated_word_timing",
+      alignmentMode: "browser_text_derived_word_phoneme_timing",
       forcedAlignmentRequired: true,
+      recommendedExternalAligners: [
+        "Montreal Forced Aligner",
+        "WhisperX",
+        "Whisper timestamped word pass",
+      ],
       averageTranscriptMatch: average(
         input.takes.map((take) => take.quality.performance.transcriptMatch),
       ),
+      averageAlignmentConfidence: average(
+        alignmentSummaries.map((summary) => summary.confidence),
+      ),
+      alignedTakeCount,
+      wordPhonemeLinkRate:
+        totalAlignedWordCount === 0
+          ? 0
+          : Math.round((linkedWordCount / totalAlignedWordCount) * 100),
       takesNeedingHumanReview: input.takes
         .filter((take) =>
           take.quality.gates.some(
@@ -218,6 +250,17 @@ export function createVoiceCaptureReports(input: {
           ),
         )
         .map((take) => take.id),
+      takesNeedingForcedAlignment: alignmentSummaries
+        .filter(
+          (summary) =>
+            summary.forcedAlignmentRequired || summary.confidence < 0.82,
+        )
+        .map((summary) => summary.takeId),
+      browserLimitations: [
+        "Word and phoneme timing is derived from prompt text and capture duration.",
+        "Web Speech API transcripts are opportunistic and not available in every browser.",
+        "Final dataset acceptance still needs acoustic forced alignment against WAV audio.",
+      ],
     },
     phoneticCoverage: {
       schemaVersion: "report.phonetic_coverage.v1",
@@ -225,6 +268,12 @@ export function createVoiceCaptureReports(input: {
       coveredTargets: coveredPhoneticTargets,
       missingTargets: input.coverage.missingPhonetics,
       focusSamples: phoneticFocus,
+      estimatedInventory: phonemeInventory,
+      estimatedInventoryCount: phonemeInventory.length,
+      estimatedPhoneIntervals: input.takes.reduce(
+        (total, take) => total + (take.timing.phonemes?.length ?? 0),
+        0,
+      ),
       languageAgnosticLetterCoverage: phonetic.letterCoverage,
       vowelCoverage: phonetic.vowelCoverage,
       rareCharacterHits: phonetic.rareCharacterHits,
@@ -273,6 +322,31 @@ export function createVoiceCaptureReports(input: {
       },
       nextRecommendation: input.coverage.nextRecommendation,
     },
+  };
+}
+
+function summarizeTakeAlignment(take: RecordedTake): {
+  readonly confidence: number;
+  readonly forcedAlignmentRequired: boolean;
+  readonly linkedWordCount: number;
+  readonly takeId: RecordedTake["id"];
+  readonly wordCount: number;
+} {
+  const words = take.timing.words;
+  const linkedWordCount = words.filter(
+    (word) => (word.phonemes?.length ?? 0) > 0,
+  ).length;
+
+  return {
+    confidence:
+      take.timing.alignment?.confidence ??
+      take.quality.performance.alignmentConfidence ??
+      0,
+    forcedAlignmentRequired:
+      take.timing.alignment?.forcedAlignmentRequired ?? true,
+    linkedWordCount,
+    takeId: take.id,
+    wordCount: words.length,
   };
 }
 

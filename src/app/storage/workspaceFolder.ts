@@ -237,6 +237,7 @@ export async function saveTakeMetadataToWorkspaceFolder(input: {
   readonly takeId: string;
   readonly transcriptText: string;
   readonly timingJson: unknown;
+  readonly phonemesJson: unknown;
   readonly intentJson: unknown;
   readonly qualityJson: unknown;
   readonly sessionJson: unknown;
@@ -319,6 +320,13 @@ export async function saveTakeMetadataToWorkspaceFolder(input: {
       "timing.json",
       jsonBlob(input.timingJson),
       `takes/${sanitizePathSegment(input.takeId)}/timing.json`,
+    );
+    await writeTrackedBlob(
+      artifacts,
+      takeDirectory,
+      "phonemes.json",
+      jsonBlob(input.phonemesJson),
+      `takes/${sanitizePathSegment(input.takeId)}/phonemes.json`,
     );
     await writeTrackedBlob(
       artifacts,

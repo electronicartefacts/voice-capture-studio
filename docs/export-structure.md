@@ -14,6 +14,7 @@ manifest.json
 takes/<take_id>/audio.wav
 takes/<take_id>/transcript.txt
 takes/<take_id>/timing.json
+takes/<take_id>/phonemes.json
 takes/<take_id>/intent.json
 takes/<take_id>/quality.json
 reports/report.audio_quality.json
@@ -33,12 +34,17 @@ reports/report.dataset_readiness.json
 5. Direction notes and explicit avoid-list.
 6. Prosody target.
 
+`timing.json` uses `voice.timing.v2` and now embeds a `voice.phoneme_alignment.v1` estimate. Each
+word contains token metadata, estimated start/end time, confidence, syllable count, and phoneme
+intervals. `phonemes.json` repeats this map in a pipeline-friendly shape so downstream forced
+alignment tools do not need to parse the full take timing object.
+
 `quality.json` uses `voice.quality.v2` and stores:
 
 1. Technical metrics: sample rate, bit depth, channels, peak dBFS, LUFS, noise floor, SNR,
    clipping, reverb, plosives, mouth noise.
-2. Performance metrics: transcript match, intent match, prosody variation, human naturalness
-   review, keeper flag.
+2. Performance metrics: transcript match, alignment confidence, phoneme inventory count,
+   word/phoneme link rate, intent match, prosody variation, human naturalness review, keeper flag.
 3. Quality gates for clipping, noise, duration, audio persistence, transcript, intent, and prosody balance.
 4. Verdict: `pass`, `review`, or `reject`.
 
@@ -72,5 +78,6 @@ Export rules:
    provenance must be present before a final Forge archive is accepted.
 5. A smaller clean dataset is preferred over a large incoherent dataset.
 6. Every artifact must have a checksum in `manifest.json`.
-7. Browser-generated reports are first-pass dataset diagnostics; Forge should still run forced
+7. Browser-generated reports are first-pass dataset diagnostics. Browser phoneme timing is
+   text-derived and marked `forcedAlignmentRequired`; Forge should still run acoustic forced
    alignment and phoneme-level coverage for final acceptance.

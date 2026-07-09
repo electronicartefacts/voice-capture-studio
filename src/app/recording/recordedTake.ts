@@ -5,6 +5,10 @@ import type {
   TakeId,
 } from "../../domains/sessions";
 import type { CaptureProfile } from "../../domains/workspace";
+import {
+  alignPromptToPhonemes,
+  estimateTranscriptMatch,
+} from "../../domains/phonetics";
 import type { PcmRecordingMetrics } from "../audio/pcmRecorder";
 
 export function createRecordedTake(input: {
@@ -14,13 +18,28 @@ export function createRecordedTake(input: {
   readonly profile: CaptureProfile;
   readonly prompt: PromptDefinition;
   readonly recordedAt: Date;
+  readonly recognizedTranscript?: string;
   readonly session: CaptureSession;
   readonly takeId: TakeId;
 }): RecordedTake {
-  const words = input.prompt.text.split(/\s+/).filter(Boolean);
+  const spokenText = input.prompt.spokenText ?? input.prompt.text;
+  const phonemeAlignment = alignPromptToPhonemes({
+    durationMs: input.durationMs,
+    language: input.session.language,
+    text: spokenText,
+  });
+  const transcriptMatch = estimateTranscriptMatch({
+    expectedText: spokenText,
+    observedText: input.recognizedTranscript,
+  });
   const durationStatus =
     input.durationMs < input.prompt.qa.minDurationMs ||
     input.durationMs > input.prompt.qa.maxDurationMs
+      ? "review"
+      : "pass";
+  const transcriptStatus = getTranscriptGateStatus(transcriptMatch);
+  const phonemeAlignmentStatus =
+    phonemeAlignment.words.length === 0 || phonemeAlignment.confidence < 0.68
       ? "review"
       : "pass";
   const clippingStatus = input.metrics.clippingDetected ? "fail" : "pass";
@@ -38,15 +57,25 @@ export function createRecordedTake(input: {
       : "pass";
   const snrStatus = input.metrics.snrDb < 24 ? "review" : "pass";
   const verdict =
-    clippingStatus === "fail" || signalStatus === "fail"
+    clippingStatus === "fail" ||
+    signalStatus === "fail" ||
+    transcriptStatus === "fail"
       ? "reject"
       : durationStatus === "pass" &&
           signalStatus === "pass" &&
           noiseStatus === "pass" &&
           snrStatus === "pass" &&
+          phonemeAlignmentStatus === "pass" &&
           input.profile.roomToneCaptured
         ? "pass"
         : "review";
+  const wordPhonemeLinkRate =
+    phonemeAlignment.words.length === 0
+      ? 0
+      : roundScore(
+          phonemeAlignment.words.filter((word) => word.phonemes.length > 0)
+            .length / phonemeAlignment.words.length,
+        );
 
   return {
     id: input.takeId,
@@ -57,30 +86,39 @@ export function createRecordedTake(input: {
     transcript: {
       schemaVersion: "voice.transcript.v2",
       originalText: input.prompt.text,
-      spokenText: input.prompt.spokenText ?? input.prompt.text,
+      spokenText,
+      observedText:
+        input.recognizedTranscript === undefined ||
+        input.recognizedTranscript.trim().length === 0
+          ? null
+          : input.recognizedTranscript,
+      matchEstimate: transcriptMatch,
       strictMatchRequired: true,
       annotations: [],
+      tokens: phonemeAlignment.tokens,
     },
     timing: {
       schemaVersion: "voice.timing.v2",
       durationMs: input.durationMs,
-      words: words.map((word, index) => {
-        const startMs = Math.round(
-          (input.durationMs / Math.max(words.length, 1)) * index,
-        );
-        const endMs = Math.round(
-          (input.durationMs / Math.max(words.length, 1)) * (index + 1),
-        );
-
-        return { word, startMs, endMs };
-      }),
+      words: phonemeAlignment.words.map((word) => ({
+        word: word.word,
+        startMs: word.startMs,
+        endMs: word.endMs,
+        tokenIndex: word.tokenIndex,
+        normalized: word.normalized,
+        confidence: word.confidence,
+        syllableCount: word.syllableCount,
+        phonemes: word.phonemes,
+      })),
+      phonemes: phonemeAlignment.phonemes,
       phrases: [
         {
-          text: input.prompt.text,
+          text: spokenText,
           startMs: 0,
           endMs: input.durationMs,
         },
       ],
+      alignment: phonemeAlignment,
     },
     intent: {
       schemaVersion: "voice.intent.v2",
@@ -109,7 +147,10 @@ export function createRecordedTake(input: {
         mouthNoiseScore: input.metrics.mouthNoiseScore,
       },
       performance: {
-        transcriptMatch: 0.99,
+        transcriptMatch: transcriptMatch.score,
+        alignmentConfidence: phonemeAlignment.confidence,
+        phonemeInventoryCount: phonemeAlignment.inventory.length,
+        wordPhonemeLinkRate,
         intentMatch: verdict === "pass" ? 0.92 : 0.78,
         prosodyVariation: 0.74,
         naturalnessHumanReview: null,
@@ -161,8 +202,17 @@ export function createRecordedTake(input: {
         {
           id: "transcript_match",
           label: "Transcript",
-          status: "review",
-          message: "Relis vite le texte : il doit correspondre mot pour mot.",
+          status: transcriptStatus,
+          message: createTranscriptGateMessage(transcriptMatch),
+        },
+        {
+          id: "phoneme_alignment",
+          label: "Alignement phonèmes",
+          status: phonemeAlignmentStatus,
+          message:
+            phonemeAlignmentStatus === "pass"
+              ? `Chaque mot est lié à ses phonèmes estimés (${phonemeAlignment.inventory.length} unités).`
+              : "Alignement phonémique local peu fiable. Prévois une validation forcée avant entraînement.",
         },
       ],
       verdict,
@@ -183,4 +233,44 @@ export function createRecordedTake(input: {
             : "Prise utilisable en secours. Une reprise plus naturelle serait mieux.",
     },
   };
+}
+
+function getTranscriptGateStatus(
+  match: ReturnType<typeof estimateTranscriptMatch>,
+): RecordedTake["quality"]["gates"][number]["status"] {
+  if (match.source === "prompt_only") {
+    return "review";
+  }
+
+  if (match.score < 0.75) {
+    return "fail";
+  }
+
+  if (match.score < 0.92) {
+    return "review";
+  }
+
+  return "pass";
+}
+
+function createTranscriptGateMessage(
+  match: ReturnType<typeof estimateTranscriptMatch>,
+): string {
+  if (match.source === "prompt_only") {
+    return "Aucun transcript navigateur fiable. Le texte prompt est exporté, à valider par alignement forcé.";
+  }
+
+  if (match.score >= 0.92) {
+    return `Transcript reconnu aligné au prompt : ${Math.round(match.score * 100)} %.`;
+  }
+
+  if (match.score >= 0.75) {
+    return `Transcript à relire : ${Math.round(match.score * 100)} %, écarts possibles.`;
+  }
+
+  return `Transcript incompatible (${Math.round(match.score * 100)} %). Reprends mot pour mot.`;
+}
+
+function roundScore(value: number): number {
+  return Math.round(Math.max(0, Math.min(1, value)) * 100) / 100;
 }

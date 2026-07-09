@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createDatasetPackagePlan } from "../src/app/export/datasetPackage";
 import { canonicalCorpus, type PromptDefinition } from "../src/domains/corpus";
+import { alignPromptToPhonemes } from "../src/domains/phonetics";
 import { initialSpeakers } from "../src/domains/speakers";
 import {
   planSession,
@@ -83,6 +84,21 @@ test("dataset package plan includes only keeper takes and covers the documented 
       (file) => file.path === `phonemes/${keeperTakeId}.json`,
     ),
   );
+  const phonemeFile = plan.jsonFiles.find(
+    (file) => file.path === `phonemes/${keeperTakeId}.json`,
+  );
+  const phonemeJson = phonemeFile?.json as {
+    readonly wordPhonemeMap?: readonly {
+      readonly phonemes: readonly unknown[];
+    }[];
+  };
+
+  assert.ok((phonemeJson.wordPhonemeMap?.[0]?.phonemes.length ?? 0) > 0);
+  assert.ok(
+    plan.textFiles.some(
+      (file) => file.path === "manifests/training_manifest.jsonl",
+    ),
+  );
   assert.ok(plan.jsonFiles.some((file) => file.path === "speaker.json"));
   assert.ok(plan.jsonFiles.some((file) => file.path === "session.json"));
   assert.ok(
@@ -111,6 +127,11 @@ function createTake(
   rating: RecordedTake["review"]["rating"],
 ): RecordedTake {
   const verdict = rating === "reject" ? "reject" : "pass";
+  const alignment = alignPromptToPhonemes({
+    durationMs: 3200,
+    language: session.language,
+    text: prompt.spokenText ?? prompt.text,
+  });
 
   return {
     id: `take.${prompt.id}.${rating}` as TakeId,
@@ -128,8 +149,19 @@ function createTake(
     timing: {
       schemaVersion: "voice.timing.v2",
       durationMs: 3200,
-      words: [],
+      words: alignment.words.map((word) => ({
+        word: word.word,
+        startMs: word.startMs,
+        endMs: word.endMs,
+        tokenIndex: word.tokenIndex,
+        normalized: word.normalized,
+        confidence: word.confidence,
+        syllableCount: word.syllableCount,
+        phonemes: word.phonemes,
+      })),
+      phonemes: alignment.phonemes,
       phrases: [{ text: prompt.text, startMs: 0, endMs: 3200 }],
+      alignment,
     },
     intent: {
       schemaVersion: "voice.intent.v2",
@@ -159,6 +191,9 @@ function createTake(
       },
       performance: {
         transcriptMatch: 1,
+        alignmentConfidence: alignment.confidence,
+        phonemeInventoryCount: alignment.inventory.length,
+        wordPhonemeLinkRate: 1,
         intentMatch: rating === "keeper" ? 0.95 : 0.4,
         prosodyVariation: 0.74,
         naturalnessHumanReview: null,

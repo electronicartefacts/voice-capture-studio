@@ -17,6 +17,8 @@ open-source foundation for privacy-preserving voice capture workflows.
 - WAV PCM mono export at 48 kHz / 24-bit where browser support allows it.
 - Room-tone calibration and first-pass technical quality checks.
 - Transcript, timing, intent, prosody, and quality metadata for each take.
+- Browser-estimated word-to-phoneme alignment for every new take, with explicit forced-alignment
+  handoff metadata.
 - Keeper/review/reject flow so coverage only advances on accepted material.
 - Browser-private workspace storage with explicit downloads and folder export where supported.
 - Static GitHub Pages deployment with PWA manifest and service worker support.
@@ -108,6 +110,7 @@ Important documents:
 - [Corpus structure](docs/corpus-structure.md)
 - [Workspace structure](docs/workspace-structure.md)
 - [Export structure](docs/export-structure.md)
+- [Capture technology audit](docs/capture-technology-audit.md)
 - [Android and GitHub Pages](docs/android-github-pages.md)
 
 ## GitHub Pages

@@ -1,5 +1,12 @@
 import type { Brand, IsoDateTime, LanguageCode } from "@shared/index";
 import type {
+  PhonemeInterval,
+  PromptPhonemeAlignment,
+  TranscriptMatchEstimate,
+  TranscriptToken,
+  WordPhonemeAlignment,
+} from "@domains/phonetics";
+import type {
   CorpusId,
   PromptDefinition,
   PromptId,
@@ -41,8 +48,11 @@ export type TakeTranscript = {
   readonly schemaVersion: "voice.transcript.v2";
   readonly originalText: string;
   readonly spokenText: string;
+  readonly observedText?: string | null;
+  readonly matchEstimate?: TranscriptMatchEstimate;
   readonly strictMatchRequired: boolean;
   readonly annotations: readonly TranscriptAnnotation[];
+  readonly tokens?: readonly TranscriptToken[];
 };
 
 export type TranscriptAnnotation = {
@@ -54,13 +64,20 @@ export type TakeTiming = {
   readonly schemaVersion: "voice.timing.v2";
   readonly durationMs: number;
   readonly words: readonly WordTiming[];
+  readonly phonemes?: readonly PhonemeInterval[];
   readonly phrases: readonly PhraseTiming[];
+  readonly alignment?: PromptPhonemeAlignment;
 };
 
 export type WordTiming = {
   readonly word: string;
   readonly startMs: number;
   readonly endMs: number;
+  readonly tokenIndex?: number;
+  readonly normalized?: string;
+  readonly confidence?: number;
+  readonly syllableCount?: number;
+  readonly phonemes?: WordPhonemeAlignment["phonemes"];
 };
 
 export type PhraseTiming = {
@@ -105,6 +122,9 @@ export type TechnicalQualityMetrics = {
 
 export type PerformanceQualityMetrics = {
   readonly transcriptMatch: number;
+  readonly alignmentConfidence?: number;
+  readonly phonemeInventoryCount?: number;
+  readonly wordPhonemeLinkRate?: number;
   readonly intentMatch: number;
   readonly prosodyVariation: number;
   readonly naturalnessHumanReview: number | null;
@@ -120,6 +140,7 @@ export type TakeQualityGateResult = {
     | "duration"
     | "audio_persistence"
     | "transcript_match"
+    | "phoneme_alignment"
     | "intent_match"
     | "prosody_balance";
   readonly label: string;

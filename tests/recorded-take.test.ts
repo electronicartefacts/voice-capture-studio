@@ -41,6 +41,28 @@ test("recorded take becomes keeper when technical gates and room tone pass", () 
   assert.equal(take.intent.intent.id, prompt.intention.id);
   assert.equal(take.timing.phrases[0].endMs, 3200);
   assert.equal(take.timing.words.at(-1)?.endMs, 3200);
+  assert.ok((take.timing.phonemes?.length ?? 0) > take.timing.words.length);
+  assert.equal(take.timing.alignment?.forcedAlignmentRequired, true);
+  assert.equal(take.quality.performance.wordPhonemeLinkRate, 1);
+});
+
+test("recorded take rejects clear transcript mismatch from speech recognition", () => {
+  const { prompt, session } = createPlannedPrompt();
+  const take = createRecordedTake({
+    durationMs: 3200,
+    fileName: "take.wav",
+    metrics: createMetrics(),
+    profile: createCaptureProfile({ roomToneCaptured: true }),
+    prompt,
+    recordedAt,
+    recognizedTranscript: "completely different words",
+    session,
+    takeId,
+  });
+
+  assert.equal(take.quality.verdict, "reject");
+  assert.equal(findGateStatus(take, "transcript_match"), "fail");
+  assert.equal(take.transcript.matchEstimate?.source, "web_speech");
 });
 
 test("recorded take is rejected when clipping is detected", () => {
