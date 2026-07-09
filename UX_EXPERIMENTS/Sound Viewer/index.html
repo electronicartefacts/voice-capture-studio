@@ -1,0 +1,496 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Voice Reactive Prototype</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #000;
+        font-family: system-ui, sans-serif;
+      }
+
+      body {
+        display: grid;
+        place-items: center;
+        color: white;
+      }
+
+      #scene {
+        position: fixed;
+        inset: 0;
+        overflow: hidden;
+        background:
+          radial-gradient(
+            circle at 50% 50%,
+            rgba(255, 255, 255, 0.04),
+            transparent 35%
+          ),
+          #000;
+      }
+
+      .halo {
+        position: absolute;
+        width: 45vw;
+        height: 45vw;
+        border-radius: 999px;
+        filter: blur(90px);
+        opacity: 0.35;
+        mix-blend-mode: screen;
+        transform: translate(-50%, -50%) scale(1);
+        transition:
+          background 300ms linear,
+          opacity 180ms linear,
+          filter 180ms linear;
+        will-change: transform, opacity, filter, background;
+      }
+
+      .halo:nth-child(1) {
+        left: 25%;
+        top: 35%;
+        background: rgba(0, 132, 255, 0.7);
+      }
+
+      .halo:nth-child(2) {
+        left: 72%;
+        top: 38%;
+        background: rgba(179, 0, 255, 0.65);
+      }
+
+      .halo:nth-child(3) {
+        left: 48%;
+        top: 72%;
+        background: rgba(0, 255, 190, 0.45);
+      }
+
+      .halo:nth-child(4) {
+        left: 50%;
+        top: 50%;
+        width: 60vw;
+        height: 60vw;
+        background: rgba(255, 80, 140, 0.22);
+        filter: blur(140px);
+      }
+
+      canvas {
+        position: fixed;
+        inset: 0;
+        width: 100vw;
+        height: 100vh;
+        z-index: 10;
+      }
+
+      #start {
+        position: fixed;
+        z-index: 20;
+        bottom: 32px;
+        left: 50%;
+        transform: translateX(-50%);
+        padding: 12px 20px;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 255, 255, 0.22);
+        background: rgba(255, 255, 255, 0.08);
+        color: white;
+        backdrop-filter: blur(20px);
+        cursor: pointer;
+        letter-spacing: 0.02em;
+      }
+
+      #start:hover {
+        background: rgba(255, 255, 255, 0.16);
+      }
+
+      #hint {
+        position: fixed;
+        z-index: 20;
+        top: 28px;
+        left: 50%;
+        transform: translateX(-50%);
+        font-size: 12px;
+        opacity: 0.45;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div id="scene">
+      <div class="halo"></div>
+      <div class="halo"></div>
+      <div class="halo"></div>
+      <div class="halo"></div>
+    </div>
+
+    <canvas id="wave"></canvas>
+
+    <div id="hint">Voice Reactive Capture Surface</div>
+    <button id="start">Enable microphone</button>
+
+    <script>
+      const canvas = document.getElementById("wave");
+      const ctx = canvas.getContext("2d");
+      const button = document.getElementById("start");
+      const halos = [...document.querySelectorAll(".halo")];
+
+      let audioCtx;
+      let analyser;
+      let dataArray;
+      let timeArray;
+      let animationId;
+      let smoothedVolume = 0;
+      let smoothedBass = 0;
+      let smoothedMid = 0;
+      let smoothedHigh = 0;
+
+      // Premium real-time oscilloscope renderer.
+      // Uses AnalyserNode time-domain data for reliability in a single static HTML file.
+      const DISPLAY_SAMPLES = 220;
+      const VISUAL_SMOOTHING = 0.72;
+      const SPATIAL_SMOOTHING_WINDOW = 31;
+      const MAX_VISUAL_GAIN = 16;
+      const MIN_VISUAL_GAIN = 2.4;
+      let previousWaveform = new Float32Array(DISPLAY_SAMPLES).fill(0);
+      let visualGain = 7;
+
+      function resize() {
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = window.innerWidth * dpr;
+        canvas.height = window.innerHeight * dpr;
+        canvas.style.width = window.innerWidth + "px";
+        canvas.style.height = window.innerHeight + "px";
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      }
+
+      window.addEventListener("resize", resize);
+      resize();
+
+      function averageRange(array, start, end) {
+        let sum = 0;
+        for (let i = start; i < end; i++) sum += array[i];
+        return sum / Math.max(1, end - start) / 255;
+      }
+
+      function lerp(a, b, t) {
+        return a + (b - a) * t;
+      }
+
+      function resampleTimeDomain(input, targetLength) {
+        const output = new Float32Array(targetLength);
+        const inputLength = input.length;
+        const scale = (inputLength - 1) / Math.max(1, targetLength - 1);
+
+        for (let i = 0; i < targetLength; i++) {
+          const sourceIndex = i * scale;
+          const index0 = Math.floor(sourceIndex);
+          const index1 = Math.min(index0 + 1, inputLength - 1);
+          const frac = sourceIndex - index0;
+          const value = input[index0] * (1 - frac) + input[index1] * frac;
+          output[i] = (value - 128) / 128;
+        }
+
+        return output;
+      }
+
+      // Apply Gaussian-weighted smoothing filter to array
+      function smoothSamples(samples, windowSize = 5) {
+        const half = Math.floor(windowSize / 2);
+        const sigma = windowSize / 5;
+        const out = new Float32Array(samples.length);
+
+        for (let i = 0; i < samples.length; i++) {
+          let sum = 0;
+          let weightSum = 0;
+
+          for (let j = -half; j <= half; j++) {
+            const k = Math.min(samples.length - 1, Math.max(0, i + j));
+            const w = Math.exp(-(j * j) / (2 * sigma * sigma));
+            sum += samples[k] * w;
+            weightSum += w;
+          }
+
+          out[i] = sum / weightSum;
+        }
+
+        return out;
+      }
+
+      // Soft limiter function to gently compress amplitude above threshold
+      function softLimiter(x, threshold = 0.9, ratio = 6) {
+        const absX = Math.abs(x);
+        if (absX <= threshold) return x;
+        const sign = x < 0 ? -1 : 1;
+        return sign * (threshold + (absX - threshold) / ratio);
+      }
+
+      // Cubic Bézier interpolation helper for smooth continuous curve through points
+      // Returns array of control points for bezier curves between samples
+      // Uses Catmull-Rom to Bezier conversion for smoothness
+      function getBezierPoints(points) {
+        const beziers = [];
+        const n = points.length;
+
+        for (let i = 0; i < n - 1; i++) {
+          const p0 = i > 0 ? points[i - 1] : points[0];
+          const p1 = points[i];
+          const p2 = points[i + 1];
+          const p3 = i + 2 < n ? points[i + 2] : points[n - 1];
+
+          // Calculate control points for cubic Bezier curve segment
+          const cp1x = p1.x + (p2.x - p0.x) / 6;
+          const cp1y = p1.y + (p2.y - p0.y) / 6;
+
+          const cp2x = p2.x - (p3.x - p1.x) / 6;
+          const cp2y = p2.y - (p3.y - p1.y) / 6;
+
+          beziers.push({
+            p1: p1,
+            cp1: { x: cp1x, y: cp1y },
+            cp2: { x: cp2x, y: cp2y },
+            p2: p2,
+          });
+        }
+        return beziers;
+      }
+
+      function drawWaveform() {
+        animationId = requestAnimationFrame(drawWaveform);
+
+        analyser.getByteFrequencyData(dataArray);
+        analyser.getByteTimeDomainData(timeArray);
+
+        // Calculate frequency bands for background animation
+        const bass = averageRange(dataArray, 0, 12);
+        const mid = averageRange(dataArray, 12, 80);
+        const high = averageRange(dataArray, 80, 180);
+
+        // Calculate RMS volume from time domain data
+        let volume = 0;
+        for (let i = 0; i < timeArray.length; i++) {
+          const v = (timeArray[i] - 128) / 128;
+          volume += v * v;
+        }
+        volume = Math.sqrt(volume / timeArray.length);
+
+        smoothedVolume = lerp(smoothedVolume, volume, 0.08);
+        smoothedBass = lerp(smoothedBass, bass, 0.05);
+        smoothedMid = lerp(smoothedMid, mid, 0.05);
+        smoothedHigh = lerp(smoothedHigh, high, 0.05);
+
+        updateBackground();
+
+        const w = window.innerWidth;
+        const h = window.innerHeight;
+
+        ctx.clearRect(0, 0, w, h);
+
+        // Read a faithful time-domain waveform from the live analyser.
+        // The line is a smoothed oscilloscope view: accurate, stable, and responsive.
+        let samples = resampleTimeDomain(timeArray, DISPLAY_SAMPLES);
+
+        // Spatial low-pass smoothing removes visual grit while preserving the voice contour.
+        samples = smoothSamples(samples, SPATIAL_SMOOTHING_WINDOW);
+
+        // Adaptive display gain: quiet speech stays readable, loud speech never visually clips.
+        const rms = Math.max(0.0012, smoothedVolume);
+        const targetGain = Math.max(
+          MIN_VISUAL_GAIN,
+          Math.min(MAX_VISUAL_GAIN, 0.9 / rms),
+        );
+        visualGain = lerp(visualGain, targetGain, 0.018);
+
+        for (let i = 0; i < samples.length; i++) {
+          const amplified = samples[i] * visualGain;
+          samples[i] = softLimiter(amplified, 0.82, 4.8);
+          samples[i] = Math.tanh(samples[i] * 1.15) / Math.tanh(1.15);
+          samples[i] = lerp(previousWaveform[i], samples[i], VISUAL_SMOOTHING);
+        }
+
+        previousWaveform.set(samples);
+
+        function raisedCosine(x) {
+          return 0.5 - 0.5 * Math.cos(Math.PI * x);
+        }
+
+        const points = [];
+        for (let i = 0; i < DISPLAY_SAMPLES; i++) {
+          const t = i / (DISPLAY_SAMPLES - 1);
+          const edge = Math.abs(t - 0.5) * 2;
+          const envelope = Math.pow(raisedCosine(Math.max(0, 1 - edge)), 1.8);
+          const amplitude = 0.02 + envelope * 0.98;
+
+          points.push({
+            x: (w / (DISPLAY_SAMPLES - 1)) * i,
+            y: h / 2 + samples[i] * amplitude * Math.min(240, h * 0.24),
+          });
+        }
+
+        // Subtle center marker: visually reads as the present moment / capture focus.
+        ctx.save();
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = "rgba(255,255,255,0.14)";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(w / 2, h / 2 - Math.min(290, h * 0.31));
+        ctx.lineTo(w / 2, h / 2 + Math.min(290, h * 0.31));
+        ctx.stroke();
+        ctx.restore();
+
+        // Draw the waveform as multiple synchronized filaments (plus main curve)
+        ctx.save();
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = "high";
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+        ctx.miterLimit = 2;
+        ctx.shadowColor = "transparent";
+        ctx.shadowBlur = 0;
+
+        // Helper to draw a single ultra-clean ribbon spline (all splines perfectly overlap, only normal offset)
+        function drawSpline(offsetScale, lineWidth, alpha) {
+          const beziers = getBezierPoints(points);
+          ctx.beginPath();
+          ctx.moveTo(points[0].x, points[0].y);
+
+          for (let i = 0; i < beziers.length; i++) {
+            const { p1, cp1, cp2, p2 } = beziers[i];
+
+            // Compute tiny normal offset for the ribbon
+            const prev = i > 0 ? beziers[i - 1].p2 : points[0];
+            const next =
+              i + 1 < beziers.length
+                ? beziers[i + 1].p1
+                : points[points.length - 1];
+            const dx = p2.x - p1.x;
+            const dy = p2.y - p1.y;
+            const len = Math.max(1, Math.hypot(dx, dy));
+            const nx = -dy / len;
+            const ny = dx / len;
+
+            // Offset points along normal by offsetScale
+            const p1x = p1.x + nx * offsetScale;
+            const p1y = p1.y + ny * offsetScale;
+            const cp1x = cp1.x + nx * offsetScale;
+            const cp1y = cp1.y + ny * offsetScale;
+            const cp2x = cp2.x + nx * offsetScale;
+            const cp2y = cp2.y + ny * offsetScale;
+            const p2x = p2.x + nx * offsetScale;
+            const p2y = p2.y + ny * offsetScale;
+
+            ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2x, p2y);
+          }
+
+          ctx.strokeStyle = `rgba(255,255,255,${alpha})`;
+          ctx.lineWidth = lineWidth;
+          ctx.stroke();
+        }
+
+        // Ultra-clean ribbon stack (perfectly overlapping splines)
+        drawSpline(-4.0, 0.25, 0.03);
+        drawSpline(-3.0, 0.3, 0.05);
+        drawSpline(-2.2, 0.4, 0.08);
+        drawSpline(-1.4, 0.55, 0.13);
+        drawSpline(-0.8, 0.8, 0.22);
+        drawSpline(-0.35, 1.2, 0.32);
+        drawSpline(0.0, 3.8, 1.0);
+        drawSpline(0.35, 1.2, 0.32);
+        drawSpline(0.8, 0.8, 0.22);
+        drawSpline(1.4, 0.55, 0.13);
+        drawSpline(2.2, 0.4, 0.08);
+        drawSpline(3.0, 0.3, 0.05);
+        drawSpline(4.0, 0.25, 0.03);
+
+        ctx.restore();
+      }
+
+      function updateBackground() {
+        const t = performance.now() * 0.001;
+
+        halos.forEach((halo, i) => {
+          const energy = smoothedVolume * 3;
+          const bass = smoothedBass;
+          const mid = smoothedMid;
+          const high = smoothedHigh;
+
+          const scale =
+            1 +
+            energy * 0.9 +
+            Math.sin(t * (0.6 + i * 0.2)) * 0.08 +
+            bass * 0.4;
+
+          const x = Math.sin(t * (0.25 + i * 0.11)) * (20 + mid * 90);
+
+          const y = Math.cos(t * (0.31 + i * 0.13)) * (20 + high * 120);
+
+          const blur = 80 + bass * 130 + high * 80;
+          const opacity = 0.22 + smoothedVolume * 1.4 + mid * 0.25;
+
+          const hue = (210 + i * 48 + bass * 120 + high * 190 + t * 12) % 360;
+          const saturation = 70 + mid * 30;
+          const lightness = 45 + high * 20;
+
+          halo.style.transform = `translate(calc(-50% + ${x}px), calc(-50% + ${y}px)) scale(${scale})`;
+
+          halo.style.filter = `blur(${blur}px)`;
+          halo.style.opacity = Math.min(0.85, opacity);
+          halo.style.background = `hsla(${hue}, ${saturation}%, ${lightness}%, 0.72)`;
+        });
+      }
+
+      async function startMic() {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false,
+            sampleRate: 48000,
+            channelCount: 1,
+            sampleSize: 24,
+            latency: 0.01,
+          },
+        });
+
+        audioCtx = new AudioContext();
+
+        const source = audioCtx.createMediaStreamSource(stream);
+
+        const filter = audioCtx.createBiquadFilter();
+        filter.type = "lowpass";
+        filter.frequency.value = 8000;
+        filter.Q.value = 0.3;
+        source.connect(filter);
+
+        analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 4096;
+        analyser.minDecibels = -100;
+        analyser.maxDecibels = -8;
+        analyser.smoothingTimeConstant = 0.32;
+
+        dataArray = new Uint8Array(analyser.frequencyBinCount);
+        timeArray = new Uint8Array(analyser.fftSize);
+
+        filter.connect(analyser);
+        button.style.display = "none";
+        drawWaveform();
+      }
+
+      button.addEventListener("click", async () => {
+        try {
+          await startMic();
+        } catch (error) {
+          button.textContent = "Microphone access denied";
+          console.error(error);
+        }
+      });
+    </script>
+  </body>
+</html>

@@ -386,6 +386,7 @@ function softLimitWaveSample(
 const liveAudioSignal = {
   samples: new Float32Array(WAVEFORM_DISPLAY_SAMPLES),
   updatedAt: 0,
+  level: 0,
 };
 
 function writeLiveWaveform(
@@ -2057,6 +2058,7 @@ export function App() {
         : previousLevel * 0.58 + boostedLevel * 0.42;
 
     visualAudioLevelRef.current = nextLevel;
+    liveAudioSignal.level = nextLevel;
 
     if (Math.abs(nextLevel - renderedAudioLevelRef.current) > 0.004) {
       renderedAudioLevelRef.current = nextLevel;
@@ -2105,6 +2107,10 @@ export function App() {
   }
 
   function updateAmbientPointer(event: PointerEvent<HTMLElement>) {
+    if (event.pointerType === "touch") {
+      return;
+    }
+
     const bounds = event.currentTarget.getBoundingClientRect();
 
     if (bounds.width === 0 || bounds.height === 0) {
@@ -2455,7 +2461,7 @@ function VoiceWaveformSurface(input: {
     let frameId = 0;
 
     function resize() {
-      const dpr = window.devicePixelRatio || 1;
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
 
       surfaceCanvas.width = Math.floor(window.innerWidth * dpr);
       surfaceCanvas.height = Math.floor(window.innerHeight * dpr);
@@ -2464,22 +2470,40 @@ function VoiceWaveformSurface(input: {
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     }
 
-    function readColor(variableName: string, fallback: string): string {
-      return (
-        getComputedStyle(document.documentElement)
-          .getPropertyValue(variableName)
-          .trim() || fallback
-      );
-    }
+    // Theme tokens are read from computed styles at most twice per second:
+    // reading them every frame forces a style recalculation per draw.
+    let themeReadAt = -Infinity;
+    let themeCache = {
+      waveColor: "rgba(255,255,255,0.72)",
+      guideColor: "rgba(255,255,255,0.14)",
+      playheadColor: "rgba(122,220,255,0.9)",
+      waveAlpha: 0.72,
+    };
 
-    function readNumber(variableName: string, fallback: number): number {
-      const value = Number.parseFloat(
-        getComputedStyle(document.documentElement).getPropertyValue(
-          variableName,
+    function readTheme(now: number): typeof themeCache {
+      if (now - themeReadAt < 500) {
+        return themeCache;
+      }
+
+      const style = getComputedStyle(document.documentElement);
+      const readColor = (name: string, fallback: string) =>
+        style.getPropertyValue(name).trim() || fallback;
+      const parsedAlpha = Number.parseFloat(
+        style.getPropertyValue("--wave-surface-alpha"),
+      );
+
+      themeReadAt = now;
+      themeCache = {
+        waveColor: readColor("--wave-surface-color", "rgba(255,255,255,0.72)"),
+        guideColor: readColor("--wave-surface-guide", "rgba(255,255,255,0.14)"),
+        playheadColor: readColor(
+          "--wave-surface-playhead",
+          "rgba(122,220,255,0.9)",
         ),
-      );
+        waveAlpha: Number.isFinite(parsedAlpha) ? parsedAlpha : 0.72,
+      };
 
-      return Number.isFinite(value) ? value : fallback;
+      return themeCache;
     }
 
     function getWaveCenterRatio(state: Screen, width: number): number {
@@ -2584,20 +2608,11 @@ function VoiceWaveformSurface(input: {
     function draw() {
       const width = window.innerWidth;
       const height = window.innerHeight;
-      const timeSeconds = performance.now() * 0.001;
-      const waveColor = readColor(
-        "--wave-surface-color",
-        "rgba(255,255,255,0.72)",
-      );
-      const guideColor = readColor(
-        "--wave-surface-guide",
-        "rgba(255,255,255,0.14)",
-      );
-      const playheadColor = readColor(
-        "--wave-surface-playhead",
-        "rgba(122,220,255,0.9)",
-      );
-      const waveAlpha = clampUnit(readNumber("--wave-surface-alpha", 0.72));
+      const frameNow = performance.now();
+      const timeSeconds = frameNow * 0.001;
+      const theme = readTheme(frameNow);
+      const { waveColor, guideColor, playheadColor } = theme;
+      const waveAlpha = clampUnit(theme.waveAlpha);
       const state = screenRef.current;
       const isAwake = awakeRef.current;
       const level = isAwake
@@ -2617,7 +2632,7 @@ function VoiceWaveformSurface(input: {
       const isQuietSurface = ["home", "permission", "technical"].includes(
         state,
       );
-      const signalIsFresh = performance.now() - liveAudioSignal.updatedAt < 260;
+      const signalIsFresh = frameNow - liveAudioSignal.updatedAt < 260;
       const liveGain = signalIsFresh ? getLiveWaveGain(state) : 0;
       const isLiveSurface = liveGain > 0;
       const visualHeight = Math.min(
@@ -3361,66 +3376,6 @@ function HomeScreen(input: {
           onChange={input.onCaptureModeChange}
         />
 
-        <SessionFlowGuide
-          captureMode={input.captureMode}
-          diagnostics={input.diagnostics}
-          folderName={input.folderName}
-          localCorpusReady={localCorpusReady}
-          localCorpusSummary={input.localCorpusSummary}
-        />
-
-        <div className="coverage-console">
-          <div
-            aria-label={`Couverture ${formatPercent(coveragePercent)}`}
-            className="coverage-ring"
-            style={
-              {
-                "--coverage": `${Math.max(0, Math.min(100, coveragePercent))}%`,
-              } as CSSProperties
-            }
-          >
-            <span>{formatPercent(coveragePercent)}</span>
-          </div>
-          <div>
-            <strong>{corpusStatus}</strong>
-            <p>{corpusRecommendation}</p>
-          </div>
-        </div>
-
-        <SystemHealthPanel
-          diagnostics={input.diagnostics}
-          onRefresh={input.onRefreshDiagnostics}
-        />
-
-        {input.workspaceDurability === "memory-only" &&
-          input.workspaceBackupUrl !== null &&
-          input.workspaceBackupFileName !== null && (
-            <div className="workspace-backup">
-              <div>
-                <strong>Workspace temporaire</strong>
-                <p>Télécharge ce manifeste avant de fermer l'onglet.</p>
-              </div>
-              <a
-                className="download-action"
-                download={input.workspaceBackupFileName}
-                href={input.workspaceBackupUrl}
-              >
-                <Download aria-hidden="true" size={18} />
-                <span>Télécharger le workspace</span>
-              </a>
-            </div>
-          )}
-
-        <VoiceManager
-          language={input.language}
-          onLanguageChange={input.onLanguageChange}
-          onSpeakerChange={input.onSpeakerChange}
-          onSpeakerCreate={input.onSpeakerCreate}
-          selectedSpeaker={input.selectedSpeaker}
-          selectedSpeakerId={input.selectedSpeakerId}
-          speakers={input.speakers}
-        />
-
         {input.captureMode !== "training" && (
           <LocalCorpusEditor
             mode={input.captureMode}
@@ -3447,15 +3402,6 @@ function HomeScreen(input: {
 
         <div className="primary-actions">
           <button
-            className="folder-button"
-            onClick={input.onChooseFolder}
-            type="button"
-          >
-            <FolderOpen aria-hidden="true" size={19} />
-            <span>{input.folderName ?? "Choisir un dossier d'export"}</span>
-          </button>
-
-          <button
             className="launch-button"
             disabled={!input.diagnostics.canRecord || !localCorpusReady}
             onClick={input.onStart}
@@ -3472,6 +3418,15 @@ function HomeScreen(input: {
                     : "Lancer avec téléchargement"}
             </span>
           </button>
+
+          <button
+            className="folder-button"
+            onClick={input.onChooseFolder}
+            type="button"
+          >
+            <FolderOpen aria-hidden="true" size={19} />
+            <span>{input.folderName ?? "Choisir un dossier d'export"}</span>
+          </button>
         </div>
 
         <p className={`action-hint${folderSelected ? " is-ready" : ""}`}>
@@ -3479,6 +3434,60 @@ function HomeScreen(input: {
             ? `Les WAV et JSON seront enregistrés dans ${input.folderName}.`
             : "Sans dossier local, garde les boutons WAV et JSON après chaque prise."}
         </p>
+
+        <div className="coverage-console">
+          <div
+            aria-label={`Couverture ${formatPercent(coveragePercent)}`}
+            className="coverage-ring"
+            style={
+              {
+                "--coverage": `${Math.max(0, Math.min(100, coveragePercent))}%`,
+              } as CSSProperties
+            }
+          >
+            <span>{formatPercent(coveragePercent)}</span>
+          </div>
+          <div>
+            <strong>{corpusStatus}</strong>
+            <p>{corpusRecommendation}</p>
+          </div>
+        </div>
+
+        <VoiceManager
+          language={input.language}
+          onLanguageChange={input.onLanguageChange}
+          onSpeakerChange={input.onSpeakerChange}
+          onSpeakerCreate={input.onSpeakerCreate}
+          selectedSpeaker={input.selectedSpeaker}
+          selectedSpeakerId={input.selectedSpeakerId}
+          speakers={input.speakers}
+        />
+
+        {input.diagnostics.status !== "ready" && (
+          <SystemHealthPanel
+            diagnostics={input.diagnostics}
+            onRefresh={input.onRefreshDiagnostics}
+          />
+        )}
+
+        {input.workspaceDurability === "memory-only" &&
+          input.workspaceBackupUrl !== null &&
+          input.workspaceBackupFileName !== null && (
+            <div className="workspace-backup">
+              <div>
+                <strong>Workspace temporaire</strong>
+                <p>Télécharge ce manifeste avant de fermer l'onglet.</p>
+              </div>
+              <a
+                className="download-action"
+                download={input.workspaceBackupFileName}
+                href={input.workspaceBackupUrl}
+              >
+                <Download aria-hidden="true" size={18} />
+                <span>Télécharger le workspace</span>
+              </a>
+            </div>
+          )}
 
         {input.captureProfile !== undefined && (
           <details className="capture-profile-details">
@@ -3592,41 +3601,47 @@ function VoiceManager(input: {
         </label>
       </div>
 
-      <form className="voice-create" onSubmit={submitSpeaker}>
-        <label className="voice-name-field">
-          <span>Nouvelle voix</span>
-          <input
-            disabled={isCreating}
-            onChange={(event) => setDraftName(event.target.value)}
-            placeholder={nextDefaultName}
-            type="text"
-            value={draftName}
-          />
-        </label>
-
-        <div className="voice-language-toggles" aria-label="Langues">
-          {supportedLanguages.map((language) => (
-            <label className="language-toggle" key={language.code}>
-              <input
-                checked={draftLanguages.includes(language.code)}
-                disabled={isCreating}
-                onChange={() => toggleDraftLanguage(language.code)}
-                type="checkbox"
-              />
-              <span>{formatLanguage(language.code)}</span>
-            </label>
-          ))}
-        </div>
-
-        <button
-          className="folder-button compact voice-create-button"
-          disabled={isCreating}
-          type="submit"
-        >
+      <details className="voice-create-details">
+        <summary>
           <UserPlus aria-hidden="true" size={17} />
-          <span>{isCreating ? "Création" : "Créer"}</span>
-        </button>
-      </form>
+          <span>Nouvelle voix</span>
+        </summary>
+        <form className="voice-create" onSubmit={submitSpeaker}>
+          <label className="voice-name-field">
+            <span>Nom</span>
+            <input
+              disabled={isCreating}
+              onChange={(event) => setDraftName(event.target.value)}
+              placeholder={nextDefaultName}
+              type="text"
+              value={draftName}
+            />
+          </label>
+
+          <div className="voice-language-toggles" aria-label="Langues">
+            {supportedLanguages.map((language) => (
+              <label className="language-toggle" key={language.code}>
+                <input
+                  checked={draftLanguages.includes(language.code)}
+                  disabled={isCreating}
+                  onChange={() => toggleDraftLanguage(language.code)}
+                  type="checkbox"
+                />
+                <span>{formatLanguage(language.code)}</span>
+              </label>
+            ))}
+          </div>
+
+          <button
+            className="folder-button compact voice-create-button"
+            disabled={isCreating}
+            type="submit"
+          >
+            <UserPlus aria-hidden="true" size={17} />
+            <span>{isCreating ? "Création" : "Créer"}</span>
+          </button>
+        </form>
+      </details>
     </section>
   );
 }
@@ -3704,86 +3719,6 @@ function CaptureModeSelector(input: {
               <small>{option.summary}</small>
             </span>
           </button>
-        );
-      })}
-    </section>
-  );
-}
-
-type SessionFlowStepStatus = "done" | "current" | "blocked";
-
-function SessionFlowGuide(input: {
-  readonly captureMode: CaptureMode;
-  readonly diagnostics: RuntimeDiagnostics;
-  readonly folderName: string | null;
-  readonly localCorpusReady: boolean;
-  readonly localCorpusSummary: LocalTextCorpusSummary | null;
-}) {
-  const modeContent = getCaptureModeContent(input.captureMode);
-  const corpusDetail =
-    input.captureMode === "training"
-      ? "Corpus intégré prêt"
-      : input.localCorpusReady && input.localCorpusSummary !== null
-        ? `${input.localCorpusSummary.promptCount} segment${
-            input.localCorpusSummary.promptCount > 1 ? "s" : ""
-          } prêt${input.localCorpusSummary.promptCount > 1 ? "s" : ""}`
-        : "Colle un texte ou charge un fichier";
-  const exportDetail =
-    input.folderName ??
-    (input.diagnostics.canExportFolder
-      ? "Dossier conseillé ou WAV/JSON"
-      : "Téléchargement WAV/JSON");
-  const steps: readonly {
-    readonly detail: string;
-    readonly icon: typeof Mic;
-    readonly label: string;
-    readonly status: SessionFlowStepStatus;
-  }[] = [
-    {
-      detail: formatCaptureMode(input.captureMode),
-      icon: modeContent.icon,
-      label: "Mode",
-      status: "done",
-    },
-    {
-      detail: corpusDetail,
-      icon: FileText,
-      label: input.captureMode === "training" ? "Corpus" : "Texte",
-      status: input.localCorpusReady ? "done" : "blocked",
-    },
-    {
-      detail: exportDetail,
-      icon: FolderOpen,
-      label: "Export",
-      status:
-        input.folderName !== null || !input.diagnostics.canExportFolder
-          ? "done"
-          : "current",
-    },
-    {
-      detail: input.diagnostics.canRecord
-        ? "Silence 3 s, puis lecture"
-        : input.diagnostics.primaryAction,
-      icon: Mic,
-      label: "Prise",
-      status: input.diagnostics.canRecord ? "current" : "blocked",
-    },
-  ];
-
-  return (
-    <section className="session-flow-guide" aria-label="Déroulé de session">
-      {steps.map((step, index) => {
-        const Icon = step.icon;
-
-        return (
-          <div className={`flow-step is-${step.status}`} key={step.label}>
-            <span className="flow-index">{index + 1}</span>
-            <Icon aria-hidden="true" size={17} />
-            <span>
-              <strong>{step.label}</strong>
-              <small>{step.detail}</small>
-            </span>
-          </div>
         );
       })}
     </section>
@@ -4516,13 +4451,7 @@ const KaraokeText = memo(function KaraokeText(input: {
     let frameId = 0;
 
     function animate() {
-      const app = currentLine.closest<HTMLElement>(".simple-app");
-      const energy =
-        Number.parseFloat(
-          getComputedStyle(app ?? document.documentElement).getPropertyValue(
-            "--audio-level",
-          ),
-        ) || 0;
+      const energy = liveAudioSignal.level;
       const target = waveTargetRef.current;
       const current =
         waveCenterRef.current + (target - waveCenterRef.current) * 0.14;
@@ -4999,34 +4928,40 @@ function ListeningReviewSurface(input: {
           <span>Boucle</span>
         </label>
       </div>
-      <div className="loop-editor" aria-label="Section de boucle">
-        <label>
-          <span>Début</span>
-          <input
-            max={Math.max(0, loopEnd - 0.04)}
-            min={0}
-            onChange={(event) =>
-              setLoopStart(Math.min(Number(event.target.value), loopEnd - 0.04))
-            }
-            step={0.01}
-            type="range"
-            value={loopStart}
-          />
-        </label>
-        <label>
-          <span>Fin</span>
-          <input
-            max={1}
-            min={Math.min(1, loopStart + 0.04)}
-            onChange={(event) =>
-              setLoopEnd(Math.max(Number(event.target.value), loopStart + 0.04))
-            }
-            step={0.01}
-            type="range"
-            value={loopEnd}
-          />
-        </label>
-      </div>
+      {loopEnabled && (
+        <div className="loop-editor" aria-label="Section de boucle">
+          <label>
+            <span>Début</span>
+            <input
+              max={Math.max(0, loopEnd - 0.04)}
+              min={0}
+              onChange={(event) =>
+                setLoopStart(
+                  Math.min(Number(event.target.value), loopEnd - 0.04),
+                )
+              }
+              step={0.01}
+              type="range"
+              value={loopStart}
+            />
+          </label>
+          <label>
+            <span>Fin</span>
+            <input
+              max={1}
+              min={Math.min(1, loopStart + 0.04)}
+              onChange={(event) =>
+                setLoopEnd(
+                  Math.max(Number(event.target.value), loopStart + 0.04),
+                )
+              }
+              step={0.01}
+              type="range"
+              value={loopEnd}
+            />
+          </label>
+        </div>
+      )}
       <div className="review-transcript" aria-label="Transcript synchronisé">
         {wordTimings.map((timing, index) => (
           <button
@@ -5219,6 +5154,11 @@ function DoneScreen(input: {
           <p className="soft-label">{input.progressLabel}</p>
         )}
         <h1>Écoute la prise.</h1>
+        {input.take !== null && (
+          <span className={`verdict-chip is-${isKeeper ? "pass" : "retake"}`}>
+            {isKeeper ? "Prise utilisable" : "À reprendre"}
+          </span>
+        )}
       </div>
       <p>{input.message}</p>
       <ListeningReviewSurface
@@ -5228,87 +5168,6 @@ function DoneScreen(input: {
         onProgressChange={input.onPlaybackProgressChange}
         take={input.take}
       />
-      {input.take !== null && (
-        <details className="take-score progressive-review">
-          <summary>
-            <strong>Qualité et détails de prise</strong>
-            <span>{isKeeper ? "Utilisable" : "À reprendre"}</span>
-          </summary>
-          <p>{input.take.review.directorNotes}</p>
-          <p className="coach-note">
-            {createTakeCoachNote(input.take, input.nextRecommendation)}
-          </p>
-          <dl>
-            <div>
-              <dt>Pic</dt>
-              <dd>{input.take.quality.technical.peakDbfs} dBFS</dd>
-            </div>
-            <div>
-              <dt>LUFS</dt>
-              <dd>{input.take.quality.technical.integratedLufs}</dd>
-            </div>
-            <div>
-              <dt>SNR</dt>
-              <dd>{input.take.quality.technical.snrDb} dB</dd>
-            </div>
-            <div>
-              <dt>Format</dt>
-              <dd>
-                {input.take.quality.technical.sampleRateHz / 1000} kHz /{" "}
-                {input.take.quality.technical.bitDepth}-bit
-              </dd>
-            </div>
-            <div>
-              <dt>Transcript</dt>
-              <dd>
-                {formatPercent(
-                  input.take.quality.performance.transcriptMatch * 100,
-                )}
-              </dd>
-            </div>
-            <div>
-              <dt>Alignement</dt>
-              <dd>
-                {formatPercent(
-                  (input.take.quality.performance.alignmentConfidence ?? 0) *
-                    100,
-                )}
-              </dd>
-            </div>
-            <div>
-              <dt>Phonèmes</dt>
-              <dd>
-                {input.take.quality.performance.phonemeInventoryCount ?? 0}
-              </dd>
-            </div>
-            <div>
-              <dt>Liens mot/phonème</dt>
-              <dd>
-                {formatPercent(
-                  (input.take.quality.performance.wordPhonemeLinkRate ?? 0) *
-                    100,
-                )}
-              </dd>
-            </div>
-          </dl>
-          <div>
-            {input.take.quality.gates.map((gate) => (
-              <small className={`gate-${gate.status}`} key={gate.id}>
-                {gate.label}: {gate.status}
-              </small>
-            ))}
-          </div>
-        </details>
-      )}
-      {(input.location !== null || input.fileName !== null) && (
-        <div className="file-receipt">
-          <Database aria-hidden="true" size={18} />
-          <div>
-            {input.location !== null && <strong>{input.location}</strong>}
-            {input.fileName !== null && <span>{input.fileName}</span>}
-          </div>
-        </div>
-      )}
       <div className="result-action-grid">
         <section className="next-step-panel" aria-label="Prochaine action">
           <div>
@@ -5417,6 +5276,87 @@ function DoneScreen(input: {
           </div>
         </section>
       </div>
+      {input.take !== null && (
+        <details className="take-score progressive-review">
+          <summary>
+            <strong>Qualité et détails de prise</strong>
+            <span>{isKeeper ? "Utilisable" : "À reprendre"}</span>
+          </summary>
+          <p>{input.take.review.directorNotes}</p>
+          <p className="coach-note">
+            {createTakeCoachNote(input.take, input.nextRecommendation)}
+          </p>
+          <dl>
+            <div>
+              <dt>Pic</dt>
+              <dd>{input.take.quality.technical.peakDbfs} dBFS</dd>
+            </div>
+            <div>
+              <dt>LUFS</dt>
+              <dd>{input.take.quality.technical.integratedLufs}</dd>
+            </div>
+            <div>
+              <dt>SNR</dt>
+              <dd>{input.take.quality.technical.snrDb} dB</dd>
+            </div>
+            <div>
+              <dt>Format</dt>
+              <dd>
+                {input.take.quality.technical.sampleRateHz / 1000} kHz /{" "}
+                {input.take.quality.technical.bitDepth}-bit
+              </dd>
+            </div>
+            <div>
+              <dt>Transcript</dt>
+              <dd>
+                {formatPercent(
+                  input.take.quality.performance.transcriptMatch * 100,
+                )}
+              </dd>
+            </div>
+            <div>
+              <dt>Alignement</dt>
+              <dd>
+                {formatPercent(
+                  (input.take.quality.performance.alignmentConfidence ?? 0) *
+                    100,
+                )}
+              </dd>
+            </div>
+            <div>
+              <dt>Phonèmes</dt>
+              <dd>
+                {input.take.quality.performance.phonemeInventoryCount ?? 0}
+              </dd>
+            </div>
+            <div>
+              <dt>Liens mot/phonème</dt>
+              <dd>
+                {formatPercent(
+                  (input.take.quality.performance.wordPhonemeLinkRate ?? 0) *
+                    100,
+                )}
+              </dd>
+            </div>
+          </dl>
+          <div>
+            {input.take.quality.gates.map((gate) => (
+              <small className={`gate-${gate.status}`} key={gate.id}>
+                {gate.label}: {gate.status}
+              </small>
+            ))}
+          </div>
+        </details>
+      )}
+      {(input.location !== null || input.fileName !== null) && (
+        <div className="file-receipt">
+          <Database aria-hidden="true" size={18} />
+          <div>
+            {input.location !== null && <strong>{input.location}</strong>}
+            {input.fileName !== null && <span>{input.fileName}</span>}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
