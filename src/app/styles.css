@@ -4655,9 +4655,21 @@ body,
   }
 
   .launch-button.is-hero {
+    box-sizing: border-box;
+    font-size: clamp(13px, 4vw, 16px);
+    gap: 8px;
+    overflow: hidden;
+    width: 100%;
     max-width: 100%;
     min-width: 0;
-    padding-inline: 20px;
+    padding-inline: 14px;
+  }
+
+  .launch-button.is-hero span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 }
 
