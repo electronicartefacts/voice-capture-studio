@@ -277,6 +277,41 @@ Verified end to end with a real (fake-device) browser run: `is-idle` →
 click → `is-requesting` → `main.is-awake` with `halo-drift, halo-ignite`
 both present on the computed style, backdrop settling to full opacity.
 
+## 2026-07-10 temporal rhythm audit
+
+A full pass over screen state timing, not cost: every `setScreen()` call site
+was traced end to end. One mechanism governs every screen appearance and
+disappearance — `startViewTransition`, giving a native compositor dissolve —
+except when `calibration`/`karaoke` is on either side of the change, where the
+switch was unconditionally instant, justified in code as "recording feedback
+wins".
+
+That justification holds for _arming_ a capture screen (nothing may delay
+recording controls appearing) but not for _leaving_ one. Tracing
+`finishRecording`: `recorder.stop()` always completes, and
+`stopFreeWordDetection`/`persistFinishedSession` always run, strictly before
+the `setScreen` call that leaves `karaoke`/`calibration`. The microphone is
+already closed by the time the screen changes — there is no live audio left
+to protect, so "fin de prise" was cutting instantly at exactly the moment the
+mission's own state vocabulary calls out: the instrument stops and archives
+its result.
+
+`setScreen` now gates the transition skip on `isArmingCapture` (`nextScreen`
+only) instead of either side of the change. Entering `calibration`/`karaoke`
+stays instant — measured at 3.3 s to reach karaoke, i.e. exactly the 3 s room
+tone plus an instant switch, no regression. Leaving them now dissolves like
+every other screen: a spy on `document.startViewTransition` confirmed it
+fires on `karaoke → done` (previously silent) and stays silent through
+`permission → calibration → karaoke` (unchanged).
+
+Rejected this pass, for a worse gain/complexity ratio than a one-line
+conditional: a live-ticking dBFS readout during room-tone calibration (touches
+three places for one state), a progressive left-to-right reveal of the
+review waveform (needs new per-segment animation machinery), a visible
+activity cue during "Finalisation…" (real gap, but a missing liveliness, not
+a broken continuity), and a general ambient "breathing" on the idle `Prêt`
+state (too diffuse to land as one scoped change).
+
 ## UX, responsive behavior, and motion
 
 The main interaction path is intentional: explicit permission, room-tone

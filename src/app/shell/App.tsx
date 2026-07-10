@@ -335,12 +335,14 @@ export function App() {
   const hasCalibratedCurrentSessionRef = useRef(false);
 
   const setScreen = useCallback((nextScreen: Screen) => {
-    const previousScreen = screenRef.current;
-    const isCaptureTransition =
-      previousScreen === "calibration" ||
-      previousScreen === "karaoke" ||
-      nextScreen === "calibration" ||
-      nextScreen === "karaoke";
+    // Arming the capture screens must never wait on a transition: recording
+    // feedback wins. Leaving them is a different moment — finishRecording
+    // always calls the recorder's stop() before any setScreen away from
+    // calibration/karaoke runs, so by the time this fires the microphone is
+    // already closed. Nothing live is left to protect, so "fin de prise" is
+    // free to dissolve like every other screen instead of cutting instantly.
+    const isArmingCapture =
+      nextScreen === "calibration" || nextScreen === "karaoke";
     const prefersReducedMotion = window.matchMedia(
       "(prefers-reduced-motion: reduce)",
     ).matches;
@@ -349,9 +351,8 @@ export function App() {
     };
 
     // Native View Transitions make card changes continuous where supported.
-    // Capture screens deliberately switch immediately: recording feedback wins.
     if (
-      !isCaptureTransition &&
+      !isArmingCapture &&
       !prefersReducedMotion &&
       documentWithViewTransition.startViewTransition !== undefined
     ) {
