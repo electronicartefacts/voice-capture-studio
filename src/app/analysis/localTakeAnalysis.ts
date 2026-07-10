@@ -12,12 +12,17 @@ const ANALYSIS_SAMPLE_RATE = 16_000;
 let sharedWorker: Worker | null = null;
 let nextRequestId = 1;
 
+type WindowWithAudioConstructors = Window & {
+  webkitAudioContext?: typeof AudioContext;
+  webkitOfflineAudioContext?: typeof OfflineAudioContext;
+};
+
 export function isLocalAnalysisSupported(): boolean {
   return (
     typeof Worker !== "undefined" &&
     typeof WebAssembly !== "undefined" &&
-    typeof AudioContext !== "undefined" &&
-    typeof OfflineAudioContext !== "undefined"
+    getAudioContextConstructor() !== null &&
+    getOfflineAudioContextConstructor() !== null
   );
 }
 
@@ -111,7 +116,19 @@ function getAssetsBaseUrl(): string {
 }
 
 async function decodeToMono16k(blob: Blob): Promise<Float32Array> {
-  const decodeContext = new AudioContext();
+  const AudioContextConstructor = getAudioContextConstructor();
+  const OfflineAudioContextConstructor = getOfflineAudioContextConstructor();
+
+  if (
+    AudioContextConstructor === null ||
+    OfflineAudioContextConstructor === null
+  ) {
+    throw new Error(
+      "L'analyse audio locale n'est pas disponible dans ce navigateur.",
+    );
+  }
+
+  const decodeContext = new AudioContextConstructor();
 
   try {
     const decoded = await decodeContext.decodeAudioData(
@@ -121,7 +138,7 @@ async function decodeToMono16k(blob: Blob): Promise<Float32Array> {
       1,
       Math.ceil(decoded.duration * ANALYSIS_SAMPLE_RATE),
     );
-    const offlineContext = new OfflineAudioContext(
+    const offlineContext = new OfflineAudioContextConstructor(
       1,
       frameCount,
       ANALYSIS_SAMPLE_RATE,
@@ -140,4 +157,26 @@ async function decodeToMono16k(blob: Blob): Promise<Float32Array> {
       await decodeContext.close().catch(() => undefined);
     }
   }
+}
+
+function getAudioContextConstructor(): typeof AudioContext | null {
+  if (typeof AudioContext !== "undefined") {
+    return AudioContext;
+  }
+
+  return typeof window !== "undefined"
+    ? ((window as WindowWithAudioConstructors).webkitAudioContext ?? null)
+    : null;
+}
+
+function getOfflineAudioContextConstructor():
+  typeof OfflineAudioContext | null {
+  if (typeof OfflineAudioContext !== "undefined") {
+    return OfflineAudioContext;
+  }
+
+  return typeof window !== "undefined"
+    ? ((window as WindowWithAudioConstructors).webkitOfflineAudioContext ??
+        null)
+    : null;
 }
