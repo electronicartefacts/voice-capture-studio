@@ -229,7 +229,9 @@ export function VoiceWaveformSurface(input: {
       const isQuietSurface =
         state === "home" || state === "permission" || state === "technical";
       const signalIsFresh = frameNow - liveAudioSignal.updatedAt < 260;
-      const liveGain = signalIsFresh ? getLiveWaveGain(state) : 0;
+      const liveGain =
+        (signalIsFresh ? getLiveWaveGain(state) : 0) *
+        (isCompactSurface && state === "technical" ? 1.75 : 1);
       const isLiveSurface = liveGain > 0;
       const visualHeight = Math.min(
         isQuietSurface
