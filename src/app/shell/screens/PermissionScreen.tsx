@@ -81,20 +81,25 @@ export function PermissionScreen(input: {
           <span>Vérifie les liens WAV et JSON dès que la prise est finie.</span>
         </li>
       </ul>
-      <div className="stacked-actions permission-actions">
-        <button
-          className="folder-button"
-          disabled={input.prompt === undefined}
-          onClick={input.onReference}
-          type="button"
-        >
-          <Volume2 aria-hidden="true" size={19} />
-          <span>
-            {input.isSpeakingReference
-              ? "Arrêter la référence"
-              : "Écouter la référence"}
-          </span>
-        </button>
+      <div
+        className={`stacked-actions permission-actions${
+          input.prompt === undefined ? " is-direct-start" : ""
+        }`}
+      >
+        {input.prompt !== undefined && (
+          <button
+            className="folder-button"
+            onClick={input.onReference}
+            type="button"
+          >
+            <Volume2 aria-hidden="true" size={19} />
+            <span>
+              {input.isSpeakingReference
+                ? "Arrêter la référence"
+                : "Écouter la référence"}
+            </span>
+          </button>
+        )}
         <button
           className="launch-button"
           disabled={!input.diagnostics.canRecord}

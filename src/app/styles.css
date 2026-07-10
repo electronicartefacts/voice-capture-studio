@@ -1403,6 +1403,11 @@ textarea:focus-visible {
   justify-self: start;
 }
 
+.permission-actions.is-direct-start {
+  grid-template-columns: minmax(0, 1fr);
+  max-width: 390px;
+}
+
 .screen-permission .director-heading {
   gap: 0;
 }

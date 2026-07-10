@@ -8,7 +8,7 @@ async function enterStudio(page: Page): Promise<void> {
   // The opening ritual auto-skips when microphone permission is already
   // granted, so the studio may already be awake by the time we look.
   const ritualButton = page.getByRole("button", {
-    name: /Enable your microphone/,
+    name: /Activer le microphone/,
   });
 
   await expect(async () => {
@@ -63,6 +63,25 @@ test("a guided take flows from launch to the review screen", async ({
     timeout: 30_000,
   });
   await expect(page.getByText(/Phrase 1 sur \d+/)).toBeVisible();
+});
+
+test("free capture removes unavailable controls and false reading progress", async ({
+  page,
+}) => {
+  await enterStudio(page);
+
+  await page.getByRole("button", { name: /Capture libre/ }).click();
+  await page.locator("button.launch-button").click();
+  await expect(page.locator("main.screen-permission")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Écouter la référence" }),
+  ).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Démarrer la prise" }).click();
+  await expect(page.locator("main.screen-karaoke")).toBeVisible({
+    timeout: 30_000,
+  });
+  await expect(page.locator(".read-progress")).toHaveCount(0);
 });
 
 test("workspace progress survives a reload through IndexedDB", async ({

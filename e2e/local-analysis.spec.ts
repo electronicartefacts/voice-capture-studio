@@ -16,7 +16,7 @@ async function enterStudio(page: Page): Promise<void> {
   await page.goto(APP_PATH);
 
   const ritualButton = page.getByRole("button", {
-    name: /Enable your microphone/,
+    name: /Activer le microphone/,
   });
 
   await expect(async () => {

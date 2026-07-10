@@ -48,15 +48,15 @@ export function OpeningRitual(input: {
 }) {
   const buttonLabel =
     input.status === "requesting"
-      ? "Listening..."
+      ? "Activation du microphone…"
       : input.status === "denied"
-        ? "Try microphone again"
-        : "Enable your microphone";
+        ? "Réessayer le microphone"
+        : "Activer le microphone";
 
   return (
     <section className="opening-ritual" aria-live="polite">
       <div>
-        <h1>Welcome to Voice Capture Studio.</h1>
+        <h1>Bienvenue dans Voice Capture Studio.</h1>
         <button
           className="ritual-button"
           disabled={input.status === "requesting"}
@@ -67,7 +67,9 @@ export function OpeningRitual(input: {
           <span>{buttonLabel}</span>
         </button>
         {input.status === "denied" && (
-          <p>Microphone access is required to enter the studio.</p>
+          <p>
+            L’accès au microphone est nécessaire pour entrer dans le studio.
+          </p>
         )}
       </div>
     </section>
