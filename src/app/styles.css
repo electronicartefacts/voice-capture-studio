@@ -3890,6 +3890,10 @@ body,
 }
 
 .home-workbench .primary-actions .launch-button {
+  background: color-mix(in srgb, var(--accent-a) 12%, transparent);
+  border-color: color-mix(in srgb, var(--accent-a) 38%, var(--line));
+  box-shadow: none;
+  color: var(--text);
   flex: 1 1 auto;
   justify-content: flex-start;
   padding-inline: 16px;
@@ -3907,10 +3911,22 @@ body,
   color: var(--text);
 }
 
+.home-workbench .primary-actions .launch-button:hover {
+  background: color-mix(in srgb, var(--accent-a) 18%, transparent);
+  border-color: color-mix(in srgb, var(--accent-a) 52%, var(--line));
+}
+
 @media (max-width: 720px) {
   .home-workbench .primary-actions {
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    bottom: auto;
     display: grid;
     grid-template-columns: minmax(0, 1fr);
+    padding: 0;
+    position: static;
+    z-index: auto;
   }
 
   .home-workbench .primary-actions .launch-button {
