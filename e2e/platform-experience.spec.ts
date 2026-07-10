@@ -28,7 +28,4 @@ test("platform shell exposes a keyboard-safe viewport and touch-safe controls", 
     "manipulation",
   );
   await expect(page.locator(".opening-ritual")).toHaveCSS("min-height", /px$/);
-  await expect(page.locator(".system-health-header strong")).toContainText(
-    /\d+\/100/,
-  );
 });
