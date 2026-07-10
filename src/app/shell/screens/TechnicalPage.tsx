@@ -1,0 +1,377 @@
+import { useRef, type CSSProperties, type ChangeEvent } from "react";
+import {
+  ArrowLeft,
+  Database,
+  Download,
+  FolderOpen,
+  Mic,
+  Upload,
+} from "lucide-react";
+import type { CorpusManifest } from "@domains/corpus";
+import type { CoverageSummary } from "@domains/coverage";
+import type { RuntimeDiagnostics } from "../../system/runtimeDiagnostics";
+import {
+  INPUT_SENSITIVITY_MAX,
+  INPUT_SENSITIVITY_MIN,
+} from "../audioEnvironment";
+import {
+  clampUnit,
+  formatCaptureMode,
+  formatCoverageEnergy,
+  formatCoverageIntent,
+  formatCoveragePace,
+  formatDatasetReadiness,
+  formatPhoneticTarget,
+  formatRuntimeStatus,
+} from "../helpers";
+import type {
+  CaptureMode,
+  DatasetExportState,
+  DownloadableRecording,
+} from "../types";
+
+export function Score(input: {
+  readonly label: string;
+  readonly value: number;
+}) {
+  return (
+    <div>
+      <span>{input.label}</span>
+      <strong>{input.value}/100</strong>
+    </div>
+  );
+}
+
+export function MicrophoneControlPanel(input: {
+  readonly active: boolean;
+  readonly audioLevel: number;
+  readonly label: string | null;
+  readonly onSensitivityChange: (value: number) => void;
+  readonly sensitivity: number;
+}) {
+  const level = clampUnit(input.audioLevel);
+  const sensitivityProgress =
+    ((input.sensitivity - INPUT_SENSITIVITY_MIN) /
+      (INPUT_SENSITIVITY_MAX - INPUT_SENSITIVITY_MIN)) *
+    100;
+  const levelHint = !input.active
+    ? "Active le micro depuis l'accueil : la courbe en fond d'écran devient ton repère."
+    : level < 0.07
+      ? "Parle : la courbe en fond d'écran doit réagir immédiatement."
+      : level > 0.85
+        ? "Trop fort. Recule légèrement ou baisse la sensibilité."
+        : "Niveau correct. La courbe suit ta voix en temps réel.";
+
+  return (
+    <section className="microphone-panel" aria-label="Microphone actif">
+      <div className="microphone-panel-header">
+        <div>
+          <p className="soft-label">Microphone</p>
+          <strong>{input.label ?? "Micro par défaut du navigateur"}</strong>
+        </div>
+        <span className={`mic-status is-${input.active ? "live" : "idle"}`}>
+          <Mic aria-hidden="true" size={15} />
+          {input.active ? "Actif" : "En veille"}
+        </span>
+      </div>
+      <label className="microphone-sensitivity">
+        <span>Sensibilité</span>
+        <input
+          aria-label="Sensibilité logicielle du micro"
+          max={INPUT_SENSITIVITY_MAX}
+          min={INPUT_SENSITIVITY_MIN}
+          onChange={(event) =>
+            input.onSensitivityChange(Number(event.target.value))
+          }
+          step={0.05}
+          style={
+            {
+              "--range-progress": `${sensitivityProgress}%`,
+            } as CSSProperties
+          }
+          type="range"
+          value={input.sensitivity}
+        />
+        <strong>{Math.round(input.sensitivity * 100)}%</strong>
+      </label>
+      <p className="microphone-hint" aria-live="polite">
+        {levelHint}
+      </p>
+    </section>
+  );
+}
+
+export function TechnicalPage(input: {
+  readonly audioLevel: number;
+  readonly captureMode: CaptureMode;
+  readonly corpusId: CorpusManifest["id"] | null;
+  readonly corpusVersion: CorpusManifest["version"] | null;
+  readonly coverage: CoverageSummary | null;
+  readonly coveragePercent: number;
+  readonly datasetExportState: DatasetExportState;
+  readonly diagnostics: RuntimeDiagnostics;
+  readonly folderName: string | null;
+  readonly inputSensitivity: number;
+  readonly microphoneActive: boolean;
+  readonly microphoneLabel: string | null;
+  readonly onBack: () => void;
+  readonly onDownloadDataset: () => void;
+  readonly onImportForcedAlignment: (file: File) => void;
+  readonly onInputSensitivityChange: (value: number) => void;
+  readonly onWriteDatasetToFolder: () => void;
+  readonly recordings: readonly DownloadableRecording[];
+  readonly savedSessions: number;
+  readonly storageMode: "folder-capable" | "browser-downloads";
+}) {
+  return (
+    <section className="technical-page">
+      <div className="technical-header">
+        <button
+          className="quiet-button standalone"
+          onClick={input.onBack}
+          type="button"
+        >
+          <ArrowLeft aria-hidden="true" size={17} />
+          <span>Retour</span>
+        </button>
+        <div>
+          <p className="soft-label">Suivi local</p>
+          <h1>Qualité et exports</h1>
+        </div>
+      </div>
+      <MicrophoneControlPanel
+        active={input.microphoneActive}
+        audioLevel={input.audioLevel}
+        label={input.microphoneLabel}
+        onSensitivityChange={input.onInputSensitivityChange}
+        sensitivity={input.inputSensitivity}
+      />
+      <div className="technical-grid">
+        <article>
+          <strong>Stockage</strong>
+          <span>{input.folderName ?? "Non choisi"}</span>
+        </article>
+        <article>
+          <strong>Progression</strong>
+          <span>{input.coveragePercent}%</span>
+        </article>
+        <article>
+          <strong>Sessions</strong>
+          <span>{input.savedSessions}</span>
+        </article>
+        <article>
+          <strong>Mode</strong>
+          <span>{formatCaptureMode(input.captureMode)}</span>
+        </article>
+        <article>
+          <strong>Corpus</strong>
+          <span>{input.corpusId ?? "Aucun"}</span>
+        </article>
+        <article>
+          <strong>Version des phrases</strong>
+          <span>{input.corpusVersion ?? "n/a"}</span>
+        </article>
+        <article>
+          <strong>Environnement</strong>
+          <span>{formatRuntimeStatus(input.diagnostics.status)}</span>
+        </article>
+        <article>
+          <strong>Export</strong>
+          <span>
+            {input.diagnostics.canExportFolder
+              ? "Dossier + téléchargement"
+              : "Téléchargement"}
+          </span>
+        </article>
+      </div>
+      {input.coverage !== null && (
+        <div className="dataset-score">
+          <h2>Qualité vocale</h2>
+          <div className="score-grid">
+            <Score label="Prompts" value={input.coverage.promptCoverage} />
+            <Score label="Audio" value={input.coverage.audioQuality} />
+            <Score label="ASR" value={input.coverage.transcriptAccuracy} />
+            <Score label="Intentions" value={input.coverage.intentCoverage} />
+            <Score label="Prosodie" value={input.coverage.prosodyDiversity} />
+            <Score
+              label="Alignement"
+              value={input.coverage.forcedAlignmentCoverage}
+            />
+          </div>
+          <strong>
+            {formatDatasetReadiness(input.coverage.datasetReadiness)}
+          </strong>
+          <p>{input.coverage.nextRecommendation}</p>
+          <div className="gap-list">
+            <Gap
+              label="Intentions"
+              values={input.coverage.missingIntents.map(formatCoverageIntent)}
+            />
+            <Gap
+              label="Rythmes"
+              values={input.coverage.missingPaces.map(formatCoveragePace)}
+            />
+            <Gap
+              label="Énergies"
+              values={input.coverage.missingEnergies.map(formatCoverageEnergy)}
+            />
+            <Gap
+              label="Sons"
+              values={input.coverage.missingPhonetics.map(formatPhoneticTarget)}
+            />
+          </div>
+        </div>
+      )}
+      <p className="technical-note">
+        Rien n'est envoyé en ligne. Les prises restent sur cet appareil.
+      </p>
+      <ForcedAlignmentImport onFile={input.onImportForcedAlignment} />
+      {input.storageMode === "browser-downloads" && (
+        <p className="coach-note">
+          Sur mobile, utilise les boutons de téléchargement après chaque prise.
+          Tu retrouveras les fichiers dans Downloads, Drive ou ton gestionnaire
+          de fichiers.
+        </p>
+      )}
+      <div className="dataset-export-panel">
+        <div className="dataset-export-header">
+          <h2>Dataset complet</h2>
+          <p>
+            Regroupe toutes les prises gardées en un dataset prêt pour
+            l'entraînement : audio brut, transcripts, métadonnées, phonèmes et
+            rapports agrégés.
+          </p>
+        </div>
+        <div className="dataset-export-actions">
+          <button
+            className="download-action"
+            disabled={input.datasetExportState.status === "preparing"}
+            onClick={input.onDownloadDataset}
+            type="button"
+          >
+            <Download aria-hidden="true" size={18} />
+            <span>
+              {input.datasetExportState.status === "preparing"
+                ? "Préparation…"
+                : "Télécharger le dataset (.zip)"}
+            </span>
+          </button>
+          {input.storageMode === "folder-capable" &&
+            input.folderName !== null && (
+              <button
+                className="quiet-button"
+                disabled={input.datasetExportState.status === "preparing"}
+                onClick={input.onWriteDatasetToFolder}
+                type="button"
+              >
+                <FolderOpen aria-hidden="true" size={18} />
+                <span>Écrire dans le dossier local</span>
+              </button>
+            )}
+        </div>
+        {input.datasetExportState.status === "done" && (
+          <p className="dataset-export-status">
+            {input.datasetExportState.keeperCount} prise(s) gardée(s)
+            incluse(s).
+            {input.datasetExportState.missingAudioFiles.length > 0
+              ? ` ${input.datasetExportState.missingAudioFiles.length} fichier(s) audio introuvable(s) dans le stockage local.`
+              : ""}
+          </p>
+        )}
+        {input.datasetExportState.status === "error" && (
+          <p className="dataset-export-status error">
+            {input.datasetExportState.message}
+          </p>
+        )}
+      </div>
+      <div className="recordings-list">
+        <div className="recordings-list-header">
+          <h2>Audio disponible</h2>
+          <span>{input.recordings.length} WAV</span>
+        </div>
+        {input.recordings.length > 0 ? (
+          input.recordings.map((recording) => (
+            <a
+              download={recording.fileName}
+              href={recording.url}
+              key={recording.fileName}
+            >
+              <span>{recording.fileName}</span>
+              <strong>Télécharger</strong>
+            </a>
+          ))
+        ) : (
+          <div className="recordings-empty">
+            <Database aria-hidden="true" size={20} />
+            <div>
+              <strong>Aucune prise en cache</strong>
+              <p>
+                Termine une prise pour voir les WAV conservés par le navigateur.
+                Les exports directs restent aussi disponibles sur l'écran de fin
+                de prise.
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+export function ForcedAlignmentImport(input: {
+  readonly onFile: (file: File) => void;
+}) {
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  function handleFileSelection(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = "";
+
+    if (file !== undefined) {
+      input.onFile(file);
+    }
+  }
+
+  return (
+    <section className="forced-alignment-panel">
+      <div>
+        <p className="soft-label">Alignement acoustique</p>
+        <strong>Remplacer l'estimation texte</strong>
+        <span>
+          Importe le JSON produit par MFA, WhisperX ou un autre aligneur.
+        </span>
+      </div>
+      <button
+        className="folder-button compact"
+        onClick={() => fileInputRef.current?.click()}
+        type="button"
+      >
+        <Upload aria-hidden="true" size={17} />
+        <span>Importer JSON</span>
+      </button>
+      <input
+        accept=".json,application/json"
+        className="sr-only"
+        onChange={handleFileSelection}
+        ref={fileInputRef}
+        type="file"
+      />
+    </section>
+  );
+}
+
+export function Gap(input: {
+  readonly label: string;
+  readonly values: readonly string[];
+}) {
+  return (
+    <div>
+      <span>{input.label}</span>
+      <strong>
+        {input.values.length === 0
+          ? "Complet"
+          : input.values.slice(0, 4).join(", ")}
+      </strong>
+    </div>
+  );
+}

@@ -1,0 +1,73 @@
+import { expect, test, type Page } from "@playwright/test";
+
+const APP_PATH = "/voice-capture-studio/";
+
+// Whisper-tiny runs in single-threaded WASM here, so give the whole flow
+// (capture, model load from the local preview server, inference) plenty of
+// room. Too heavy for CI: run manually with
+// `npx playwright test e2e/local-analysis.spec.ts`.
+test.skip(
+  process.env.CI !== undefined,
+  "Inférence WASM trop lente pour la CI; lancer manuellement en local.",
+);
+test.setTimeout(300_000);
+
+async function enterStudio(page: Page): Promise<void> {
+  await page.goto(APP_PATH);
+
+  const ritualButton = page.getByRole("button", {
+    name: /Enable your microphone/,
+  });
+
+  await expect(async () => {
+    if (await ritualButton.isVisible()) {
+      await ritualButton.click({ timeout: 1_000 }).catch(() => undefined);
+    }
+
+    await expect(page.locator("main.is-awake")).toBeVisible({
+      timeout: 1_000,
+    });
+  }).toPass({ timeout: 30_000 });
+
+  await expect(page.locator("main.screen-home")).toBeVisible();
+}
+
+test("a recorded take can be analyzed on-device with whisper and VAD", async ({
+  page,
+}) => {
+  await enterStudio(page);
+
+  await page.locator("button.launch-button").click();
+  await expect(page.locator("main.screen-permission")).toBeVisible();
+  await page.getByRole("button", { name: "Démarrer la prise" }).click();
+  await expect(page.locator("main.screen-karaoke")).toBeVisible({
+    timeout: 30_000,
+  });
+  await page.waitForTimeout(2_500);
+
+  const stopButton = page.locator("button.stop-button");
+
+  if (await stopButton.isVisible()) {
+    await stopButton.click();
+  }
+
+  await expect(page.locator("main.screen-done")).toBeVisible({
+    timeout: 30_000,
+  });
+
+  await expect(page.getByTestId("local-analysis")).toBeVisible();
+  await page.getByTestId("local-analysis-run").click();
+
+  // Model load plus inference: the fake microphone tone typically yields an
+  // empty transcript and little or no detected speech, which the result panel
+  // must present without failing.
+  await expect(page.getByTestId("local-analysis-result")).toBeVisible({
+    timeout: 240_000,
+  });
+  await expect(page.getByTestId("local-analysis-result")).toContainText(
+    "Transcript Whisper",
+  );
+  await expect(page.getByTestId("local-analysis-result")).toContainText(
+    "Parole détectée",
+  );
+});

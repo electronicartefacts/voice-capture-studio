@@ -1822,6 +1822,78 @@ textarea:focus-visible {
   padding: 6px 8px;
 }
 
+.local-analysis-panel {
+  background: color-mix(in srgb, var(--panel-solid) 7%, transparent);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  display: grid;
+  gap: 12px;
+  justify-items: start;
+  padding: 16px;
+  width: 100%;
+}
+
+.local-analysis-heading {
+  display: grid;
+  gap: 6px;
+}
+
+.local-analysis-heading p:not(.soft-label) {
+  color: var(--soft);
+  font-size: 13px;
+  margin: 0;
+}
+
+.local-analysis-progress {
+  color: var(--accent-a);
+  font-size: 14px;
+  font-weight: 820;
+  margin: 0;
+}
+
+.local-analysis-error {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+}
+
+.local-analysis-error p {
+  color: var(--danger, #e5484d);
+  font-size: 13px;
+  margin: 0;
+}
+
+.local-analysis-panel dl {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  width: 100%;
+}
+
+.local-analysis-panel dl div {
+  background: color-mix(in srgb, var(--panel-solid) 7%, transparent);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+}
+
+.local-analysis-panel dt {
+  color: var(--soft);
+  font-size: 11px;
+  font-weight: 820;
+  text-transform: uppercase;
+}
+
+.local-analysis-panel dd {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 640;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
 .gate-pass {
   background: color-mix(in srgb, var(--accent-a) 24%, transparent);
   color: var(--text);
