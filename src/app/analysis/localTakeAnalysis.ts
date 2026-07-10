@@ -38,6 +38,10 @@ export async function analyzeTakeAudio(input: {
   readonly onProgress: (progress: LocalAnalysisProgress) => void;
 }): Promise<LocalTakeAnalysis> {
   const audio = await decodeToMono16k(input.audioBlob);
+  // `postMessage` transfers the backing buffer to the worker below. Keep the
+  // duration while this side still owns the samples, otherwise the detached
+  // typed array reports a zero length after inference completes.
+  const totalDurationMs = getAnalysisDurationMs(audio);
   const worker = getAnalysisWorker();
   const id = nextRequestId;
 
@@ -89,7 +93,6 @@ export async function analyzeTakeAudio(input: {
   });
 
   const expectedWords = tokenizeSpeech(input.expectedText);
-  const totalDurationMs = (audio.length / ANALYSIS_SAMPLE_RATE) * 1000;
 
   return {
     transcript,
@@ -98,6 +101,10 @@ export async function analyzeTakeAudio(input: {
     speechSegments,
     segmentSummary: summarizeSpeechSegments(speechSegments, totalDurationMs),
   };
+}
+
+export function getAnalysisDurationMs(audio: Float32Array): number {
+  return (audio.length / ANALYSIS_SAMPLE_RATE) * 1000;
 }
 
 function getAnalysisWorker(): Worker {
