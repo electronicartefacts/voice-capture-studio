@@ -700,6 +700,7 @@ export function App() {
     const source = audioContext.createMediaStreamSource(stream);
     const analyser = audioContext.createAnalyser();
     let frameId = 0;
+    let pausedTimerId: number | null = null;
     let acousticFieldReadAt = -Infinity;
     let smoothedLevel = 0;
 
@@ -716,17 +717,32 @@ export function App() {
       await audioContext.resume();
     }
 
+    function scheduleAmbientLevelUpdate() {
+      if (ambientRenderingBudgetRef.current === "paused") {
+        // The microphone stays available, but decorative analysis yields its
+        // frame budget while mobile Safari composites a scroll. Polling at a
+        // low cadence resumes the signal immediately after the scroll settles.
+        pausedTimerId = window.setTimeout(() => {
+          pausedTimerId = null;
+          frameId = window.requestAnimationFrame(updateAmbientLevel);
+        }, 120);
+        return;
+      }
+
+      frameId = window.requestAnimationFrame(updateAmbientLevel);
+    }
+
     function updateAmbientLevel() {
       const renderingBudget = ambientRenderingBudgetRef.current;
 
       if (renderingBudget === "paused") {
-        frameId = window.requestAnimationFrame(updateAmbientLevel);
+        scheduleAmbientLevelUpdate();
         return;
       }
 
       const now = performance.now();
       if (renderingBudget === "constrained" && now - acousticFieldReadAt < 66) {
-        frameId = window.requestAnimationFrame(updateAmbientLevel);
+        scheduleAmbientLevelUpdate();
         return;
       }
       analyser.getByteTimeDomainData(timeData);
@@ -763,7 +779,7 @@ export function App() {
         acousticFieldReadAt = now;
       }
 
-      frameId = window.requestAnimationFrame(updateAmbientLevel);
+      scheduleAmbientLevelUpdate();
     }
 
     frameId = window.requestAnimationFrame(updateAmbientLevel);
@@ -772,6 +788,9 @@ export function App() {
       stream,
       stop() {
         window.cancelAnimationFrame(frameId);
+        if (pausedTimerId !== null) {
+          window.clearTimeout(pausedTimerId);
+        }
         disconnectAudioNode(source);
         stream.getTracks().forEach((track) => track.stop());
         void closeAmbientAudioContext(audioContext);
@@ -2411,10 +2430,8 @@ export function App() {
     >
       <AmbientBackdrop awake={studioAwake} />
       <VoiceWaveformSurface
-        active={isWaveformReady && ambientRenderingBudget !== "paused"}
-        budget={
-          ambientRenderingBudget === "constrained" ? "constrained" : "full"
-        }
+        active={isWaveformReady}
+        budget={ambientRenderingBudget}
         awake={studioAwake}
         playbackProgress={reviewPlaybackProgress}
         screen={screen}

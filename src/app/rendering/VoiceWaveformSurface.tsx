@@ -11,7 +11,7 @@ const MOBILE_RESIZE_THRESHOLD_PX = 160;
 
 export function VoiceWaveformSurface(input: {
   readonly active: boolean;
-  readonly budget: "full" | "constrained";
+  readonly budget: "full" | "constrained" | "paused";
   readonly awake: boolean;
   readonly playbackProgress: number;
   readonly screen: VoiceWaveformScreen;
@@ -57,6 +57,7 @@ export function VoiceWaveformSurface(input: {
     const xCoordinates = new Float32Array(DISPLAY_SAMPLES);
     const yCoordinates = new Float32Array(DISPLAY_SAMPLES);
     let frameId = 0;
+    let pausedTimerId: number | null = null;
     let lastFrameAt = -Infinity;
     let renderWidth = 0;
     let renderHeight = 0;
@@ -216,8 +217,33 @@ export function VoiceWaveformSurface(input: {
       ctx.restore();
     }
 
+    function scheduleDraw() {
+      if (!activeRef.current || !awakeRef.current) {
+        return;
+      }
+
+      if (budgetRef.current === "paused") {
+        // Keep the last composited waveform on screen while Safari scrolls,
+        // but do not keep a requestAnimationFrame callback alive at display
+        // cadence. The timer makes the surface wake promptly once scrolling
+        // settles without rebuilding its full-size backing store.
+        pausedTimerId = window.setTimeout(() => {
+          pausedTimerId = null;
+          frameId = window.requestAnimationFrame(draw);
+        }, 120);
+        return;
+      }
+
+      frameId = window.requestAnimationFrame(draw);
+    }
+
     function draw() {
       if (!activeRef.current || !awakeRef.current) return;
+
+      if (budgetRef.current === "paused") {
+        scheduleDraw();
+        return;
+      }
 
       const frameNow = performance.now();
       const state = screenRef.current;
@@ -229,7 +255,7 @@ export function VoiceWaveformSurface(input: {
             : 1000 / 24;
 
       if (frameNow - lastFrameAt < targetFrameInterval) {
-        frameId = window.requestAnimationFrame(draw);
+        scheduleDraw();
         return;
       }
 
@@ -343,21 +369,33 @@ export function VoiceWaveformSurface(input: {
         : state === "karaoke"
           ? 3.1
           : 2.8;
+      const energizedPrimaryWidth =
+        primaryWidth * (1 + level * (isCompactSurface ? 0.22 : 0.12));
 
-      drawSpline(-4, 0.26, alpha * 0.04, waveColor);
-      drawSpline(-2.4, 0.42, alpha * 0.09, waveColor);
-      drawSpline(-1.1, 0.74, alpha * 0.18, waveColor);
-      drawSpline(-0.4, 1.18, alpha * 0.28, waveColor);
-      drawSpline(0, primaryWidth, alpha * 0.68, waveColor);
-      drawSpline(0.4, 1.18, alpha * 0.28, waveColor);
-      drawSpline(1.1, 0.74, alpha * 0.18, waveColor);
-      drawSpline(2.4, 0.42, alpha * 0.09, waveColor);
-      drawSpline(4, 0.26, alpha * 0.04, waveColor);
+      if (isCompactSurface && !isCaptureSurface) {
+        // A denser central filament reads as more responsive than distant,
+        // barely visible layers on a phone, while drawing 44% fewer splines.
+        drawSpline(-2.2, 0.42, alpha * 0.1, waveColor);
+        drawSpline(-0.7, 1.02, alpha * 0.25, waveColor);
+        drawSpline(0, energizedPrimaryWidth, alpha * 0.76, waveColor);
+        drawSpline(0.7, 1.02, alpha * 0.25, waveColor);
+        drawSpline(2.2, 0.42, alpha * 0.1, waveColor);
+      } else {
+        drawSpline(-4, 0.26, alpha * 0.04, waveColor);
+        drawSpline(-2.4, 0.42, alpha * 0.09, waveColor);
+        drawSpline(-1.1, 0.74, alpha * 0.18, waveColor);
+        drawSpline(-0.4, 1.18, alpha * 0.28, waveColor);
+        drawSpline(0, energizedPrimaryWidth, alpha * 0.68, waveColor);
+        drawSpline(0.4, 1.18, alpha * 0.28, waveColor);
+        drawSpline(1.1, 0.74, alpha * 0.18, waveColor);
+        drawSpline(2.4, 0.42, alpha * 0.09, waveColor);
+        drawSpline(4, 0.26, alpha * 0.04, waveColor);
+      }
 
       if (isLiveSurface) {
         drawSpline(
           0,
-          primaryWidth * 0.55,
+          energizedPrimaryWidth * 0.55,
           alpha * Math.min(0.6, 0.12 + level * 0.55),
           playheadColor,
         );
@@ -381,7 +419,7 @@ export function VoiceWaveformSurface(input: {
         }
       }
 
-      frameId = window.requestAnimationFrame(draw);
+      scheduleDraw();
     }
 
     resize();
@@ -392,6 +430,9 @@ export function VoiceWaveformSurface(input: {
 
     return () => {
       window.cancelAnimationFrame(frameId);
+      if (pausedTimerId !== null) {
+        window.clearTimeout(pausedTimerId);
+      }
       window.removeEventListener("resize", resize);
     };
   }, [input.active, input.awake]);
