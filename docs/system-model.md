@@ -77,9 +77,11 @@ an explicit migration exists.
 - `App.tsx` contains orchestration, UI state, and the browser capture lifecycle. Capture
   finalization, export bundle/report generation, and take construction now live in app-level
   services, but they are not yet promoted behind the domain recording/export ports.
-- Workspace persistence can degrade to memory-only behavior when `localStorage` fails. The
-  repository contract now exposes this durability explicitly, and the shell exposes a workspace
-  backup download, but there is no restore/import flow yet.
+- Workspace persistence prefers IndexedDB (with a one-time migration from the legacy
+  `localStorage` payload and a `navigator.storage.persist()` request against eviction), falling
+  back to `localStorage` and then memory-only when browser storage fails. The repository contract
+  exposes this durability explicitly, and the shell exposes a workspace backup download, but there
+  is no restore/import flow yet.
 - Export reports are generated in an app-level service rather than behind the domain export port.
 - Browser private storage is still the default initial workspace mode even though the doctrine says
   File System Access should be preferred where available.

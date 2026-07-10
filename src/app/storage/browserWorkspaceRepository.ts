@@ -6,6 +6,13 @@ import type {
   WorkspaceRepository,
 } from "../../domains/workspace";
 import { normalizeWorkspacePayload } from "../../domains/workspace";
+import {
+  WORKSPACE_STORE_NAME,
+  isIndexedDbAvailable,
+  readStoreValue,
+  requestPersistentStorage,
+  writeStoreValue,
+} from "./indexedDb";
 
 const STORAGE_KEY = "voice-capture-studio.workspace.v1";
 
@@ -25,19 +32,48 @@ export function createBrowserWorkspaceRepository(): WorkspaceRepository {
         };
       }
 
-      let rawWorkspace: string | null;
+      let payload: unknown;
+      let source: "indexed-db" | "local-storage" | null = null;
 
-      try {
-        rawWorkspace = window.localStorage.getItem(STORAGE_KEY);
-      } catch {
-        return {
-          ok: false,
-          error: "workspace-storage-unavailable",
-          message: "Le stockage du navigateur n'est pas disponible.",
-        };
+      if (isIndexedDbAvailable()) {
+        try {
+          payload = await readStoreValue<unknown>(
+            WORKSPACE_STORE_NAME,
+            STORAGE_KEY,
+          );
+
+          if (payload !== undefined) {
+            source = "indexed-db";
+          }
+        } catch {
+          // IndexedDB can be blocked at runtime; fall back to localStorage.
+        }
       }
 
-      if (rawWorkspace === null) {
+      if (source === null) {
+        let rawWorkspace: string | null;
+
+        try {
+          rawWorkspace = window.localStorage.getItem(STORAGE_KEY);
+        } catch {
+          rawWorkspace = null;
+        }
+
+        if (rawWorkspace !== null) {
+          try {
+            payload = JSON.parse(rawWorkspace);
+            source = "local-storage";
+          } catch {
+            return {
+              ok: false,
+              error: "workspace-unreadable",
+              message: `La progression locale ${id} est illisible dans le navigateur.`,
+            };
+          }
+        }
+      }
+
+      if (source === null) {
         return {
           ok: false,
           error: "workspace-not-found",
@@ -45,16 +81,10 @@ export function createBrowserWorkspaceRepository(): WorkspaceRepository {
         };
       }
 
+      let workspace: VoiceWorkspace;
+
       try {
-        return {
-          ok: true,
-          value: {
-            workspace: normalizeWorkspacePayload(JSON.parse(rawWorkspace), {
-              workspaceId: id,
-            }),
-            durability: "persistent",
-          },
-        };
+        workspace = normalizeWorkspacePayload(payload, { workspaceId: id });
       } catch (error) {
         if (isUnsupportedWorkspaceSchemaError(error)) {
           return {
@@ -70,6 +100,28 @@ export function createBrowserWorkspaceRepository(): WorkspaceRepository {
           message: `La progression locale ${id} est illisible dans le navigateur.`,
         };
       }
+
+      inMemoryWorkspace = workspace;
+      inMemoryDurability = "persistent";
+
+      if (source === "local-storage" && isIndexedDbAvailable()) {
+        // Legacy localStorage workspaces move to IndexedDB on first open. The
+        // localStorage copy stays behind as a read-only fallback in case
+        // IndexedDB becomes unavailable later.
+        try {
+          await writeStoreValue(WORKSPACE_STORE_NAME, STORAGE_KEY, workspace);
+        } catch {
+          // Migration is opportunistic; the next save retries it.
+        }
+      }
+
+      return {
+        ok: true,
+        value: {
+          workspace,
+          durability: "persistent",
+        },
+      };
     },
 
     async save(
@@ -77,12 +129,28 @@ export function createBrowserWorkspaceRepository(): WorkspaceRepository {
     ): ReturnType<WorkspaceRepository["save"]> {
       inMemoryWorkspace = workspace;
 
+      if (isIndexedDbAvailable()) {
+        try {
+          await writeStoreValue(WORKSPACE_STORE_NAME, STORAGE_KEY, workspace);
+          inMemoryDurability = "persistent";
+          requestPersistentStorage();
+
+          return {
+            ok: true,
+            value: {
+              workspace,
+              durability: "persistent",
+            },
+          };
+        } catch {
+          // Fall back to localStorage below.
+        }
+      }
+
       try {
-        window.localStorage.setItem(
-          STORAGE_KEY,
-          JSON.stringify(workspace, null, 2),
-        );
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(workspace));
         inMemoryDurability = "persistent";
+        requestPersistentStorage();
 
         return {
           ok: true,

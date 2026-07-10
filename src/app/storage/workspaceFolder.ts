@@ -1,4 +1,11 @@
 import type { Result } from "@shared/index";
+import {
+  FOLDER_STORE_NAME,
+  RECORDINGS_STORE_NAME,
+  openDatabase,
+  requestResult,
+  transactionDone,
+} from "./indexedDb";
 import { sha256Blob } from "./sha256";
 
 type DirectoryHandle = {
@@ -32,10 +39,6 @@ type WindowWithFolderPicker = Window &
   };
 
 const FOLDER_NAME_KEY = "voice-capture-studio.folder-name.v1";
-const DB_NAME = "voice-capture-studio";
-const DB_VERSION = 2;
-const FOLDER_STORE_NAME = "workspace-folder";
-const RECORDINGS_STORE_NAME = "recordings";
 const HANDLE_KEY = "directory-handle";
 const FALLBACK_FOLDER_NAME = "Stockage du navigateur";
 let inMemoryDirectoryHandle: DirectoryHandle | null = null;
@@ -797,48 +800,10 @@ async function readDirectoryHandle(): Promise<DirectoryHandle | null> {
   }
 }
 
-function openDatabase(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    if (window.indexedDB === undefined) {
-      reject(new Error("IndexedDB is not available."));
-      return;
-    }
-
-    const request = window.indexedDB.open(DB_NAME, DB_VERSION);
-
-    request.onupgradeneeded = () => {
-      if (!request.result.objectStoreNames.contains(FOLDER_STORE_NAME)) {
-        request.result.createObjectStore(FOLDER_STORE_NAME);
-      }
-
-      if (!request.result.objectStoreNames.contains(RECORDINGS_STORE_NAME)) {
-        request.result.createObjectStore(RECORDINGS_STORE_NAME);
-      }
-    };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
-}
-
 function rememberFolderName(folderName: string): void {
   try {
     window.localStorage.setItem(FOLDER_NAME_KEY, folderName);
   } catch {
     // Memory-only mode still works for the current tab.
   }
-}
-
-function requestResult<TValue>(request: IDBRequest<TValue>): Promise<TValue> {
-  return new Promise((resolve, reject) => {
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
-}
-
-function transactionDone(transaction: IDBTransaction): Promise<void> {
-  return new Promise((resolve, reject) => {
-    transaction.oncomplete = () => resolve();
-    transaction.onerror = () => reject(transaction.error);
-    transaction.onabort = () => reject(transaction.error);
-  });
 }
