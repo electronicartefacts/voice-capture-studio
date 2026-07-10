@@ -30,6 +30,10 @@ import {
 } from "@domains/workspace";
 import { type LanguageCode } from "@shared/index";
 import { createPcmRecorder, type PcmRecorder } from "../audio/pcmRecorder";
+import {
+  createRecordingFileName,
+  createTakeId,
+} from "../audio/recordingFileName";
 import { VoiceWaveformSurface } from "../rendering/VoiceWaveformSurface";
 import {
   pushLiveWaveform as pushWaveformToRenderer,
@@ -48,6 +52,7 @@ import {
 import { createDatasetPackagePlan } from "../export/datasetPackage";
 import { createDatasetZip } from "../export/downloadDatasetPackage";
 import { createBrowserWorkspaceRepository } from "../storage/browserWorkspaceRepository";
+import { sha256Blob } from "../storage/sha256";
 import {
   canChooseSystemFolder,
   chooseWorkspaceFolder,
@@ -247,6 +252,7 @@ export function App() {
   const [metadataDownloadUrl, setMetadataDownloadUrl] = useState<string | null>(
     null,
   );
+  const [isFreeCapture, setIsFreeCapture] = useState(false);
   const [workspaceBackupUrl, setWorkspaceBackupUrl] = useState<string | null>(
     null,
   );
@@ -326,7 +332,7 @@ export function App() {
     (speaker) => speaker.id === selectedSpeakerId,
   );
   const localCorpus = useMemo<LocalTextCorpus | null>(() => {
-    if (captureMode === "training") {
+    if (captureMode === "training" || captureMode === "free") {
       return null;
     }
 
@@ -946,7 +952,11 @@ export function App() {
       stopBackingTrackPlayback(true);
     }
 
-    if (mode !== "training" && customCorpusText.trim().length > 0) {
+    if (
+      mode !== "training" &&
+      mode !== "free" &&
+      customCorpusText.trim().length > 0
+    ) {
       const generatedCorpus = createLocalTextCorpus({
         mode,
         text: customCorpusText,
@@ -971,7 +981,11 @@ export function App() {
   function selectLanguage(language: LanguageCode) {
     setSelectedLanguage(language);
 
-    if (captureMode === "training" || customCorpusText.trim().length === 0) {
+    if (
+      captureMode === "training" ||
+      captureMode === "free" ||
+      customCorpusText.trim().length === 0
+    ) {
       return;
     }
 
@@ -996,7 +1010,7 @@ export function App() {
   function updateCustomCorpusText(
     text: string,
     sourceName = customCorpusSourceName,
-    mode: LocalCorpusMode = captureMode === "training"
+    mode: LocalCorpusMode = captureMode === "training" || captureMode === "free"
       ? "dubbing"
       : captureMode,
   ) {
@@ -1039,9 +1053,12 @@ export function App() {
         return;
       }
 
-      const mode = captureMode === "training" ? "dubbing" : captureMode;
+      const mode =
+        captureMode === "training" || captureMode === "free"
+          ? "dubbing"
+          : captureMode;
 
-      if (captureMode === "training") {
+      if (captureMode === "training" || captureMode === "free") {
         setCaptureMode(mode);
       }
 
@@ -1286,6 +1303,16 @@ export function App() {
       return;
     }
 
+    if (captureMode === "free") {
+      setSession(null);
+      setIsFreeCapture(true);
+      setSessionRoomTone(null);
+      resetTakeOutputState();
+      setScreen("permission");
+      setMessage(createSessionPreparationMessage(captureMode));
+      return;
+    }
+
     if (activeCorpus === null) {
       setMessage(
         "Ajoute un texte ou glisse un fichier pour créer le corpus local.",
@@ -1314,6 +1341,7 @@ export function App() {
     }
 
     setSession(nextSession);
+    setIsFreeCapture(false);
     setCurrentPromptIndex(0);
     hasCalibratedCurrentSessionRef.current = false;
     setSessionRoomTone(null);
@@ -1383,7 +1411,7 @@ export function App() {
   }
 
   async function allowMicrophoneAndStart() {
-    if (session === null) {
+    if (session === null && !isFreeCapture) {
       return;
     }
 
@@ -1438,6 +1466,7 @@ export function App() {
       setMicrophoneLabel(createMicrophoneLabel(stream));
 
       const recorder = await createPcmRecorder(stream, {
+        maxDurationMs: isFreeCapture ? null : undefined,
         onLevel: updateVisualAudioLevel,
         onSamples: pushLiveWaveform,
       });
@@ -1448,7 +1477,11 @@ export function App() {
       pcmRecorderRef.current = recorder;
 
       await requestRecordingWakeLock();
-      if (!hasCalibratedCurrentSessionRef.current && currentPromptIndex === 0) {
+      if (
+        !isFreeCapture &&
+        !hasCalibratedCurrentSessionRef.current &&
+        currentPromptIndex === 0
+      ) {
         startRoomToneCalibration(stream, recorder);
         return;
       }
@@ -1473,6 +1506,10 @@ export function App() {
     setActiveWordIndex(0);
     setScreen("karaoke");
     setMessage(message);
+
+    if (!isFreeCapture) {
+      startReadingGuide(words, selectedLanguage);
+    }
 
     if (captureMode === "mastering") {
       void startBackingTrackPlayback();
@@ -1854,6 +1891,11 @@ export function App() {
 
     const currentWorkspace = workspaceRef.current ?? workspace;
 
+    if (isFreeCapture) {
+      await persistFreeCapture(recording);
+      return;
+    }
+
     if (
       currentWorkspace === null ||
       session === null ||
@@ -1924,6 +1966,63 @@ export function App() {
             : nextDownloadUrl === null
               ? finalization.audioSaveResult.message
               : "Stockage interne refusé. Télécharge le fichier maintenant.",
+    );
+  }
+
+  async function persistFreeCapture(recording: FinalizedRecording) {
+    const recordedAt = new Date();
+    const takeId = createTakeId(recordedAt);
+    const fileName = createRecordingFileName({
+      extension: recording.extension,
+      sessionId: "free" as never,
+      takeId,
+    });
+    const audioSaveResult = await saveRecordingToWorkspaceFolder(
+      fileName,
+      recording.blob,
+    );
+    const audioUrl =
+      recording.blob.size > 0 ? URL.createObjectURL(recording.blob) : null;
+    const metadata = {
+      schemaVersion: "voice.free_capture.v1",
+      mode: "free",
+      recordedAt: recordedAt.toISOString(),
+      durationMs: recording.metrics.durationMs,
+      fileName,
+      media: {
+        byteLength: recording.blob.size,
+        mimeType: recording.mimeType,
+        sha256:
+          recording.blob.size > 0 ? await sha256Blob(recording.blob) : null,
+        capture: recording.capture,
+      },
+      metrics: recording.metrics,
+      roomTone: sessionRoomTone,
+      speaker: selectedSpeaker ?? null,
+      language: selectedLanguage,
+      processing: { localOnly: true, audioWorkletPreferred: true },
+    };
+    replaceDownloadUrl(audioUrl);
+    replaceMetadataDownloadUrl(
+      URL.createObjectURL(
+        new Blob([JSON.stringify(metadata, null, 2)], {
+          type: "application/json",
+        }),
+      ),
+    );
+    setSavedFileName(fileName);
+    setSavedLocation(
+      audioSaveResult.ok
+        ? formatSaveTarget(audioSaveResult.value.target)
+        : "Téléchargement uniquement",
+    );
+    setLastTake(null);
+    await refreshStoredRecordings();
+    setScreen("done");
+    setMessage(
+      audioSaveResult.ok
+        ? "Capture libre sauvegardée. Le WAV et le manifeste complet sont prêts."
+        : "Capture libre prête. Télécharge le WAV et son manifeste JSON.",
     );
   }
 
@@ -2340,6 +2439,7 @@ export function App() {
                   activeWordIndex={activeWordIndex}
                   audioLevel={audioLevel}
                   currentPromptIndex={currentPromptIndex}
+                  isFreeCapture={isFreeCapture}
                   isFinalizing={isFinalizing}
                   onStop={finishRecording}
                   prompt={activePrompt}
@@ -2376,6 +2476,7 @@ export function App() {
                     currentPromptIndex < session.plannedPromptIds.length - 1 &&
                     lastTake?.quality.verdict === "pass"
                   }
+                  isFreeCapture={isFreeCapture}
                   onAgain={prepareSession}
                   onNext={continueToNextPrompt}
                   onHome={() => setScreen("home")}

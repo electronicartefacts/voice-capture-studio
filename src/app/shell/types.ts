@@ -3,7 +3,7 @@ import type { VoiceWaveformScreen } from "../rendering/VoiceWaveformSurface";
 import type { StoredRecording } from "../storage/workspaceFolder";
 
 export type Screen = VoiceWaveformScreen;
-export type CaptureMode = "training" | LocalCorpusMode;
+export type CaptureMode = "free" | "training" | LocalCorpusMode;
 export type DownloadableRecording = StoredRecording & {
   readonly url: string;
 };

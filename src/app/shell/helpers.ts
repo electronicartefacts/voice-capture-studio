@@ -1,4 +1,4 @@
-import { Clapperboard, Headphones, Mic } from "lucide-react";
+import { Clapperboard, Headphones, Mic, Radio } from "lucide-react";
 import { canonicalCorpus, type PromptDefinition } from "@domains/corpus";
 import type { CoverageSummary } from "@domains/coverage";
 import type { RecordedTake } from "@domains/sessions";
@@ -22,6 +22,9 @@ export function formatMeterScale(value: number): string {
   return Math.max(0.035, clampUnit(value)).toFixed(3);
 }
 export function createModeMessage(mode: CaptureMode): string {
+  if (mode === "free") {
+    return "Capture libre : enregistre sans corpus ni durée imposée, avec WAV et métadonnées locales complètes.";
+  }
   if (mode === "training") {
     return "Mode dataset : le corpus intégré reste actif pour entraîner et comparer les prises.";
   }
@@ -34,6 +37,9 @@ export function createModeMessage(mode: CaptureMode): string {
 }
 
 export function createSessionPreparationMessage(mode: CaptureMode): string {
+  if (mode === "free") {
+    return "Capture libre prête. Le WAV et ses mesures locales seront conservés jusqu'à l'arrêt manuel.";
+  }
   if (mode === "mastering") {
     return "Lis la consigne. Au lancement, reste silencieux pendant la calibration, puis le retour casque démarre avec la prise.";
   }
@@ -127,6 +133,9 @@ export function formatSaveTarget(
 }
 
 export function formatCaptureMode(mode: CaptureMode): string {
+  if (mode === "free") {
+    return "Capture libre";
+  }
   if (mode === "training") {
     return "Dataset ML";
   }
@@ -311,6 +320,17 @@ export const captureModeOptions: readonly {
   readonly workbenchTitle: string;
   readonly summary: string;
 }[] = [
+  {
+    mode: "free",
+    icon: Radio,
+    title: "Capture libre",
+    pill: "Sans corpus",
+    kicker: "Prise continue locale",
+    headline: "Une prise complète, sans minuterie ni texte imposé.",
+    workbenchTitle: "Console de capture libre",
+    summary:
+      "WAV PCM, mesures acoustiques et métadonnées de provenance à l'arrêt manuel.",
+  },
   {
     mode: "training",
     icon: Mic,

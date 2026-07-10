@@ -585,6 +585,7 @@ export function DoneScreen(input: {
   readonly downloadUrl: string | null;
   readonly fileName: string | null;
   readonly hasNextPrompt: boolean;
+  readonly isFreeCapture?: boolean;
   readonly location: string | null;
   readonly metadataDownloadUrl: string | null;
   readonly message: string;
@@ -631,15 +632,26 @@ export function DoneScreen(input: {
           <div>
             <p className="soft-label">Prochaine action</p>
             <p>
-              {isKeeper
-                ? input.hasNextPrompt
-                  ? "Continue avec la phrase suivante tant que la posture et le niveau sont stables."
-                  : "La session est prête à être clôturée ou relancée."
-                : "Refais cette phrase avant de continuer la collecte."}
+              {input.isFreeCapture
+                ? "La prise libre est complète. Conserve le WAV avec son manifeste JSON de provenance et de mesures."
+                : isKeeper
+                  ? input.hasNextPrompt
+                    ? "Continue avec la phrase suivante tant que la posture et le niveau sont stables."
+                    : "La session est prête à être clôturée ou relancée."
+                  : "Refais cette phrase avant de continuer la collecte."}
             </p>
           </div>
           <div className="stacked-actions">
-            {!isKeeper ? (
+            {input.isFreeCapture ? (
+              <button
+                className="launch-button"
+                onClick={input.onAgain}
+                type="button"
+              >
+                <Play aria-hidden="true" size={19} />
+                <span>Nouvelle capture libre</span>
+              </button>
+            ) : !isKeeper ? (
               <button
                 className="launch-button"
                 onClick={input.onRetake}

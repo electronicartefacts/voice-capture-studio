@@ -84,6 +84,7 @@ export function KaraokeScreen(input: {
   readonly activeWordIndex: number;
   readonly audioLevel: number;
   readonly currentPromptIndex: number;
+  readonly isFreeCapture: boolean;
   readonly isFinalizing: boolean;
   readonly language: LanguageCode;
   readonly onStop: () => void;
@@ -123,8 +124,11 @@ export function KaraokeScreen(input: {
     <div className="karaoke-screen" aria-busy={input.isFinalizing}>
       <div className="recording-topbar">
         <div className="recording-dot" aria-live="polite">
-          {input.isFinalizing ? "Finalisation" : "REC"} · Phrase{" "}
-          {input.currentPromptIndex + 1}/{Math.max(input.totalPrompts, 1)}
+          {input.isFinalizing
+            ? "Finalisation"
+            : input.isFreeCapture
+              ? "REC · Capture libre"
+              : `REC · Phrase ${input.currentPromptIndex + 1}/${Math.max(input.totalPrompts, 1)}`}
         </div>
         <div className="recording-meter" aria-label="Niveau micro">
           <Volume2 aria-hidden="true" size={18} />
@@ -164,10 +168,21 @@ export function KaraokeScreen(input: {
           <span>{input.prompt.delivery.tone}</span>
         </div>
       )}
-      <KaraokeText
-        activeWordIndex={input.activeWordIndex}
-        words={input.words}
-      />
+      {input.isFreeCapture ? (
+        <div className="room-tone-copy">
+          <p className="soft-label">Prise continue</p>
+          <h1>Le studio enregistre.</h1>
+          <p>
+            Parle, chante ou capture l'environnement. Arrête manuellement quand
+            la prise est complète.
+          </p>
+        </div>
+      ) : (
+        <KaraokeText
+          activeWordIndex={input.activeWordIndex}
+          words={input.words}
+        />
+      )}
       {activeWordAlignment !== null && (
         <div className="phoneme-ribbon" aria-label="Phonèmes du mot actif">
           {activeWordAlignment.phonemes.map((phoneme, index) => (
@@ -178,7 +193,9 @@ export function KaraokeScreen(input: {
       <p className="recording-assist" aria-live="polite">
         {input.isFinalizing
           ? "Ne ferme pas l'onglet. Le WAV et les métadonnées sont en préparation."
-          : "Lis naturellement. La prise se ferme automatiquement à la fin de la phrase."}
+          : input.isFreeCapture
+            ? "Aucune limite de durée : le WAV et le manifeste local seront produits à l'arrêt."
+            : "Lis naturellement. La prise se ferme automatiquement à la fin de la phrase."}
       </p>
       {input.readingGuideMode === "speech-recognition" &&
         input.recognizedTranscript.trim().length > 0 && (

@@ -96,7 +96,9 @@ export function HomeScreen(input: {
   const modeContent = getCaptureModeContent(input.captureMode);
   const ModeIcon = modeContent.icon;
   const localCorpusReady =
-    input.captureMode === "training" || input.localCorpusSummary !== null;
+    input.captureMode === "free" ||
+    input.captureMode === "training" ||
+    input.localCorpusSummary !== null;
   const recordingReady = input.diagnostics.canRecord && localCorpusReady;
   const folderSelected = input.folderName !== null;
   const setupLabel = !input.diagnostics.canRecord
@@ -115,24 +117,28 @@ export function HomeScreen(input: {
   const readiness = formatDatasetReadiness(input.coverage?.datasetReadiness);
   const storageStatus = input.folderName ?? "Exports à télécharger";
   const corpusStatus =
-    input.captureMode === "training"
-      ? readiness
-      : input.localCorpusSummary === null
-        ? "Texte local attendu"
-        : `${input.localCorpusSummary.promptCount} segment${
-            input.localCorpusSummary.promptCount > 1 ? "s" : ""
-          }`;
+    input.captureMode === "free"
+      ? "Prise continue"
+      : input.captureMode === "training"
+        ? readiness
+        : input.localCorpusSummary === null
+          ? "Texte local attendu"
+          : `${input.localCorpusSummary.promptCount} segment${
+              input.localCorpusSummary.promptCount > 1 ? "s" : ""
+            }`;
   const corpusRecommendation =
-    input.captureMode === "training"
-      ? (input.coverage?.nextRecommendation ??
-        "Commence par un silence de pièce, puis deux prises neutres.")
-      : input.localCorpusSummary === null
-        ? "Colle un script ou charge un fichier texte."
-        : `${input.localCorpusSummary.wordCount} mots chargés${
-            input.localCorpusSummary.sourceName === null
-              ? ""
-              : ` depuis ${input.localCorpusSummary.sourceName}`
-          }.`;
+    input.captureMode === "free"
+      ? "Aucun corpus ni durée limite : arrête la prise quand tu veux."
+      : input.captureMode === "training"
+        ? (input.coverage?.nextRecommendation ??
+          "Commence par un silence de pièce, puis deux prises neutres.")
+        : input.localCorpusSummary === null
+          ? "Colle un script ou charge un fichier texte."
+          : `${input.localCorpusSummary.wordCount} mots chargés${
+              input.localCorpusSummary.sourceName === null
+                ? ""
+                : ` depuis ${input.localCorpusSummary.sourceName}`
+            }.`;
 
   return (
     <div className="home-card">
@@ -162,9 +168,11 @@ export function HomeScreen(input: {
           <div>
             <Check aria-hidden="true" size={18} />
             <span>
-              {input.captureMode === "training"
-                ? `${formatPercent(coveragePercent)} couvert`
-                : corpusStatus}
+              {input.captureMode === "free"
+                ? "Capture libre"
+                : input.captureMode === "training"
+                  ? `${formatPercent(coveragePercent)} couvert`
+                  : corpusStatus}
             </span>
           </div>
         </div>
@@ -190,7 +198,7 @@ export function HomeScreen(input: {
           onChange={input.onCaptureModeChange}
         />
 
-        {input.captureMode !== "training" && (
+        {input.captureMode !== "training" && input.captureMode !== "free" && (
           <LocalCorpusEditor
             mode={input.captureMode}
             onFile={input.onCustomCorpusFile}
