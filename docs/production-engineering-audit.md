@@ -444,6 +444,11 @@ change the usable voice dynamics. The selected mode is persisted in
 `take.captureContext.captureMode`, so exported quality decisions remain
 auditable rather than looking like universal thresholds.
 
+The room-tone gate also records `roomToneDriftDb`: the difference between the
+take's measured noise floor and the calibrated room floor. A positive drift
+above 6 dB requests review even when the absolute room floor still looks
+acceptable.
+
 This is intentionally a policy layer, not a DSP layer: the microphone signal
 stays raw and the same measured metrics are retained. Future work can add
 streaming VAD, chunked long-form capture, and playback-leakage analysis

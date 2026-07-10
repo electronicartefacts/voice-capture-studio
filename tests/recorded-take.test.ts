@@ -253,6 +253,28 @@ test("recorded take reviews noisy calibrated room tone", () => {
   assert.equal(findGateStatus(take, "noise_floor"), "review");
 });
 
+test("recorded take reviews room tone drift even when the absolute floor is acceptable", () => {
+  const { prompt, session } = createPlannedPrompt();
+  const take = createRecordedTake({
+    durationMs: 3200,
+    fileName: "drift.wav",
+    media: createMedia(),
+    metrics: createMetrics({ noiseFloorDbfs: -52 }),
+    profile: createCaptureProfile({
+      roomToneCaptured: true,
+      roomToneNoiseFloorDbfs: -60,
+    }),
+    prompt,
+    recordedAt,
+    session,
+    takeId,
+  });
+
+  assert.equal(take.quality.verdict, "review");
+  assert.equal(take.quality.technical.roomToneDriftDb, 8);
+  assert.equal(findGateStatus(take, "noise_floor"), "review");
+});
+
 test("recorded take remains review when prompt duration bounds are missed", () => {
   const { prompt, session } = createPlannedPrompt();
   const take = createRecordedTake({

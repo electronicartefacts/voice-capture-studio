@@ -87,6 +87,15 @@ export function createRecordedTake(input: {
         : "pass";
   const roomToneNoiseFloorDbfs =
     input.profile.roomToneNoiseFloorDbfs ?? input.metrics.noiseFloorDbfs;
+  const roomToneDriftDb = input.profile.roomToneCaptured
+    ? roundDb(
+        input.metrics.noiseFloorDbfs -
+          (input.profile.roomToneNoiseFloorDbfs ??
+            input.metrics.noiseFloorDbfs),
+      )
+    : null;
+  const roomToneDriftStatus =
+    roomToneDriftDb !== null && roomToneDriftDb > 6 ? "review" : "pass";
   const noiseStatus =
     input.profile.roomToneCaptured &&
     roomToneNoiseFloorDbfs > modePolicy.maximumRoomToneNoiseFloorDbfs
@@ -103,6 +112,7 @@ export function createRecordedTake(input: {
       : durationStatus === "pass" &&
           signalStatus === "pass" &&
           noiseStatus === "pass" &&
+          roomToneDriftStatus === "pass" &&
           snrStatus === "pass" &&
           headroomStatus === "pass" &&
           dcOffsetStatus === "pass" &&
@@ -186,6 +196,7 @@ export function createRecordedTake(input: {
         rmsDbfs: input.metrics.rmsDbfs,
         integratedLufs: input.metrics.integratedLufs,
         noiseFloorDbfs: input.metrics.noiseFloorDbfs,
+        roomToneDriftDb,
         snrDb: input.metrics.snrDb,
         crestFactorDb: input.metrics.crestFactorDb,
         dcOffset: input.metrics.dcOffset,
@@ -321,9 +332,14 @@ export function createRecordedTake(input: {
           {
             id: "noise_floor",
             label: "Silence de pièce",
-            status: input.profile.roomToneCaptured ? noiseStatus : "review",
+            status:
+              input.profile.roomToneCaptured &&
+              noiseStatus === "pass" &&
+              roomToneDriftStatus === "pass"
+                ? "pass"
+                : "review",
             message: input.profile.roomToneCaptured
-              ? `Bruit de fond de pièce : ${roomToneNoiseFloorDbfs} dBFS.`
+              ? `Bruit de fond de pièce : ${roomToneNoiseFloorDbfs} dBFS. Dérive relative : ${roomToneDriftDb ?? 0} dB.`
               : "Ajoute un silence de pièce pour valider le bruit de fond.",
           },
           {
@@ -394,9 +410,14 @@ export function createRecordedTake(input: {
           {
             id: "noise_floor_valid",
             label: "Bruit de fond",
-            status: input.profile.roomToneCaptured ? noiseStatus : "review",
+            status:
+              input.profile.roomToneCaptured &&
+              noiseStatus === "pass" &&
+              roomToneDriftStatus === "pass"
+                ? "pass"
+                : "review",
             message: input.profile.roomToneCaptured
-              ? "Mesure de prise comparée au silence de pièce déclaré."
+              ? "Mesure de prise comparée au niveau et à la dérive du silence de pièce déclaré."
               : "Silence de pièce absent; estimation de prise conservée avec revue.",
           },
           {
@@ -599,6 +620,10 @@ function createTranscriptGateMessage(
 
 function roundScore(value: number): number {
   return Math.round(Math.max(0, Math.min(1, value)) * 100) / 100;
+}
+
+function roundDb(value: number): number {
+  return Math.round(value * 10) / 10;
 }
 
 function createProsodyMetrics(input: {

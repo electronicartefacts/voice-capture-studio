@@ -181,6 +181,8 @@ export type TechnicalQualityMetrics = {
   readonly rmsDbfs: number;
   readonly integratedLufs: number;
   readonly noiseFloorDbfs: number;
+  /** Difference between take noise floor and the calibrated room tone floor. */
+  readonly roomToneDriftDb?: number | null;
   readonly snrDb: number;
   readonly crestFactorDb: number;
   readonly dcOffset: number;
