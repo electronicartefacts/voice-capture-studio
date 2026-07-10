@@ -149,6 +149,7 @@ import {
   SiteFooter,
 } from "./screens/StudioChrome";
 import { TechnicalPage } from "./screens/TechnicalPage";
+import { surfaceProfileDetails, useSurfaceProfile } from "./surfaceProfile";
 import { useAmbientRenderingBudget } from "./useAmbientRenderingBudget";
 
 type RecordingWakeLockSentinel = {
@@ -230,6 +231,7 @@ function disconnectAudioNode(node: AudioNode | null): void {
 }
 
 export function App() {
+  const surfaceProfile = useSurfaceProfile();
   const [studioAwake, setStudioAwake] = useState(false);
   const [isWaveformReady, setIsWaveformReady] = useState(false);
   const [ritualStatus, setRitualStatus] = useState<RitualStatus>("idle");
@@ -2621,6 +2623,7 @@ export function App() {
 
   const appClassName = [
     "simple-app",
+    `surface-${surfaceProfile}`,
     `screen-${screen}`,
     studioAwake ? "is-awake" : "is-ritual",
     isWaveformReady ? "is-waveform-ready" : "",
@@ -2668,6 +2671,14 @@ export function App() {
               <strong>Voice Capture Studio</strong>
             </button>
             <div className="header-actions">
+              <span
+                aria-label={surfaceProfileDetails[surfaceProfile].description}
+                aria-live="polite"
+                className="surface-profile-badge"
+                title={surfaceProfileDetails[surfaceProfile].description}
+              >
+                {surfaceProfileDetails[surfaceProfile].label}
+              </span>
               <button
                 className="quiet-button"
                 aria-label="Qualité et exports"

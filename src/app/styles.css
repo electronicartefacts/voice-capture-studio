@@ -4272,3 +4272,196 @@ body,
   background: color-mix(in srgb, var(--wave-color) 10%, transparent);
   border-color: color-mix(in srgb, var(--wave-color) 34%, var(--line));
 }
+
+/* Surface direction: one instrument, three levels of density. The waveform
+   remains global and central; these layouts only decide how much of the
+   existing control surface is allowed to orbit it. */
+.surface-profile-badge {
+  align-items: center;
+  border: 1px solid color-mix(in srgb, var(--accent-b) 34%, var(--line));
+  border-radius: 999px;
+  color: var(--accent-b);
+  display: inline-flex;
+  font-size: 11px;
+  font-weight: 820;
+  letter-spacing: 0.04em;
+  min-height: 32px;
+  padding: 6px 10px;
+  text-transform: uppercase;
+}
+
+/* Screen headings receive programmatic focus so assistive technology announces
+   each new context. They are not controls, so the browser's interactive focus
+   ring would be misleading here. */
+.instrument-line[tabindex="-1"]:focus,
+.director-panel h1[tabindex="-1"]:focus,
+.room-tone-screen h1[tabindex="-1"]:focus,
+.karaoke-screen h1[tabindex="-1"]:focus,
+.karaoke-line[tabindex="-1"]:focus,
+.focus-card h1[tabindex="-1"]:focus,
+.technical-page h1[tabindex="-1"]:focus {
+  outline: none;
+}
+
+.surface-desktop-lab .session-stage,
+.surface-tablet-lab .session-stage {
+  align-items: start;
+}
+
+.surface-desktop-lab.screen-home .home-card,
+.surface-tablet-lab.screen-home .home-card,
+.surface-tablet-dashboard.screen-home .home-card {
+  align-items: stretch;
+  grid-template-columns: minmax(280px, 0.86fr) minmax(360px, 1.14fr);
+  max-width: 1240px;
+}
+
+.surface-desktop-lab.screen-home .instrument-face,
+.surface-tablet-lab.screen-home .instrument-face {
+  min-height: min(720px, calc(100dvh - 140px));
+  position: sticky;
+  top: 104px;
+}
+
+.surface-desktop-lab.screen-home .home-workbench,
+.surface-tablet-lab.screen-home .home-workbench {
+  max-height: calc(100dvh - 140px);
+  overflow: auto;
+  scrollbar-color: color-mix(in srgb, var(--accent-b) 50%, transparent)
+    transparent;
+}
+
+.surface-desktop-lab .technical-page,
+.surface-tablet-lab .technical-page {
+  max-width: 1240px;
+  width: min(100%, 1240px);
+}
+
+.surface-tablet-dashboard .session-stage {
+  padding-inline: clamp(28px, 5vw, 64px);
+}
+
+.surface-tablet-dashboard.screen-home .instrument-face {
+  min-height: min(620px, calc(100dvh - 150px));
+}
+
+.surface-tablet-dashboard.screen-home .home-workbench {
+  box-shadow: var(--shadow-soft);
+}
+
+.surface-tablet-dashboard .status-strip {
+  max-width: none;
+}
+
+.surface-desktop-lab .surface-profile-badge,
+.surface-tablet-lab .surface-profile-badge,
+.surface-tablet-dashboard .surface-profile-badge {
+  display: inline-flex;
+}
+
+@media (max-width: 719px) and (orientation: portrait) {
+  .surface-mobile-focus .surface-profile-badge {
+    display: none;
+  }
+}
+
+@media (min-width: 720px) and (max-width: 800px) and (orientation: portrait) {
+  .surface-tablet-dashboard.screen-home .home-card {
+    grid-template-columns: minmax(0, 1fr);
+    max-width: 720px;
+  }
+
+  .surface-tablet-dashboard.screen-home .instrument-face {
+    min-height: 56vh;
+  }
+}
+
+@media (max-width: 999px) and (max-height: 539px) and (orientation: landscape) {
+  .surface-mobile-landscape-lab .simple-header {
+    padding-block: 8px;
+  }
+
+  .surface-mobile-landscape-lab .brand-button {
+    gap: 1px;
+  }
+
+  .surface-mobile-landscape-lab .brand-button span {
+    font-size: 15px;
+  }
+
+  .surface-mobile-landscape-lab .brand-button strong {
+    font-size: 10px;
+  }
+
+  .surface-mobile-landscape-lab .surface-profile-badge {
+    display: inline-flex;
+    min-height: 30px;
+  }
+
+  .surface-mobile-landscape-lab .session-stage {
+    align-items: start;
+    padding: 12px 18px calc(16px + env(safe-area-inset-bottom));
+  }
+
+  .surface-mobile-landscape-lab.screen-home .home-card {
+    align-items: stretch;
+    gap: 18px;
+    grid-template-columns: minmax(180px, 0.78fr) minmax(300px, 1.22fr);
+    max-width: 900px;
+  }
+
+  .surface-mobile-landscape-lab.screen-home .instrument-face {
+    min-height: calc(100dvh - 92px);
+    padding-block: 8px;
+    position: sticky;
+    top: 54px;
+  }
+
+  .surface-mobile-landscape-lab.screen-home .instrument-face .instrument-line {
+    font-size: clamp(16px, 2.8vw, 22px);
+    margin-top: 12px;
+  }
+
+  .surface-mobile-landscape-lab.screen-home .home-workbench {
+    max-height: calc(100dvh - 92px);
+    overflow: auto;
+    padding: 15px;
+  }
+
+  .surface-mobile-landscape-lab .status-strip {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .surface-mobile-landscape-lab .status-strip div {
+    min-height: 58px;
+    padding: 8px;
+  }
+
+  .surface-mobile-landscape-lab .status-strip span {
+    font-size: 11px;
+  }
+
+  .surface-mobile-landscape-lab .site-footer {
+    display: none;
+  }
+
+  .surface-mobile-landscape-lab .technical-page {
+    padding-block: 12px calc(20px + env(safe-area-inset-bottom));
+  }
+}
+
+@media (max-width: 600px) and (max-height: 539px) and (orientation: landscape) {
+  .surface-mobile-landscape-lab .session-stage {
+    padding-inline: 12px;
+  }
+
+  .surface-mobile-landscape-lab.screen-home .home-card {
+    gap: 12px;
+    grid-template-columns: minmax(150px, 0.72fr) minmax(260px, 1.28fr);
+  }
+
+  .surface-mobile-landscape-lab.screen-home .instrument-face .instrument-line {
+    display: none;
+  }
+}
