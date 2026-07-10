@@ -83,12 +83,15 @@ npm run format:check
 npm run lint
 npm run typecheck
 npm run test
+npm run test:e2e
 npm run build
 npm run validate
 ```
 
 `npm run validate` is the CI and release gate. It checks formatting, linting, TypeScript project
-references, unit tests, and the production build.
+references, unit tests, and the production build. `npm run test:e2e` drives the full capture flow
+(microphone permission, room tone, take, review) in Chromium with a simulated microphone, plus
+workspace persistence across reloads; CI runs it after `validate`.
 
 ## Architecture
 

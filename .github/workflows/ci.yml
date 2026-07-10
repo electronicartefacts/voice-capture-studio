@@ -27,3 +27,9 @@ jobs:
 
       - name: Validate
         run: npm run validate
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: End-to-end tests
+        run: npm run test:e2e

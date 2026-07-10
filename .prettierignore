@@ -12,3 +12,7 @@ output/
 *.pcm
 *.wav
 *.webm
+playwright-report/
+test-results/
+public/models/
+public/ort/

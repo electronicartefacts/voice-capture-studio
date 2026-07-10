@@ -44,3 +44,7 @@ Thumbs.db
 *.pcm
 *.wav
 *.webm
+
+# Playwright output
+/playwright-report/
+/test-results/

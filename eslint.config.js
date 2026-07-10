@@ -11,7 +11,11 @@ export default tseslint.config(
       "node_modules/",
       "coverage/",
       ".playwright-cli/",
+      "playwright-report/",
+      "test-results/",
       "output/",
+      "public/models/",
+      "public/ort/",
       "*.tsbuildinfo",
     ],
   },
@@ -59,7 +63,13 @@ export default tseslint.config(
     },
   },
   {
-    files: ["eslint.config.js", "vite.config.ts", "tests/**/*.ts"],
+    files: [
+      "eslint.config.js",
+      "vite.config.ts",
+      "playwright.config.ts",
+      "tests/**/*.ts",
+      "e2e/**/*.ts",
+    ],
     languageOptions: {
       globals: {
         ...globals.node,
