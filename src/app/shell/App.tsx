@@ -374,6 +374,40 @@ export function App() {
     setScreenState(nextScreen);
   }, []);
 
+  useEffect(() => {
+    if (!studioAwake) {
+      return;
+    }
+
+    const root = appRootRef.current;
+    if (root === null) {
+      return;
+    }
+
+    const target = root.querySelector<HTMLElement>(
+      [
+        ".technical-page h1",
+        ".director-panel h1",
+        ".room-tone-screen h1",
+        ".karaoke-screen h1",
+        ".karaoke-line",
+        ".focus-card h1",
+        ".instrument-face h1",
+      ].join(", "),
+    );
+
+    if (target === null) {
+      return;
+    }
+
+    target.tabIndex = -1;
+    const frameId = window.requestAnimationFrame(() => {
+      target.focus({ preventScroll: true });
+    });
+
+    return () => window.cancelAnimationFrame(frameId);
+  }, [screen, studioAwake]);
+
   const speakerProfiles = useMemo(
     () => createSpeakerProfiles(workspace?.speakers),
     [workspace?.speakers],

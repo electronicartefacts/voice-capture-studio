@@ -42,6 +42,7 @@ test("a guided take flows from launch to the review screen", async ({
 
   await page.locator("button.launch-button").click();
   await expect(page.locator("main.screen-permission")).toBeVisible();
+  await expect(page.locator("main.screen-permission h1")).toBeFocused();
 
   await page.getByRole("button", { name: "Démarrer la prise" }).click();
 
