@@ -1,7 +1,19 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="96" fill="#18201c"/>
-  <path d="M256 104c-44 0-80 36-80 80v76c0 44 36 80 80 80s80-36 80-80v-76c0-44-36-80-80-80Z" fill="#f6f5f0"/>
-  <path d="M128 244c0 71 57 128 128 128s128-57 128-128" fill="none" stroke="#9fc16f" stroke-width="32" stroke-linecap="round"/>
-  <path d="M256 372v56M208 428h96" fill="none" stroke="#9fc16f" stroke-width="32" stroke-linecap="round"/>
-  <path d="M224 184h64M224 244h64" fill="none" stroke="#18201c" stroke-width="22" stroke-linecap="round"/>
+  <defs>
+    <linearGradient id="bg" x1="64" y1="32" x2="448" y2="480" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1a2b26"/>
+      <stop offset="1" stop-color="#080d0c"/>
+    </linearGradient>
+    <linearGradient id="signal" x1="160" y1="128" x2="368" y2="384" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#f5f1e8"/>
+      <stop offset="1" stop-color="#bfe8ce"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="128" fill="url(#bg)"/>
+  <circle cx="256" cy="256" r="166" fill="#bfe8ce" fill-opacity=".07" stroke="#bfe8ce" stroke-opacity=".18" stroke-width="2"/>
+  <path d="M256 112c-40 0-72 32-72 72v86c0 40 32 72 72 72s72-32 72-72v-86c0-40-32-72-72-72Z" fill="url(#signal)"/>
+  <path d="M136 246c0 66 54 120 120 120s120-54 120-120" fill="none" stroke="#bfe8ce" stroke-width="24" stroke-linecap="round"/>
+  <path d="M256 366v48M210 414h92" fill="none" stroke="#bfe8ce" stroke-width="24" stroke-linecap="round"/>
+  <path d="M224 184h64M224 244h64" fill="none" stroke="#16231f" stroke-width="18" stroke-linecap="round"/>
+  <circle cx="392" cy="124" r="14" fill="#e58f8a"/>
 </svg>

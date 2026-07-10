@@ -4465,3 +4465,211 @@ body,
     display: none;
   }
 }
+
+/* Glass system: a restrained PS5 / Apple-inspired layer for every interactive
+   surface. Keep labels on one line so controls scan as objects, while long
+   explanatory copy remains naturally readable inside the cards. */
+:root {
+  --glass-fill: color-mix(in srgb, var(--bg-elevated) 58%, transparent);
+  --glass-fill-hover: color-mix(in srgb, var(--panel-strong) 76%, transparent);
+  --glass-stroke: color-mix(in srgb, var(--text) 15%, transparent);
+  --glass-stroke-hover: color-mix(in srgb, var(--accent-a) 46%, var(--line));
+  --glass-radius: 20px;
+  --glass-blur: 24px;
+}
+
+.home-workbench,
+.director-panel,
+.focus-card,
+.technical-page,
+.home-workbench > section,
+.home-workbench > details,
+.next-step-panel,
+.export-panel,
+.dataset-export-panel,
+.system-health,
+.local-corpus-panel,
+.backing-track-panel,
+.prompt-direction,
+.prep-checklist,
+.coverage-console,
+.workspace-backup,
+.forced-alignment-panel,
+.studio-ready-panel,
+.microphone-panel,
+.listening-review,
+.progressive-review,
+.domain-panel,
+.responsibility-list article {
+  border-radius: var(--glass-radius);
+}
+
+.home-workbench > section,
+.home-workbench > details,
+.next-step-panel,
+.export-panel,
+.dataset-export-panel,
+.system-health,
+.local-corpus-panel,
+.backing-track-panel,
+.prompt-direction,
+.prep-checklist,
+.coverage-console,
+.workspace-backup,
+.forced-alignment-panel,
+.studio-ready-panel,
+.microphone-panel,
+.listening-review,
+.progressive-review,
+.domain-panel,
+.responsibility-list article {
+  background: var(--glass-fill);
+  border: 1px solid var(--glass-stroke);
+  box-shadow: 0 18px 54px rgba(0, 0, 0, 0.14);
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.12);
+}
+
+.home-workbench > section,
+.home-workbench > details {
+  padding: 16px;
+}
+
+.folder-button,
+.launch-button,
+.download-action,
+.stop-button,
+.quiet-button,
+.system-refresh,
+.ritual-button,
+.capture-mode-option,
+.site-footer-links a {
+  white-space: nowrap;
+}
+
+.folder-button,
+.quiet-button,
+.system-refresh,
+.stop-button,
+.ritual-button {
+  background: color-mix(in srgb, var(--glass-fill) 78%, transparent);
+  border: 1px solid var(--glass-stroke);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+}
+
+.folder-button:hover,
+.quiet-button:hover,
+.system-refresh:hover,
+.stop-button:hover,
+.ritual-button:hover,
+.capture-mode-option:hover {
+  background: var(--glass-fill-hover);
+  border-color: var(--glass-stroke-hover);
+  box-shadow: 0 12px 32px color-mix(in srgb, var(--accent-a) 12%, transparent);
+}
+
+.launch-button,
+.download-action {
+  border-radius: 16px;
+  box-shadow: 0 14px 34px color-mix(in srgb, var(--accent-a) 16%, transparent);
+}
+
+.launch-button.is-hero {
+  border-radius: 22px;
+  min-width: min(100%, 310px);
+}
+
+.folder-button svg,
+.launch-button svg,
+.download-action svg,
+.stop-button svg,
+.quiet-button svg,
+.ritual-button svg,
+.system-refresh svg,
+.capture-mode-option svg {
+  flex: 0 0 auto;
+}
+
+.status-strip div,
+.recording-dot,
+.recording-cue,
+.recording-meter,
+.surface-profile-badge {
+  border-radius: 14px;
+}
+
+.status-strip div {
+  background: color-mix(in srgb, var(--glass-fill) 78%, transparent);
+  border-color: var(--glass-stroke);
+}
+
+.simple-form select,
+.voice-name-field input,
+.capture-profile input,
+.local-corpus-panel textarea {
+  border-radius: 14px;
+  border-color: var(--glass-stroke);
+}
+
+.local-corpus-panel textarea:focus,
+.simple-form select:focus,
+.voice-name-field input:focus,
+.capture-profile input:focus {
+  background: color-mix(in srgb, var(--glass-fill-hover) 86%, transparent);
+  border-color: var(--glass-stroke-hover);
+}
+
+.home-workbench .primary-actions {
+  gap: 10px;
+}
+
+.home-workbench .primary-actions .folder-button {
+  border-radius: 16px;
+}
+
+.capture-mode-option.is-active {
+  box-shadow: 0 8px 22px color-mix(in srgb, var(--accent-a) 16%, transparent);
+}
+
+@media (max-width: 720px) {
+  .home-workbench > section,
+  .home-workbench > details,
+  .next-step-panel,
+  .export-panel,
+  .dataset-export-panel,
+  .system-health,
+  .local-corpus-panel,
+  .backing-track-panel,
+  .prompt-direction,
+  .coverage-console,
+  .workspace-backup {
+    border-radius: 16px;
+    padding: 14px;
+  }
+
+  .home-workbench .primary-actions .folder-button,
+  .home-workbench .primary-actions .launch-button,
+  .stacked-actions .folder-button,
+  .stacked-actions .launch-button,
+  .stacked-actions .quiet-button {
+    min-height: 48px;
+  }
+
+  .launch-button.is-hero {
+    max-width: 100%;
+    min-width: 0;
+    padding-inline: 20px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .folder-button,
+  .launch-button,
+  .download-action,
+  .stop-button,
+  .quiet-button,
+  .system-refresh,
+  .ritual-button,
+  .capture-mode-option {
+    transition: none;
+  }
+}

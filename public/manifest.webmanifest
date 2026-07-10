@@ -9,7 +9,7 @@
   "display": "standalone",
   "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
   "background_color": "#050506",
-  "theme_color": "#050506",
+  "theme_color": "#0b1110",
   "categories": ["music", "productivity", "utilities"],
   "icons": [
     {

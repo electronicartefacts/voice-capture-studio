@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <linearGradient id="surface" x1="0" y1="0" x2="1200" y2="630" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#182b25"/>
+      <stop offset=".52" stop-color="#0b1110"/>
+      <stop offset="1" stop-color="#050506"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0" cy="0" r="1" gradientTransform="translate(970 82) rotate(136) scale(460 520)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#bfe8ce" stop-opacity=".22"/>
+      <stop offset="1" stop-color="#bfe8ce" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1200" height="630" rx="42" fill="url(#surface)"/>
+  <rect width="1200" height="630" rx="42" fill="url(#glow)"/>
+  <path d="M0 470C180 410 260 540 430 478S700 360 870 444s232 62 330 0" fill="none" stroke="#bfe8ce" stroke-opacity=".12" stroke-width="2"/>
+  <g transform="translate(110 155)">
+    <rect width="176" height="176" rx="44" fill="#bfe8ce" fill-opacity=".08" stroke="#bfe8ce" stroke-opacity=".24"/>
+    <path d="M88 36c-22 0-40 18-40 40v30c0 22 18 40 40 40s40-18 40-40V76c0-22-18-40-40-40Z" fill="#f5f1e8"/>
+    <path d="M30 98c0 32 26 58 58 58s58-26 58-58" fill="none" stroke="#bfe8ce" stroke-width="13" stroke-linecap="round"/>
+    <path d="M88 156v22M66 178h44" fill="none" stroke="#bfe8ce" stroke-width="13" stroke-linecap="round"/>
+  </g>
+  <text x="340" y="238" fill="#bbb6aa" font-family="Inter, Arial, sans-serif" font-size="26" font-weight="600" letter-spacing="4">ELECTRONIC ARTEFACTS</text>
+  <text x="340" y="322" fill="#f5f1e8" font-family="Inter, Arial, sans-serif" font-size="64" font-weight="700">Voice Capture</text>
+  <text x="340" y="392" fill="#bfe8ce" font-family="Inter, Arial, sans-serif" font-size="64" font-weight="700">Studio</text>
+  <text x="340" y="458" fill="#bbb6aa" font-family="Inter, Arial, sans-serif" font-size="24" font-weight="500">Capture vocale locale · précise · dataset-ready</text>
+</svg>
