@@ -4466,6 +4466,39 @@ body,
   }
 }
 
+/* Landscape phones have very little vertical room. Keep the first gesture
+   horizontal too, so the ritual does not make the user scroll before entering
+   the studio. */
+@media (max-width: 999px) and (max-height: 539px) and (orientation: landscape) {
+  .opening-ritual {
+    min-height: 100dvh;
+    padding: 14px clamp(20px, 5vw, 48px);
+  }
+
+  .opening-ritual > div {
+    align-items: center;
+    column-gap: clamp(24px, 7vw, 72px);
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    max-width: 860px;
+    text-align: left;
+    width: 100%;
+  }
+
+  .opening-ritual h1 {
+    font-size: clamp(24px, 4.2vw, 36px);
+    max-width: 24ch;
+  }
+
+  .opening-ritual .ritual-button {
+    justify-self: end;
+  }
+
+  .opening-ritual p {
+    grid-column: 1 / -1;
+  }
+}
+
 /* Glass system: a restrained PS5 / Apple-inspired layer for every interactive
    surface. Keep labels on one line so controls scan as objects, while long
    explanatory copy remains naturally readable inside the cards. */
