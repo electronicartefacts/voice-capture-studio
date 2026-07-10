@@ -42,7 +42,7 @@
     "@huggingface/transformers": "^4.2.0",
     "@vitejs/plugin-react": "^4.3.4",
     "lucide-react": "^0.468.0",
-    "onnxruntime-web": "^1.26.0-dev.20260416-b7804b056c",
+    "onnxruntime-web": "^1.27.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "typescript": "^5.7.2",
