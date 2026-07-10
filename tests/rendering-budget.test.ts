@@ -2,14 +2,14 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { getAmbientRenderingBudget } from "../src/app/system/renderingBudget";
 
-test("ambient rendering preserves the decor but yields freshness to a visible page scroll", () => {
+test("ambient rendering pauses decorative work during a visible page scroll", () => {
   assert.equal(
     getAmbientRenderingBudget({
       isCapturing: false,
       isPageVisible: true,
       isScrolling: true,
     }),
-    "constrained",
+    "paused",
   );
 });
 

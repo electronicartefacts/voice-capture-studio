@@ -2974,11 +2974,13 @@ body,
 }
 
 .voice-wave-canvas {
+  height: 100%;
   inset: 0;
   opacity: 0;
   pointer-events: none;
   position: fixed;
   transition: opacity 1000ms var(--ease-standard);
+  width: 100%;
   z-index: 1;
 }
 
@@ -3098,12 +3100,9 @@ body,
 }
 
 .simple-header::before {
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--bg) 74%, transparent),
-    transparent
-  );
-  backdrop-filter: blur(18px);
+  /* The waveform is a persistent surface, including behind the navigation. */
+  background: transparent;
+  backdrop-filter: none;
 }
 
 .brand-button {
@@ -3811,6 +3810,19 @@ body,
   .simple-header::before {
     background: transparent;
     backdrop-filter: none;
+  }
+
+  /* Keep the depth cue, but avoid four animated, blurred compositing layers
+     competing with touch scrolling on mobile GPUs. */
+  .voice-halo {
+    animation: none;
+    filter: blur(48px);
+    will-change: auto;
+  }
+
+  .halo-c,
+  .halo-d {
+    display: none;
   }
 
   .simple-header,

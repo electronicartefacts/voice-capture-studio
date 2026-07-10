@@ -15,7 +15,8 @@ export function getAmbientRenderingBudget(input: {
     return "paused";
   }
 
-  // Capture screens keep the same feedback cadence. During navigation, the
-  // visual layer remains visible but yields CPU time to scrolling and DOM paint.
-  return input.isScrolling && !input.isCapturing ? "constrained" : "full";
+  // On mobile Safari, even a low-frequency full-screen canvas competes with
+  // compositing while the browser chrome moves during a scroll. Decorative
+  // rendering can stop completely; capture feedback must remain uninterrupted.
+  return input.isScrolling && !input.isCapturing ? "paused" : "full";
 }

@@ -42,7 +42,7 @@ export function useAmbientRenderingBudget(input: {
       scrollIdleTimerRef.current = window.setTimeout(() => {
         scrollIdleTimerRef.current = null;
         setIsScrolling(false);
-      }, 140);
+      }, 180);
     }
 
     function updatePageVisibility() {

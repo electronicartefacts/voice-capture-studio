@@ -5,6 +5,8 @@ export type VoiceWaveformScreen =
   "home" | "permission" | "calibration" | "karaoke" | "done" | "technical";
 
 const DISPLAY_SAMPLES = 260;
+const COMPACT_DISPLAY_SAMPLES = 160;
+const MOBILE_RESIZE_THRESHOLD_PX = 160;
 
 export function VoiceWaveformSurface(input: {
   readonly active: boolean;
@@ -57,21 +59,38 @@ export function VoiceWaveformSurface(input: {
     let lastFrameAt = -Infinity;
     let renderWidth = 0;
     let renderHeight = 0;
+    let displaySamples = DISPLAY_SAMPLES;
 
     function resize() {
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const nextWidth = window.innerWidth;
+      const nextHeight = window.innerHeight;
 
-      renderWidth = window.innerWidth;
-      renderHeight = window.innerHeight;
+      // Safari iOS emits resize events while its URL bar expands or collapses.
+      // Reallocating a full-screen canvas for every one of those events stalls
+      // scrolling, while a small height difference is safely covered by CSS.
+      if (
+        renderWidth === nextWidth &&
+        Math.abs(renderHeight - nextHeight) < MOBILE_RESIZE_THRESHOLD_PX
+      ) {
+        return;
+      }
+
+      const dpr = Math.min(
+        window.devicePixelRatio || 1,
+        nextWidth < 720 ? 1.5 : 2,
+      );
+
+      renderWidth = nextWidth;
+      renderHeight = nextHeight;
+      displaySamples =
+        renderWidth < 720 ? COMPACT_DISPLAY_SAMPLES : DISPLAY_SAMPLES;
       surfaceCanvas.width = Math.floor(renderWidth * dpr);
       surfaceCanvas.height = Math.floor(renderHeight * dpr);
-      surfaceCanvas.style.width = `${renderWidth}px`;
-      surfaceCanvas.style.height = `${renderHeight}px`;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-      for (let index = 0; index < DISPLAY_SAMPLES; index += 1) {
+      for (let index = 0; index < displaySamples; index += 1) {
         xCoordinates[index] =
-          renderWidth * (index / Math.max(1, DISPLAY_SAMPLES - 1));
+          renderWidth * (index / Math.max(1, displaySamples - 1));
       }
     }
 
@@ -164,9 +183,9 @@ export function VoiceWaveformSurface(input: {
       ctx.beginPath();
       ctx.moveTo(xCoordinates[0], yCoordinates[0]);
 
-      for (let index = 0; index < DISPLAY_SAMPLES - 1; index += 1) {
+      for (let index = 0; index < displaySamples - 1; index += 1) {
         const p0Index = index > 0 ? index - 1 : 0;
-        const p3Index = Math.min(index + 2, DISPLAY_SAMPLES - 1);
+        const p3Index = Math.min(index + 2, displaySamples - 1);
         const p0x = xCoordinates[p0Index];
         const p0y = yCoordinates[p0Index];
         const p1x = xCoordinates[index];
@@ -251,8 +270,8 @@ export function VoiceWaveformSurface(input: {
               : 0.25),
       );
 
-      for (let index = 0; index < DISPLAY_SAMPLES; index += 1) {
-        const position = index / Math.max(1, DISPLAY_SAMPLES - 1);
+      for (let index = 0; index < displaySamples; index += 1) {
+        const position = index / Math.max(1, displaySamples - 1);
         const edge = Math.abs(position - 0.5) * 2;
         const envelope = Math.pow(
           0.5 - 0.5 * Math.cos(Math.PI * Math.max(0, 1 - edge)),
@@ -262,7 +281,11 @@ export function VoiceWaveformSurface(input: {
           Math.sin(timeSeconds * 0.85 + index * 0.037) * (0.02 + level * 0.05);
         const targetSample = isLiveSurface
           ? softLimitWaveSample(
-              liveAudioSignal.samples[index] * liveGain + breath,
+              liveAudioSignal.samples[
+                Math.round(position * (DISPLAY_SAMPLES - 1))
+              ] *
+                liveGain +
+                breath,
               0.88,
               4.8,
             )
