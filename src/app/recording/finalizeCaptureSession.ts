@@ -22,6 +22,7 @@ import {
 import { createCaptureSessionExportBundle } from "../export/captureSessionExport";
 import type { RecordingSaveTarget } from "../storage/workspaceFolder";
 import { createRecordedTake } from "./recordedTake";
+import type { BrowserAsrObservation } from "../../domains/observations";
 
 export type FinalizedRecording = {
   readonly blob: Blob;
@@ -81,6 +82,7 @@ export async function finalizeCaptureSession(input: {
   readonly recording: FinalizedRecording;
   readonly recordedAt?: Date;
   readonly recognizedTranscript?: string;
+  readonly speechRecognition?: BrowserAsrObservation;
   readonly saveRecording: (
     fileName: string,
     audioBlob: Blob,
@@ -103,6 +105,8 @@ export async function finalizeCaptureSession(input: {
     readonly phonemesJson: unknown;
     readonly intentJson: unknown;
     readonly qualityJson: unknown;
+    readonly observationJson: unknown;
+    readonly evidenceJson: unknown;
     readonly sessionJson: unknown;
   }) => Promise<MetadataSaveResult>;
   readonly saveWorkspace: WorkspaceRepository["save"];
@@ -152,6 +156,7 @@ export async function finalizeCaptureSession(input: {
           prompt: input.activePrompt,
           recordedAt,
           recognizedTranscript: input.recognizedTranscript,
+          speechRecognition: input.speechRecognition,
           truncated: input.recording.truncated,
           forcedAlignment: input.forcedAlignment,
           session: input.session,
@@ -224,6 +229,13 @@ export async function finalizeCaptureSession(input: {
       },
       intentJson: take.intent,
       qualityJson: take.quality,
+      observationJson: take.observation ?? null,
+      evidenceJson: {
+        schemaVersion: "voice.capture.evidence.v1",
+        takeId: take.id,
+        decisions: take.observation?.decisions ?? [],
+        limitations: take.observation?.limitations ?? [],
+      },
       sessionJson: sessionMetadata,
     });
 
@@ -284,6 +296,9 @@ function rejectTakeWithoutPersistedAudio(
           label: "Sauvegarde audio",
           status: "fail",
           message,
+          source: "storage",
+          confidence: 1,
+          reason: message,
         },
       ],
       verdict: "reject",

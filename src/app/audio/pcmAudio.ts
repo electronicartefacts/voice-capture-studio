@@ -30,6 +30,20 @@ export type PcmRecordingMetrics = {
   readonly reverbScore: number;
   readonly plosiveScore: number;
   readonly mouthNoiseScore: number;
+  readonly energyEnvelope?: readonly PcmEnergyFrame[];
+  readonly speechSegments?: readonly PcmActivitySegment[];
+};
+
+export type PcmEnergyFrame = {
+  readonly startMs: number;
+  readonly endMs: number;
+  readonly rmsDbfs: number;
+};
+
+export type PcmActivitySegment = {
+  readonly startMs: number;
+  readonly endMs: number;
+  readonly source: "energy_threshold";
 };
 
 export class PcmSampleBuffer {
@@ -270,6 +284,16 @@ export function analyzePcmSamples(
     clippedSamples > Math.max(2, samples.length * 0.00005);
   const tailScore = computeTailScore(samples, normalizedSampleRate);
   const transientScores = computeTransientScores(samples, normalizedSampleRate);
+  const energyEnvelope = createEnergyEnvelope(
+    frameRmsDbfs,
+    normalizedSampleRate,
+    durationMs,
+  );
+  const speechSegments = createEnergyActivitySegments(
+    frameRmsDbfs,
+    normalizedSampleRate,
+    durationMs,
+  );
 
   return {
     schemaVersion: "voice.audio_metrics.v1",
@@ -299,7 +323,66 @@ export function analyzePcmSamples(
     reverbScore: tailScore,
     plosiveScore: transientScores.plosiveScore,
     mouthNoiseScore: transientScores.mouthNoiseScore,
+    energyEnvelope,
+    speechSegments,
   };
+}
+
+function createEnergyEnvelope(
+  frameRmsDbfs: readonly number[],
+  sampleRate: number,
+  durationMs: number,
+): readonly PcmEnergyFrame[] {
+  const framesPerEnvelopePoint = 5;
+  const hopMs = (1024 / sampleRate) * 1000;
+  const envelope: PcmEnergyFrame[] = [];
+
+  for (
+    let index = 0;
+    index < frameRmsDbfs.length;
+    index += framesPerEnvelopePoint
+  ) {
+    const values = frameRmsDbfs.slice(index, index + framesPerEnvelopePoint);
+    envelope.push({
+      startMs: Math.round(index * hopMs),
+      endMs: Math.min(durationMs, Math.round((index + values.length) * hopMs)),
+      rmsDbfs: round(mean(values), 1),
+    });
+  }
+
+  return envelope;
+}
+
+function createEnergyActivitySegments(
+  frameRmsDbfs: readonly number[],
+  sampleRate: number,
+  durationMs: number,
+): readonly PcmActivitySegment[] {
+  const hopMs = (1024 / sampleRate) * 1000;
+  const segments: PcmActivitySegment[] = [];
+  let activeStart: number | null = null;
+
+  for (let index = 0; index <= frameRmsDbfs.length; index += 1) {
+    const active = (frameRmsDbfs[index] ?? MIN_DBFS) >= -45;
+
+    if (active && activeStart === null) {
+      activeStart = index;
+      continue;
+    }
+
+    if (!active && activeStart !== null) {
+      const startMs = Math.round(activeStart * hopMs);
+      const endMs = Math.min(durationMs, Math.round(index * hopMs));
+
+      if (endMs - startMs >= 60) {
+        segments.push({ startMs, endMs, source: "energy_threshold" });
+      }
+
+      activeStart = null;
+    }
+  }
+
+  return segments;
 }
 
 function analyzeProsody(

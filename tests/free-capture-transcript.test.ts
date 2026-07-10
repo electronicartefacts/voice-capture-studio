@@ -4,6 +4,7 @@ import {
   createFreeCaptureTranscript,
   extractFinalSpeechRecognitionTranscript,
   extractSpeechRecognitionTranscript,
+  mergeSpeechRecognitionHypotheses,
   type SpeechRecognitionEventLike,
 } from "../src/app/shell/speech";
 
@@ -57,4 +58,32 @@ test("free capture records when word recognition was unavailable", () => {
   assert.equal(transcript.engine, "unavailable");
   assert.equal(transcript.status, "unavailable");
   assert.equal(transcript.wordCount, 0);
+});
+
+test("speech hypotheses retain finality, confidence, and their first final timestamp", () => {
+  const first = mergeSpeechRecognitionHypotheses([], recognitionEvent(), 120);
+  const replayed = mergeSpeechRecognitionHypotheses(
+    first,
+    recognitionEvent(),
+    450,
+  );
+
+  assert.deepEqual(replayed, [
+    {
+      resultIndex: 0,
+      alternativeIndex: 0,
+      text: "Bonjour",
+      confidence: 0.98,
+      final: true,
+      capturedAtMs: 120,
+    },
+    {
+      resultIndex: 1,
+      alternativeIndex: 0,
+      text: "le monde",
+      confidence: 0.71,
+      final: false,
+      capturedAtMs: 450,
+    },
+  ]);
 });

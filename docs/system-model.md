@@ -34,10 +34,11 @@ documentation, and deployment configuration. User voice data belongs outside the
 8. `finalizeCaptureSession` in `src/app/recording/finalizeCaptureSession.ts` coordinates take
    finalization, audio persistence, workspace projection, and metadata export.
 9. `createRecordedTake` in `src/app/recording/recordedTake.ts` builds transcript, word/phoneme
-   timing, intent, quality, measured pitch/energy prosody, and review metadata from the prompt plus
-   local metrics. Web Speech transcript matching is treated as an actual ASR observation; a
-   prompt-only estimate cannot become a keeper. Browser grapheme-to-phoneme timing remains
-   explicitly estimated until an acoustic forced-alignment JSON is imported.
+   timing, intent, quality, measured pitch/energy prosody, and a `voice.take_observation.v1` graph.
+   The graph keeps corpus declarations, physical signal measurements, energy VAD, optional browser
+   ASR, G2P, estimated alignment, confidence, and fused decisions independently replaceable. Browser
+   ASR can request review but cannot reject or authorize a physical capture. Browser grapheme-to-
+   phoneme timing remains explicitly estimated until an acoustic forced-alignment JSON is imported.
 10. Empty audio blobs do not create takes and therefore cannot credit corpus coverage.
 11. Audio is persisted through IndexedDB, File System Access, or explicit download fallback. Dataset
     exports resolve audio from IndexedDB first and the connected folder second. If the WAV cannot
@@ -106,6 +107,12 @@ workspace will not treat it as completed training material.
 
 This keeps the workspace projection aligned with the product goal: a smaller clean dataset is better
 than a larger incoherent one.
+
+SpeechRecognition is deliberately outside this keeper invariant. Its absence is
+represented as `unavailable`, not as an error. Its transcript and confidence are
+browser observations with explicit provenance; they never replace the corpus or
+the PCM signal. A mismatch remains valuable evidence for downstream review, but
+does not erase an otherwise valid recording.
 
 ## Next Useful Probes
 

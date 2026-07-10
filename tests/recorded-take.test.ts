@@ -25,7 +25,11 @@ test("recorded take becomes keeper when technical gates and room tone pass", () 
     durationMs: 3200,
     fileName: "take.wav",
     media: createMedia(),
-    metrics: createMetrics(),
+    metrics: createMetrics({
+      speechSegments: [
+        { startMs: 250, endMs: 2950, source: "energy_threshold" },
+      ],
+    }),
     profile: createCaptureProfile({ roomToneCaptured: true }),
     prompt,
     recordedAt,
@@ -46,9 +50,21 @@ test("recorded take becomes keeper when technical gates and room tone pass", () 
   assert.ok((take.timing.phonemes?.length ?? 0) > take.timing.words.length);
   assert.equal(take.timing.alignment?.forcedAlignmentRequired, true);
   assert.equal(take.quality.performance.wordPhonemeLinkRate, null);
+  assert.equal(take.observation?.schemaVersion, "voice.take_observation.v1");
+  assert.equal(take.observation?.signal.confidence.status, "measured");
+  assert.equal(take.observation?.alignment.status, "estimated");
+  assert.equal(take.observation?.alignment.wordAlignment[0].startMs, 250);
+  assert.ok(take.observation?.alignment.inputs.includes("energy_vad"));
+  assert.ok((take.observation?.decisions.length ?? 0) > 1);
+  assert.equal(
+    take.quality.gates.every(
+      (gate) => gate.source !== undefined && gate.reason !== undefined,
+    ),
+    true,
+  );
 });
 
-test("recorded take rejects clear transcript mismatch from speech recognition", () => {
+test("browser ASR mismatch requests review but cannot reject physical audio", () => {
   const { prompt, session } = createPlannedPrompt();
   const take = createRecordedTake({
     durationMs: 3200,
@@ -63,12 +79,13 @@ test("recorded take rejects clear transcript mismatch from speech recognition", 
     takeId,
   });
 
-  assert.equal(take.quality.verdict, "reject");
+  assert.equal(take.quality.verdict, "review");
   assert.equal(findGateStatus(take, "transcript_match"), "fail");
+  assert.equal(findGateStatus(take, "browser_asr_consistent"), "fail");
   assert.equal(take.transcript.matchEstimate?.source, "web_speech");
 });
 
-test("recorded take cannot become keeper without observed ASR", () => {
+test("recorded take can become keeper without browser ASR", () => {
   const { prompt, session } = createPlannedPrompt();
   const take = createRecordedTake({
     durationMs: 3200,
@@ -82,10 +99,11 @@ test("recorded take cannot become keeper without observed ASR", () => {
     takeId,
   });
 
-  assert.equal(take.quality.verdict, "review");
-  assert.equal(take.review.rating, "maybe");
+  assert.equal(take.quality.verdict, "pass");
+  assert.equal(take.review.rating, "keeper");
   assert.equal(findGateStatus(take, "transcript_match"), "review");
   assert.equal(take.transcript.matchEstimate?.source, "prompt_only");
+  assert.equal(take.observation?.speechRecognition.availability, "unavailable");
 });
 
 test("recorded take is rejected when clipping is detected", () => {

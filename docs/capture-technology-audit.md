@@ -9,13 +9,43 @@ can reliably own microphone capture, WAV encoding, room-tone calibration, techni
 prompt-led reading, workspace history, checksums, and dataset packaging. It cannot, by itself,
 guarantee acoustic word/phoneme boundaries with research-grade precision across browsers.
 
-This pass moves the app to a better intermediate contract:
+The observation-pipeline pass moves the app to a better intermediate contract:
 
 1. Every new take stores transcript tokens.
 2. Every word in `timing.json` is linked to estimated phoneme intervals.
 3. Every take stores alignment confidence, phone inventory count, and word/phoneme link rate.
 4. Dataset exports include `phonemes/<take_id>.json` and `manifests/training_manifest.jsonl`.
 5. Reports explicitly separate browser-estimated alignment from required acoustic forced alignment.
+6. Every new take carries independent corpus, signal, VAD, ASR, alignment, evidence, and confidence records.
+7. SpeechRecognition is optional evidence and no longer governs keeper acceptance.
+
+## Observation Pipeline
+
+`src/domains/observations/` is a pure, replaceable pipeline. It receives the
+final PCM-derived metrics and immutable corpus prompt only after capture has
+stopped, so it cannot compete with the real-time audio callback. It emits:
+
+- `voice.corpus_observation.v1`: declared text, normalization, tokens,
+  sentences, punctuation, variants, locale, intent, emotion, style, and energy;
+- `voice.signal_observation.v1`: measured acoustic/prosodic metrics plus an
+  explicitly estimated energy VAD, bounded energy envelope, speech segments,
+  silences, pauses, and temporal summary;
+- `voice.browser_asr_observation.v1`: availability, engine/runtime, final and
+  intermediate hypotheses, timestamps, browser confidence, and provenance;
+- `voice.estimated_alignment_observation.v1`: preparatory word/phone boundaries
+  labeled `estimated`, with explicit replacement targets for MFA, WhisperX,
+  Gentle, or another future adapter;
+- fused take/word/phoneme decisions whose reason and evidence references remain inspectable.
+
+The pipeline does not manufacture unsupported jitter, shimmer, respiration, or
+emotion observations. Those capabilities stay explicit limitations until a
+validated signal method or replaceable model adapter exists.
+
+The optional local Whisper/Silero post-pass loads tokenizer, feature extractor,
+quantized model, VAD model, and an explicitly pinned ONNX WASM pair from this
+origin. It disables an incompatible N-bit graph rewrite for the bundled q8
+decoder. This avoids both remote fallback and runtime-dependent WASM filename
+selection while leaving the real-time recorder untouched.
 
 ## Browser Ceiling
 

@@ -14,6 +14,7 @@ import {
 import { sha256Blob } from "../src/app/storage/sha256";
 import { canonicalCorpus, type PromptDefinition } from "../src/domains/corpus";
 import { alignPromptToPhonemes } from "../src/domains/phonetics";
+import { createTakeObservationPackage } from "../src/domains/observations";
 import { initialSpeakers } from "../src/domains/speakers";
 import {
   planSession,
@@ -57,6 +58,18 @@ test("voice capture package v1 exports a self-validating Forge contract with exp
   assert.ok(plan.files.some((file) => file.path === "checksums.sha256"));
   assert.ok(
     plan.files.some((file) => file.path === "reports/forge-compatibility.json"),
+  );
+  assert.ok(
+    plan.files.some((file) => file.path === plan.samples[0].observations?.path),
+  );
+  assert.ok(
+    plan.files.some(
+      (file) => file.path === plan.samples[0].observations?.evidence_path,
+    ),
+  );
+  assert.equal(
+    plan.samples[0].observations?.schema_version,
+    "voice.take_observation.v1",
   );
   assert.match(plan.samples[0].audio.path, /^audio\/audio_[a-f0-9]{64}\.wav$/);
   assert.equal(plan.samples[0].alignment.status, "estimated_g2p");
@@ -321,6 +334,45 @@ async function createTake(input: {
     language: input.session.language,
     text: input.prompt.spokenText ?? input.prompt.text,
   });
+  const intent: RecordedTake["intent"] = {
+    schemaVersion: "voice.intent.v2",
+    language: input.session.language,
+    intent: input.prompt.intention,
+    delivery: input.prompt.delivery,
+    direction: {
+      directorNote: input.prompt.direction.directorNote,
+      avoid: input.prompt.direction.avoid,
+    },
+    prosody: input.prompt.prosody,
+  };
+  const technical: RecordedTake["quality"]["technical"] = {
+    schemaVersion: "voice.audio_metrics.v1",
+    sampleRateHz: 48000,
+    bitDepth: 24,
+    channels: 1,
+    sampleCount: 4800,
+    peakDbfs: -12,
+    estimatedTruePeakDbfs: -12,
+    rmsDbfs: -24,
+    integratedLufs: -24,
+    noiseFloorDbfs: -72,
+    snrDb: 36,
+    crestFactorDb: 7,
+    dcOffset: 0,
+    clippingDetected: false,
+    clippingSampleCount: 0,
+    clippingRate: 0,
+    activeSpeechRatio: 0.7,
+    silenceRatio: 0.2,
+    voicedFrameRatio: 0.7,
+    meanPitchHz: 155,
+    pitchRangeSemitones: 5,
+    pitchVariationSemitones: 2,
+    energyVariationDb: 4,
+    reverbScore: 0.1,
+    plosiveScore: 0.02,
+    mouthNoiseScore: 0.02,
+  };
 
   return {
     id: `take.${input.suffix}` as TakeId,
@@ -393,47 +445,27 @@ async function createTake(input: {
           }
         : undefined,
     },
-    intent: {
-      schemaVersion: "voice.intent.v2",
-      language: input.session.language,
-      intent: input.prompt.intention,
-      delivery: input.prompt.delivery,
-      direction: {
-        directorNote: input.prompt.direction.directorNote,
-        avoid: input.prompt.direction.avoid,
+    intent,
+    observation: createTakeObservationPackage({
+      durationMs,
+      generatedAt: "2026-07-10T07:01:30.000Z",
+      intent,
+      alignment,
+      metrics: technical,
+      prompt: input.prompt,
+      session: input.session,
+      transcriptMatch: {
+        score: 1,
+        source: "web_speech",
+        expectedTokens: alignment.tokens.map((token) => token.normalized),
+        observedTokens: alignment.tokens.map((token) => token.normalized),
+        missingTokens: [],
+        extraTokens: [],
       },
-      prosody: input.prompt.prosody,
-    },
+    }),
     quality: {
       schemaVersion: "voice.quality.v2",
-      technical: {
-        schemaVersion: "voice.audio_metrics.v1",
-        sampleRateHz: 48000,
-        bitDepth: 24,
-        channels: 1,
-        sampleCount: 4800,
-        peakDbfs: -12,
-        estimatedTruePeakDbfs: -12,
-        rmsDbfs: -24,
-        integratedLufs: -24,
-        noiseFloorDbfs: -72,
-        snrDb: 36,
-        crestFactorDb: 7,
-        dcOffset: 0,
-        clippingDetected: false,
-        clippingSampleCount: 0,
-        clippingRate: 0,
-        activeSpeechRatio: 0.7,
-        silenceRatio: 0.2,
-        voicedFrameRatio: 0.7,
-        meanPitchHz: 155,
-        pitchRangeSemitones: 5,
-        pitchVariationSemitones: 2,
-        energyVariationDb: 4,
-        reverbScore: 0.1,
-        plosiveScore: 0.02,
-        mouthNoiseScore: 0.02,
-      },
+      technical,
       performance: {
         transcriptMatch: 1,
         alignmentConfidence: alignment.confidence,

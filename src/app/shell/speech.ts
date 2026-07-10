@@ -1,5 +1,6 @@
 import type { PromptDefinition } from "@domains/corpus";
 import type { LanguageCode } from "@shared/index";
+import type { BrowserAsrHypothesis } from "@domains/observations";
 
 export type SpeechRecognitionAlternativeLike = {
   readonly transcript: string;
@@ -72,6 +73,70 @@ export function extractFinalSpeechRecognitionTranscript(
   event: SpeechRecognitionEventLike,
 ): string {
   return extractSpeechRecognitionTranscriptByFinality(event, true);
+}
+
+/**
+ * Maintains one serializable hypothesis per browser result/alternative. Final
+ * results keep their first observed timestamp when browsers replay them.
+ */
+export function mergeSpeechRecognitionHypotheses(
+  previous: readonly BrowserAsrHypothesis[],
+  event: SpeechRecognitionEventLike,
+  capturedAtMs: number,
+): readonly BrowserAsrHypothesis[] {
+  const previousByKey = new Map(
+    previous.map((hypothesis) => [
+      `${hypothesis.resultIndex}:${hypothesis.alternativeIndex}`,
+      hypothesis,
+    ]),
+  );
+  const next: BrowserAsrHypothesis[] = [];
+
+  for (
+    let resultIndex = 0;
+    resultIndex < event.results.length;
+    resultIndex += 1
+  ) {
+    const result = event.results[resultIndex];
+
+    if (result === undefined) {
+      continue;
+    }
+
+    for (
+      let alternativeIndex = 0;
+      alternativeIndex < result.length;
+      alternativeIndex += 1
+    ) {
+      const alternative = result[alternativeIndex];
+
+      if (
+        alternative === undefined ||
+        alternative.transcript.trim().length === 0
+      ) {
+        continue;
+      }
+
+      const key = `${resultIndex}:${alternativeIndex}`;
+      const prior = previousByKey.get(key);
+      next.push({
+        resultIndex,
+        alternativeIndex,
+        text: alternative.transcript.trim(),
+        confidence:
+          Number.isFinite(alternative.confidence) && alternative.confidence >= 0
+            ? alternative.confidence
+            : null,
+        final: result.isFinal,
+        capturedAtMs:
+          prior?.final === true && result.isFinal
+            ? prior.capturedAtMs
+            : capturedAtMs,
+      });
+    }
+  }
+
+  return next;
 }
 
 function extractSpeechRecognitionTranscriptByFinality(

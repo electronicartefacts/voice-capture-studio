@@ -61,9 +61,19 @@ test("a recorded take can be analyzed on-device with whisper and VAD", async ({
   // Model load plus inference: the fake microphone tone typically yields an
   // empty transcript and little or no detected speech, which the result panel
   // must present without failing.
-  await expect(page.getByTestId("local-analysis-result")).toBeVisible({
-    timeout: 240_000,
-  });
+  const result = page.getByTestId("local-analysis-result");
+  const analysisError = page.getByTestId("local-analysis").getByRole("alert");
+
+  await Promise.race([
+    result.waitFor({ state: "visible", timeout: 240_000 }),
+    analysisError
+      .waitFor({ state: "visible", timeout: 240_000 })
+      .then(async () => {
+        throw new Error(
+          `Local analysis failed: ${(await analysisError.textContent()) ?? "unknown error"}`,
+        );
+      }),
+  ]);
   await expect(page.getByTestId("local-analysis-result")).toContainText(
     "Transcript Whisper",
   );

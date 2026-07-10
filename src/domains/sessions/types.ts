@@ -14,6 +14,7 @@ import type {
   ScenarioId,
 } from "@domains/corpus";
 import type { SpeakerId } from "@domains/speakers";
+import type { TakeObservationPackage } from "@domains/observations";
 
 export type SessionId = Brand<string, "SessionId">;
 export type TakeId = Brand<string, "TakeId">;
@@ -44,6 +45,8 @@ export type RecordedTake = {
   readonly timing: TakeTiming;
   readonly intent: TakeIntentMetadata;
   readonly quality: TakeQualityReport;
+  /** Additive observation graph; absent on historical takes. */
+  readonly observation?: TakeObservationPackage;
   readonly review: TakeReview;
 };
 
@@ -192,6 +195,16 @@ export type TechnicalQualityMetrics = {
   readonly reverbScore: number;
   readonly plosiveScore: number;
   readonly mouthNoiseScore: number;
+  readonly energyEnvelope?: readonly {
+    readonly startMs: number;
+    readonly endMs: number;
+    readonly rmsDbfs: number;
+  }[];
+  readonly speechSegments?: readonly {
+    readonly startMs: number;
+    readonly endMs: number;
+    readonly source: "energy_threshold";
+  }[];
 };
 
 export type PerformanceQualityMetrics = {
@@ -236,10 +249,33 @@ export type TakeQualityGateResult = {
     | "speech_activity"
     | "plosives"
     | "mouth_noise"
-    | "reverb";
+    | "reverb"
+    | "audio_present"
+    | "speech_detected"
+    | "vad_valid"
+    | "energy_valid"
+    | "noise_floor_valid"
+    | "prosody_valid"
+    | "estimated_alignment_valid"
+    | "phoneme_sequence_valid"
+    | "browser_asr_consistent"
+    | "corpus_consistent";
   readonly label: string;
   readonly status: "pass" | "review" | "fail";
   readonly message: string;
+  /** Optional only so schema-v1 workspaces remain readable. New takes set it. */
+  readonly source?:
+    | "audio_signal"
+    | "audio_analysis"
+    | "energy_vad"
+    | "browser_asr"
+    | "corpus"
+    | "g2p"
+    | "evidence_fusion"
+    | "human_review"
+    | "storage";
+  readonly confidence?: number | null;
+  readonly reason?: string;
 };
 
 export type TakeReview = {

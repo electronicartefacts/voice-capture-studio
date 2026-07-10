@@ -158,6 +158,11 @@ export type VoiceCapturePackageSample = {
     readonly gates: unknown;
     readonly verdict: "pass" | "review" | "reject";
   };
+  readonly observations?: {
+    readonly path: string;
+    readonly evidence_path: string;
+    readonly schema_version: "voice.take_observation.v1";
+  };
   readonly capture_context_ref: string;
   readonly room_tone_ref: string | null;
   readonly consent_refs: readonly string[];
@@ -454,6 +459,8 @@ export async function createVoiceCapturePackagePlan(input: {
     const alignmentPath = `alignment/${takeKey}.json`;
     const qualityPath = `quality/${takeKey}.json`;
     const reviewPath = `reviews/${takeKey}.json`;
+    const observationPath = `observations/${takeKey}.json`;
+    const evidencePath = `evidence/${takeKey}.json`;
     const contextPath = sessionPaths.get(session.id);
     const captureContext = contextBySession.get(session.id);
     if (contextPath === undefined || captureContext === undefined) {
@@ -501,6 +508,15 @@ export async function createVoiceCapturePackagePlan(input: {
       review: take.review,
       best_take_policy: "not_used_for_training_acceptance",
     });
+    if (take.observation !== undefined) {
+      addJsonFile(files, observationPath, take.observation);
+      addJsonFile(files, evidencePath, {
+        schema_version: "voice.capture.evidence.v1",
+        take_id: take.id,
+        decisions: take.observation.decisions,
+        limitations: take.observation.limitations,
+      });
+    }
 
     const lifecycle = lifecycleFor(take, alignment.status, consent.status);
     const sample: VoiceCapturePackageSample = {
@@ -557,6 +573,15 @@ export async function createVoiceCapturePackagePlan(input: {
         gates: take.quality.gates,
         verdict: take.quality.verdict,
       },
+      ...(take.observation === undefined
+        ? {}
+        : {
+            observations: {
+              path: observationPath,
+              evidence_path: evidencePath,
+              schema_version: "voice.take_observation.v1" as const,
+            },
+          }),
       capture_context_ref: contextPath,
       room_tone_ref: null,
       consent_refs: [consent.consentId],

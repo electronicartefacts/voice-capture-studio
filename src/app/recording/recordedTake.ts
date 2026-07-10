@@ -7,7 +7,12 @@ import type {
   TakeId,
   TakeProsodyMetrics,
   TakeCaptureContext,
+  TakeQualityGateResult,
 } from "../../domains/sessions";
+import {
+  createTakeObservationPackage,
+  type BrowserAsrObservation,
+} from "../../domains/observations";
 import type { CaptureProfile } from "../../domains/workspace";
 import {
   alignPromptToPhonemes,
@@ -25,6 +30,7 @@ export function createRecordedTake(input: {
   readonly prompt: PromptDefinition;
   readonly recordedAt: Date;
   readonly recognizedTranscript?: string;
+  readonly speechRecognition?: BrowserAsrObservation;
   readonly session: CaptureSession;
   readonly takeId: TakeId;
   readonly truncated?: boolean;
@@ -35,9 +41,11 @@ export function createRecordedTake(input: {
     language: input.session.language,
     text: spokenText,
   });
+  const observedTranscript =
+    input.speechRecognition?.transcript ?? input.recognizedTranscript;
   const transcriptMatch = estimateTranscriptMatch({
     expectedText: spokenText,
-    observedText: input.recognizedTranscript,
+    observedText: observedTranscript,
   });
   const durationStatus =
     input.durationMs < input.prompt.qa.minDurationMs ||
@@ -82,8 +90,7 @@ export function createRecordedTake(input: {
     captureTruncatedStatus === "fail" ||
     clippingStatus === "fail" ||
     headroomStatus === "fail" ||
-    signalStatus === "fail" ||
-    transcriptStatus === "fail"
+    signalStatus === "fail"
       ? "reject"
       : durationStatus === "pass" &&
           signalStatus === "pass" &&
@@ -95,7 +102,7 @@ export function createRecordedTake(input: {
           plosiveStatus === "pass" &&
           mouthNoiseStatus === "pass" &&
           reverbStatus === "pass" &&
-          transcriptStatus === "pass" &&
+          transcriptStatus !== "fail" &&
           input.profile.roomToneCaptured
         ? "pass"
         : "review";
@@ -112,10 +119,10 @@ export function createRecordedTake(input: {
       originalText: input.prompt.text,
       spokenText,
       observedText:
-        input.recognizedTranscript === undefined ||
-        input.recognizedTranscript.trim().length === 0
+        observedTranscript === undefined ||
+        observedTranscript.trim().length === 0
           ? null
-          : input.recognizedTranscript,
+          : observedTranscript,
       matchEstimate: transcriptMatch,
       strictMatchRequired: true,
       annotations: [],
@@ -187,6 +194,8 @@ export function createRecordedTake(input: {
         reverbScore: input.metrics.reverbScore,
         plosiveScore: input.metrics.plosiveScore,
         mouthNoiseScore: input.metrics.mouthNoiseScore,
+        energyEnvelope: input.metrics.energyEnvelope,
+        speechSegments: input.metrics.speechSegments,
       },
       performance: {
         transcriptMatch: transcriptMatch.score,
@@ -215,130 +224,220 @@ export function createRecordedTake(input: {
         naturalnessHumanReview: null,
         keeper: verdict === "pass",
       },
-      gates: [
-        {
-          id: "clipping",
-          label: "Clipping",
-          status: clippingStatus,
-          message: input.metrics.clippingDetected
-            ? "Le signal sature. Baisse le niveau ou éloigne le micro."
-            : `Niveau OK : pic à ${input.metrics.peakDbfs} dBFS.`,
-        },
-        {
-          id: "capture_truncated",
-          label: "Intégrité capture",
-          status: captureTruncatedStatus,
-          message:
-            captureTruncatedStatus === "fail"
-              ? "La capture a atteint sa limite mémoire et le fichier est tronqué. Reprends la phrase."
-              : "Tous les échantillons capturés sont présents.",
-        },
-        {
-          id: "signal_level",
-          label: "Signal",
-          status: signalStatus,
-          message:
-            signalStatus === "fail"
-              ? "Signal trop faible ou silence détecté. Vérifie le micro et reprends."
-              : signalStatus === "review"
-                ? "Signal un peu faible. Rapproche-toi ou monte légèrement le gain."
-                : "Signal exploitable.",
-        },
-        {
-          id: "headroom",
-          label: "Marge numérique",
-          status: headroomStatus,
-          message:
-            headroomStatus === "fail"
-              ? "Pic inter-échantillon trop proche de 0 dBFS. Réduis le gain et reprends."
-              : headroomStatus === "review"
-                ? `Marge réduite : pic estimé ${input.metrics.estimatedTruePeakDbfs} dBFS.`
-                : `Marge saine : pic estimé ${input.metrics.estimatedTruePeakDbfs} dBFS.`,
-        },
-        {
-          id: "dc_offset",
-          label: "Offset DC",
-          status: dcOffsetStatus,
-          message:
-            dcOffsetStatus === "pass"
-              ? "Offset DC négligeable."
-              : "Offset DC élevé détecté. Vérifie la chaîne micro/interface avant entraînement.",
-        },
-        {
-          id: "speech_activity",
-          label: "Activité vocale",
-          status: speechActivityStatus,
-          message:
-            speechActivityStatus === "pass"
-              ? `${Math.round(input.metrics.activeSpeechRatio * 100)} % des fenêtres contiennent de la voix exploitable.`
-              : "Trop peu de voix détectée dans la prise. Vérifie les silences ou le niveau micro.",
-        },
-        {
-          id: "plosives",
-          label: "Plosives",
-          status: plosiveStatus,
-          message:
-            plosiveStatus === "pass"
-              ? "Pas de concentration problématique de plosives."
-              : "Plosives marquées. Utilise un filtre anti-pop ou ajuste l'angle du micro.",
-        },
-        {
-          id: "mouth_noise",
-          label: "Bruits de bouche",
-          status: mouthNoiseStatus,
-          message:
-            mouthNoiseStatus === "pass"
-              ? "Bruits transitoires dans la plage attendue."
-              : "Bruits de bouche/transitoires élevés. Hydrate-toi et reprends si possible.",
-        },
-        {
-          id: "reverb",
-          label: "Réverbération estimée",
-          status: reverbStatus,
-          message:
-            reverbStatus === "pass"
-              ? "Queue sonore compatible avec une prise sèche."
-              : "Queue sonore longue estimée. Réduis les réflexions de la pièce.",
-        },
-        {
-          id: "noise_floor",
-          label: "Silence de pièce",
-          status: input.profile.roomToneCaptured ? noiseStatus : "review",
-          message: input.profile.roomToneCaptured
-            ? `Bruit de fond de pièce : ${roomToneNoiseFloorDbfs} dBFS.`
-            : "Ajoute un silence de pièce pour valider le bruit de fond.",
-        },
-        {
-          id: "snr",
-          label: "SNR",
-          status: snrStatus,
-          message: `Rapport voix/bruit : ${input.metrics.snrDb} dB.`,
-        },
-        {
-          id: "duration",
-          label: "Durée",
-          status: durationStatus,
-          message:
-            durationStatus === "pass"
-              ? "Durée correcte."
-              : "La phrase semble coupée ou trop lente. Reprends.",
-        },
-        {
-          id: "transcript_match",
-          label: "Transcript",
-          status: transcriptStatus,
-          message: createTranscriptGateMessage(transcriptMatch),
-        },
-        {
-          id: "phoneme_alignment",
-          label: "Alignement phonèmes",
-          status: phonemeAlignmentStatus,
-          message:
-            "Alignement forcé acoustique requis avant d'utiliser les phonèmes pour l'entraînement.",
-        },
-      ],
+      gates: (
+        [
+          {
+            id: "clipping",
+            label: "Clipping",
+            status: clippingStatus,
+            message: input.metrics.clippingDetected
+              ? "Le signal sature. Baisse le niveau ou éloigne le micro."
+              : `Niveau OK : pic à ${input.metrics.peakDbfs} dBFS.`,
+          },
+          {
+            id: "capture_truncated",
+            label: "Intégrité capture",
+            status: captureTruncatedStatus,
+            message:
+              captureTruncatedStatus === "fail"
+                ? "La capture a atteint sa limite mémoire et le fichier est tronqué. Reprends la phrase."
+                : "Tous les échantillons capturés sont présents.",
+          },
+          {
+            id: "signal_level",
+            label: "Signal",
+            status: signalStatus,
+            message:
+              signalStatus === "fail"
+                ? "Signal trop faible ou silence détecté. Vérifie le micro et reprends."
+                : signalStatus === "review"
+                  ? "Signal un peu faible. Rapproche-toi ou monte légèrement le gain."
+                  : "Signal exploitable.",
+          },
+          {
+            id: "headroom",
+            label: "Marge numérique",
+            status: headroomStatus,
+            message:
+              headroomStatus === "fail"
+                ? "Pic inter-échantillon trop proche de 0 dBFS. Réduis le gain et reprends."
+                : headroomStatus === "review"
+                  ? `Marge réduite : pic estimé ${input.metrics.estimatedTruePeakDbfs} dBFS.`
+                  : `Marge saine : pic estimé ${input.metrics.estimatedTruePeakDbfs} dBFS.`,
+          },
+          {
+            id: "dc_offset",
+            label: "Offset DC",
+            status: dcOffsetStatus,
+            message:
+              dcOffsetStatus === "pass"
+                ? "Offset DC négligeable."
+                : "Offset DC élevé détecté. Vérifie la chaîne micro/interface avant entraînement.",
+          },
+          {
+            id: "speech_activity",
+            label: "Activité vocale",
+            status: speechActivityStatus,
+            message:
+              speechActivityStatus === "pass"
+                ? `${Math.round(input.metrics.activeSpeechRatio * 100)} % des fenêtres contiennent de la voix exploitable.`
+                : "Trop peu de voix détectée dans la prise. Vérifie les silences ou le niveau micro.",
+          },
+          {
+            id: "plosives",
+            label: "Plosives",
+            status: plosiveStatus,
+            message:
+              plosiveStatus === "pass"
+                ? "Pas de concentration problématique de plosives."
+                : "Plosives marquées. Utilise un filtre anti-pop ou ajuste l'angle du micro.",
+          },
+          {
+            id: "mouth_noise",
+            label: "Bruits de bouche",
+            status: mouthNoiseStatus,
+            message:
+              mouthNoiseStatus === "pass"
+                ? "Bruits transitoires dans la plage attendue."
+                : "Bruits de bouche/transitoires élevés. Hydrate-toi et reprends si possible.",
+          },
+          {
+            id: "reverb",
+            label: "Réverbération estimée",
+            status: reverbStatus,
+            message:
+              reverbStatus === "pass"
+                ? "Queue sonore compatible avec une prise sèche."
+                : "Queue sonore longue estimée. Réduis les réflexions de la pièce.",
+          },
+          {
+            id: "noise_floor",
+            label: "Silence de pièce",
+            status: input.profile.roomToneCaptured ? noiseStatus : "review",
+            message: input.profile.roomToneCaptured
+              ? `Bruit de fond de pièce : ${roomToneNoiseFloorDbfs} dBFS.`
+              : "Ajoute un silence de pièce pour valider le bruit de fond.",
+          },
+          {
+            id: "snr",
+            label: "SNR",
+            status: snrStatus,
+            message: `Rapport voix/bruit : ${input.metrics.snrDb} dB.`,
+          },
+          {
+            id: "duration",
+            label: "Durée",
+            status: durationStatus,
+            message:
+              durationStatus === "pass"
+                ? "Durée correcte."
+                : "La phrase semble coupée ou trop lente. Reprends.",
+          },
+          {
+            id: "transcript_match",
+            label: "Transcript",
+            status: transcriptStatus,
+            message: createTranscriptGateMessage(transcriptMatch),
+          },
+          {
+            id: "phoneme_alignment",
+            label: "Alignement phonèmes",
+            status: phonemeAlignmentStatus,
+            message:
+              "Alignement forcé acoustique requis avant d'utiliser les phonèmes pour l'entraînement.",
+          },
+          {
+            id: "audio_present",
+            label: "Présence audio",
+            status: input.metrics.sampleCount > 0 ? "pass" : "fail",
+            message:
+              input.metrics.sampleCount > 0
+                ? "Le signal PCM final contient des échantillons."
+                : "Aucun échantillon audio n'est présent.",
+          },
+          {
+            id: "speech_detected",
+            label: "Parole détectée",
+            status: input.metrics.activeSpeechRatio >= 0.1 ? "pass" : "review",
+            message: `${Math.round(input.metrics.activeSpeechRatio * 100)} % d'activité vocale estimée depuis le signal.`,
+          },
+          {
+            id: "vad_valid",
+            label: "VAD",
+            status: input.metrics.activeSpeechRatio >= 0.1 ? "pass" : "review",
+            message:
+              "VAD énergétique disponible; Silero peut remplacer cette estimation en post-analyse.",
+          },
+          {
+            id: "energy_valid",
+            label: "Énergie",
+            status: Number.isFinite(input.metrics.rmsDbfs) ? "pass" : "fail",
+            message:
+              "RMS, LUFS et dynamique ont été calculés depuis le PCM final.",
+          },
+          {
+            id: "noise_floor_valid",
+            label: "Bruit de fond",
+            status: input.profile.roomToneCaptured ? noiseStatus : "review",
+            message: input.profile.roomToneCaptured
+              ? "Mesure de prise comparée au silence de pièce déclaré."
+              : "Silence de pièce absent; estimation de prise conservée avec revue.",
+          },
+          {
+            id: "prosody_valid",
+            label: "Prosodie",
+            status: input.metrics.voicedFrameRatio > 0 ? "pass" : "review",
+            message:
+              "Pitch, énergie et débit sont issus du signal; aucune émotion observée n'est inventée.",
+          },
+          {
+            id: "estimated_alignment_valid",
+            label: "Alignement estimé",
+            status: phonemeAlignment.words.length > 0 ? "pass" : "fail",
+            message:
+              "Alignement préparatoire explicitement estimé et remplaçable par un aligneur acoustique.",
+          },
+          {
+            id: "phoneme_sequence_valid",
+            label: "Séquence phonétique",
+            status: phonemeAlignment.phonemes.length > 0 ? "pass" : "review",
+            message:
+              "Séquence G2P linguistique présente; elle ne prétend pas observer l'audio.",
+          },
+          {
+            id: "browser_asr_consistent",
+            label: "Cohérence ASR navigateur",
+            status: transcriptStatus,
+            message: createTranscriptGateMessage(transcriptMatch),
+          },
+          {
+            id: "corpus_consistent",
+            label: "Cohérence corpus",
+            status: "pass",
+            message:
+              "La prise référence un prompt et une version de corpus explicites.",
+          },
+        ] satisfies readonly TakeQualityGateResult[]
+      ).map(enrichGateEvidence),
       verdict,
     },
+    observation: createTakeObservationPackage({
+      asr: input.speechRecognition,
+      durationMs: input.durationMs,
+      generatedAt: input.recordedAt.toISOString(),
+      intent: {
+        intent: input.prompt.intention,
+        delivery: input.prompt.delivery,
+      },
+      alignment: phonemeAlignment,
+      metrics: {
+        ...input.metrics,
+        schemaVersion: "voice.audio_metrics.v1",
+      },
+      prompt: input.prompt,
+      session: input.session,
+      transcriptMatch,
+    }),
     review: {
       rating:
         verdict === "pass"
@@ -355,6 +454,57 @@ export function createRecordedTake(input: {
             : "Prise utilisable en secours. Une reprise plus naturelle serait mieux.",
     },
   };
+}
+
+function enrichGateEvidence(
+  gate: TakeQualityGateResult,
+): TakeQualityGateResult {
+  const source = gateSource(gate.id);
+  return {
+    ...gate,
+    source,
+    confidence:
+      source === "corpus"
+        ? 1
+        : source === "browser_asr"
+          ? null
+          : source === "energy_vad"
+            ? 0.72
+            : source === "g2p"
+              ? 0.82
+              : source === "evidence_fusion"
+                ? 0.8
+                : 0.9,
+    reason: gate.message,
+  };
+}
+
+function gateSource(
+  id: TakeQualityGateResult["id"],
+): NonNullable<TakeQualityGateResult["source"]> {
+  if (id === "browser_asr_consistent" || id === "transcript_match") {
+    return "browser_asr";
+  }
+  if (id === "corpus_consistent") {
+    return "corpus";
+  }
+  if (id === "audio_present") {
+    return "audio_signal";
+  }
+  if (id === "estimated_alignment_valid") {
+    return "evidence_fusion";
+  }
+  if (id === "phoneme_alignment" || id === "phoneme_sequence_valid") {
+    return "g2p";
+  }
+  if (
+    id === "vad_valid" ||
+    id === "speech_detected" ||
+    id === "speech_activity"
+  ) {
+    return "energy_vad";
+  }
+  return "audio_analysis";
 }
 
 function createTakeCaptureContext(input: {

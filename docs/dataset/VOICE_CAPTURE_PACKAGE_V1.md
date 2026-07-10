@@ -18,6 +18,8 @@ voice-capture-package/
   text/<utterance_id>.json
   alignment/<take_id>.json
   quality/<take_id>.json
+  observations/<take_id>.json
+  evidence/<take_id>.json
   reviews/<take_id>.json
   rights/consents.jsonl
   rights/licenses.jsonl
@@ -30,6 +32,17 @@ voice-capture-package/
 
 The exporter writes only raw immutable capture audio. There is no processed audio
 folder until the application has a real, traceable processing pipeline.
+
+New takes add an observation graph without changing the v1 package root. The
+observation file keeps corpus declarations, PCM measurements, energy-derived
+VAD, optional browser ASR hypotheses, G2P output, preparatory alignment, and
+per-word/per-phoneme fusion decisions as separate evidence. Historical takes
+without this additive file remain exportable.
+
+Every observation carries a status (`measured`, `observed`, `estimated`,
+`declared`, `unavailable`, or `human_review`), a source, a confidence when the
+producer exposes one, and a reason. In particular, G2P never claims to observe
+audio and preparatory boundaries are always marked estimated.
 
 ## Scope rules
 

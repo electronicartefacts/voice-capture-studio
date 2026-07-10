@@ -17,6 +17,8 @@ takes/<take_id>/timing.json
 takes/<take_id>/phonemes.json
 takes/<take_id>/intent.json
 takes/<take_id>/quality.json
+takes/<take_id>/observation.json
+takes/<take_id>/evidence.json
 reports/report.audio_quality.json
 reports/report.transcript_alignment.json
 reports/report.phonetic_coverage.json
@@ -48,10 +50,16 @@ alignment tools do not need to parse the full take timing object.
 3. Quality gates for clipping, noise, duration, audio persistence, transcript, intent, and prosody balance.
 4. Verdict: `pass`, `review`, or `reject`.
 
+`observation.json` uses `voice.take_observation.v1` and keeps physical
+measurements, corpus declarations, optional browser hypotheses, linguistic G2P,
+preparatory alignment, and their confidence/provenance separate. `evidence.json`
+is the compact decision graph for downstream tools. SpeechRecognition mismatch
+can request review, but only signal/capture failures can reject the physical take.
+
 The browser implementation now writes RIFF-padded WAV PCM mono 48 kHz / 24-bit when the Web Audio
 API is available. It computes local technical metrics for `quality.json`: peak dBFS, gated
 K-weighted integrated LUFS estimate, noise floor, SNR, clipping, reverb estimate, plosive score,
-and mouth-noise score. If the bounded capture buffer is exhausted, the take carries a failed
+mouth-noise score, bounded energy envelope, and energy-threshold speech segments. If the bounded capture buffer is exhausted, the take carries a failed
 capture-integrity gate and cannot become a keeper.
 
 `manifest.json` is generated after files are written and includes SHA-256 checksums for every

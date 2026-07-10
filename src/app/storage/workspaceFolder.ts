@@ -246,6 +246,8 @@ export async function saveTakeMetadataToWorkspaceFolder(input: {
   readonly phonemesJson: unknown;
   readonly intentJson: unknown;
   readonly qualityJson: unknown;
+  readonly observationJson: unknown;
+  readonly evidenceJson: unknown;
   readonly sessionJson: unknown;
 }): Promise<
   Result<
@@ -354,6 +356,20 @@ export async function saveTakeMetadataToWorkspaceFolder(input: {
       "quality.json",
       jsonBlob(input.qualityJson),
       `takes/${sanitizePathSegment(input.takeId)}/quality.json`,
+    );
+    await writeTrackedBlob(
+      artifacts,
+      takeDirectory,
+      "observation.json",
+      jsonBlob(input.observationJson),
+      `takes/${sanitizePathSegment(input.takeId)}/observation.json`,
+    );
+    await writeTrackedBlob(
+      artifacts,
+      takeDirectory,
+      "evidence.json",
+      jsonBlob(input.evidenceJson),
+      `takes/${sanitizePathSegment(input.takeId)}/evidence.json`,
     );
 
     await writeTrackedBlob(

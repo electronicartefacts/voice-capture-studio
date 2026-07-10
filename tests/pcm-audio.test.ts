@@ -101,6 +101,24 @@ test("PCM analysis extracts measured pitch and energy variation for prosody", ()
   assert.equal(metrics.voicedFrameRatio, 1);
   assert.ok((metrics.pitchVariationSemitones ?? 0) < 0.2);
   assert.ok(metrics.energyVariationDb < 0.5);
+  assert.ok((metrics.energyEnvelope?.length ?? 0) > 0);
+  assert.ok((metrics.speechSegments?.length ?? 0) > 0);
+  assert.equal(metrics.speechSegments?.[0].source, "energy_threshold");
+});
+
+test("PCM analysis keeps bounded energy envelopes and temporal speech segments", () => {
+  const samples = new Float32Array(48_000);
+
+  for (let index = 12_000; index < 36_000; index += 1) {
+    samples[index] = 0.2 * Math.sin((2 * Math.PI * 180 * index) / 48_000);
+  }
+
+  const metrics = analyzePcmSamples(samples, 48_000);
+
+  assert.ok((metrics.energyEnvelope?.length ?? 0) < 20);
+  assert.equal(metrics.speechSegments?.length, 1);
+  assert.ok((metrics.speechSegments?.[0].startMs ?? 0) >= 200);
+  assert.ok((metrics.speechSegments?.[0].endMs ?? 1000) <= 800);
 });
 
 test("PCM analysis uses a finite gated K-weighted loudness estimate", () => {

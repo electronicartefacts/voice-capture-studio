@@ -19,6 +19,8 @@ Voice Capture Studio Workspace/
         timing.json
         intent.json
         quality.json
+        observation.json
+        evidence.json
   exports/
     voice.capture_session/
       manifest.json

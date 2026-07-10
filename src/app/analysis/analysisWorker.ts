@@ -31,7 +31,12 @@ type VadSession = {
 };
 
 type OrtModule = {
-  env: { wasm: { wasmPaths: string; numThreads?: number } };
+  env: {
+    wasm: {
+      wasmPaths: string | { readonly mjs: string; readonly wasm: string };
+      numThreads?: number;
+    };
+  };
   InferenceSession: {
     create: (
       model: ArrayBuffer | Uint8Array,
@@ -56,14 +61,21 @@ async function loadTranscriber(
 ): Promise<Transcriber> {
   if (transcriberPromise === null) {
     transcriberPromise = (async () => {
-      const { env, pipeline } = await import("@huggingface/transformers");
+      const {
+        env,
+        AutoModelForSpeechSeq2Seq,
+        AutomaticSpeechRecognitionPipeline,
+        WhisperFeatureExtractor,
+        WhisperProcessor,
+        WhisperTokenizer,
+      } = await import("@huggingface/transformers");
 
       env.allowRemoteModels = false;
       env.allowLocalModels = true;
       env.localModelPath = `${assetsBaseUrl}models/`;
 
       if (env.backends.onnx?.wasm !== undefined) {
-        env.backends.onnx.wasm.wasmPaths = `${assetsBaseUrl}ort/`;
+        env.backends.onnx.wasm.wasmPaths = createWasmPaths(assetsBaseUrl);
       }
 
       const fileProgress = new Map<string, { loaded: number; total: number }>();
@@ -81,32 +93,55 @@ async function loadTranscriber(
         }
       };
 
-      const transcriber = await pipeline(
-        "automatic-speech-recognition",
-        "Xenova/whisper-tiny",
-        {
-          dtype: "q8",
-          device: "wasm",
-          progress_callback: (event: {
-            status: string;
-            file?: string;
-            loaded?: number;
-            total?: number;
-          }) => {
-            if (
-              event.status === "progress" &&
-              event.file !== undefined &&
-              event.total !== undefined
-            ) {
-              fileProgress.set(event.file, {
-                loaded: event.loaded ?? 0,
-                total: event.total,
-              });
-              reportProgress();
-            }
-          },
-        },
+      const modelId = "Xenova/whisper-tiny";
+      const progress_callback = (event: {
+        status: string;
+        file?: string;
+        loaded?: number;
+        total?: number;
+      }) => {
+        if (
+          event.status === "progress" &&
+          event.file !== undefined &&
+          event.total !== undefined
+        ) {
+          fileProgress.set(event.file, {
+            loaded: event.loaded ?? 0,
+            total: event.total,
+          });
+          reportProgress();
+        }
+      };
+      const modelBaseUrl = `${assetsBaseUrl}models/${modelId}/`;
+      const [model, tokenizerJson, tokenizerConfig, preprocessorConfig] =
+        await Promise.all([
+          AutoModelForSpeechSeq2Seq.from_pretrained(modelId, {
+            dtype: "q8",
+            device: "wasm",
+            // ORT's N-bit QDQ transpose optimization currently rejects the
+            // bundled Whisper q8 decoder graph. The unoptimized graph is valid
+            // and deterministic; inference is post-capture, so correctness wins
+            // over a speculative load-time rewrite.
+            session_options: { graphOptimizationLevel: "disabled" },
+            progress_callback,
+          }),
+          fetchJson(`${modelBaseUrl}tokenizer.json`),
+          fetchJson(`${modelBaseUrl}tokenizer_config.json`),
+          fetchJson(`${modelBaseUrl}preprocessor_config.json`),
+        ]);
+      const tokenizer = new WhisperTokenizer(tokenizerJson, tokenizerConfig);
+      const featureExtractor = new WhisperFeatureExtractor(preprocessorConfig);
+      const processor = new WhisperProcessor(
+        {},
+        { tokenizer, feature_extractor: featureExtractor },
+        "",
       );
+      const transcriber = new AutomaticSpeechRecognitionPipeline({
+        task: "automatic-speech-recognition",
+        model,
+        processor,
+        tokenizer,
+      });
 
       return transcriber as unknown as Transcriber;
     })();
@@ -129,7 +164,7 @@ async function loadVad(
       const ort =
         (await import("onnxruntime-web/webgpu")) as unknown as OrtModule;
 
-      ort.env.wasm.wasmPaths = `${assetsBaseUrl}ort/`;
+      ort.env.wasm.wasmPaths = createWasmPaths(assetsBaseUrl);
 
       const response = await fetch(
         `${assetsBaseUrl}models/silero/silero_vad.onnx`,
@@ -253,3 +288,23 @@ async function analyze(request: AnalysisWorkerRequest): Promise<void> {
 workerScope.addEventListener("message", (event) => {
   void analyze(event.data);
 });
+
+function createWasmPaths(assetsBaseUrl: string): {
+  readonly mjs: string;
+  readonly wasm: string;
+} {
+  return {
+    mjs: `${assetsBaseUrl}ort/ort-wasm-simd-threaded.mjs`,
+    wasm: `${assetsBaseUrl}ort/ort-wasm-simd-threaded.wasm`,
+  };
+}
+
+async function fetchJson(url: string): Promise<Record<string, unknown>> {
+  const response = await fetch(url);
+
+  if (!response.ok) {
+    throw new Error(`Local model asset is unavailable: ${url}`);
+  }
+
+  return (await response.json()) as Record<string, unknown>;
+}

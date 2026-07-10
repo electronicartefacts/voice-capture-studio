@@ -38,6 +38,8 @@ import {
 } from "@domains/workspace";
 import { type LanguageCode } from "@shared/index";
 import { createPcmRecorder, type PcmRecorder } from "../audio/pcmRecorder";
+import { createBrowserAsrObservation } from "../analysis/browserAsrObservation";
+import type { BrowserAsrHypothesis } from "@domains/observations";
 import {
   createRecordingFileName,
   createTakeId,
@@ -118,6 +120,7 @@ import {
   estimateSpeechGuideDurationMs,
   extractSpeechRecognitionTranscript,
   formatSpeechRecognitionLanguage,
+  mergeSpeechRecognitionHypotheses,
   sumWordWeights,
   wordIndexFromSpeechProgress,
   type SpeechRecognitionLike,
@@ -310,6 +313,9 @@ export function App() {
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const speechRecognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const recognizedFinalTranscriptRef = useRef("");
+  const speechRecognitionHypothesesRef = useRef<
+    readonly BrowserAsrHypothesis[]
+  >([]);
   const freeSpeechRecognitionAvailableRef = useRef(false);
   const wakeLockRef = useRef<RecordingWakeLockSentinel | null>(null);
   const backingAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -1644,6 +1650,7 @@ export function App() {
     setActiveWordIndex(0);
     setRecognizedTranscript("");
     recognizedFinalTranscriptRef.current = "";
+    speechRecognitionHypothesesRef.current = [];
 
     const speechRecognitionStarted = startSpeechRecognitionGuide(
       promptWords,
@@ -1680,6 +1687,18 @@ export function App() {
       recognition.maxAlternatives = 1;
       recognition.onresult = (event) => {
         const transcript = extractSpeechRecognitionTranscript(event);
+        const finalTranscript = extractFinalSpeechRecognitionTranscript(event);
+
+        speechRecognitionHypothesesRef.current =
+          mergeSpeechRecognitionHypotheses(
+            speechRecognitionHypothesesRef.current,
+            event,
+            Math.max(0, performance.now() - readingGuideStartedAtRef.current),
+          );
+
+        if (finalTranscript.length > 0) {
+          recognizedFinalTranscriptRef.current = finalTranscript;
+        }
 
         if (transcript.length === 0) {
           return;
@@ -2144,12 +2163,29 @@ export function App() {
       return;
     }
 
+    const recordedAt = new Date();
+    const speechRecognitionAvailable =
+      "SpeechRecognition" in window || "webkitSpeechRecognition" in window;
     const finalization = await finalizeCaptureSession({
       activePrompt,
       corpus: activeCorpus,
       folderName,
-      recognizedTranscript,
+      recognizedTranscript: recognizedFinalTranscriptRef.current,
+      recordedAt,
       recording,
+      speechRecognition: createBrowserAsrObservation({
+        available: speechRecognitionAvailable,
+        engine:
+          "SpeechRecognition" in window
+            ? "SpeechRecognition"
+            : "webkitSpeechRecognition" in window
+              ? "webkitSpeechRecognition"
+              : null,
+        generatedAt: recordedAt.toISOString(),
+        hypotheses: speechRecognitionHypothesesRef.current,
+        locale: formatSpeechRecognitionLanguage(selectedLanguage),
+        userAgent: navigator.userAgent,
+      }),
       saveRecording: saveRecordingToWorkspaceFolder,
       saveTakeMetadata: saveTakeMetadataToWorkspaceFolder,
       saveWorkspace: workspaceRepository.save,
@@ -2360,6 +2396,7 @@ export function App() {
     setActiveWordIndex(0);
     setRecognizedTranscript("");
     recognizedFinalTranscriptRef.current = "";
+    speechRecognitionHypothesesRef.current = [];
     freeSpeechRecognitionAvailableRef.current = false;
     setLastTake(null);
     setReviewPlaybackProgress(0);
