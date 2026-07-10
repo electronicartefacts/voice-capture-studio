@@ -37,9 +37,10 @@ documentation, and deployment configuration. User voice data belongs outside the
    prompt-only estimate cannot become a keeper. Browser grapheme-to-phoneme timing remains
    explicitly estimated until an acoustic forced-alignment JSON is imported.
 10. Empty audio blobs do not create takes and therefore cannot credit corpus coverage.
-11. Audio is persisted through IndexedDB, File System Access, or explicit download fallback. If
-    the WAV cannot be accepted by durable browser or folder storage, the take is marked rejected
-    with an `audio_persistence` gate and cannot credit coverage.
+11. Audio is persisted through IndexedDB, File System Access, or explicit download fallback. Dataset
+    exports resolve audio from IndexedDB first and the connected folder second. If the WAV cannot
+    be accepted by durable browser or folder storage, the take is marked rejected with an
+    `audio_persistence` gate and cannot credit coverage.
 12. `completePlannedSession` stores the captured session, then rebuilds the current corpus progress
     projection from workspace history.
 13. `createCaptureSessionExportBundle` derives Forge-shaped metadata and reports, then the shell
@@ -110,5 +111,5 @@ than a larger incoherent one.
 4. Promote app-level recording/export services behind domain ports when a second implementation or
    export shape appears.
 5. Audit bundle size and route splitting once more app-level services are introduced.
-6. Add an external forced-alignment import path so TextGrid or JSON phone tiers can replace the
-   browser estimate after MFA, WhisperX, or another acoustic aligner runs.
+6. Extend the existing external forced-alignment import path with TextGrid support and explicit
+   provenance adapters for MFA, WhisperX, or another acoustic aligner.

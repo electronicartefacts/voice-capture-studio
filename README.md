@@ -25,10 +25,10 @@ open-source foundation for privacy-preserving voice capture workflows.
 - Domain-oriented TypeScript architecture with unit coverage for corpus, workspace, recording, and
   export behavior.
 
-## Screenshots
+## Live demo
 
-Screenshots will be added once the public GitHub Pages deployment is enabled. Until then, run the
-local preview to inspect the current interface.
+The current build is available on [GitHub Pages](https://electronicartefacts.github.io/voice-capture-studio/).
+Run the local preview when you need to inspect a branch or test microphone permissions locally.
 
 ## Installation
 

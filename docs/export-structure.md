@@ -81,5 +81,10 @@ Export rules:
 5. A smaller clean dataset is preferred over a large incoherent dataset.
 6. Every artifact must have a checksum in `manifest.json`.
 7. Browser-generated reports are first-pass dataset diagnostics. Browser phoneme timing is
-   text-derived and marked `forcedAlignmentRequired`; Forge should still run acoustic forced
-   alignment and phoneme-level coverage for final acceptance.
+   text-derived and marked `forcedAlignmentRequired` until an external alignment is imported;
+   the import path preserves acoustic provenance, but Forge should still validate phoneme-level
+   coverage for final acceptance.
+
+Audio resolution for dataset exports is local-first: the browser cache is checked first, then the
+connected File System Access folder. If neither source contains a keeper WAV, the export completes
+with an explicit missing-audio report instead of silently claiming a complete dataset.

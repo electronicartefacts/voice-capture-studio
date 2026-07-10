@@ -8,7 +8,7 @@ Voice Capture Studio exists to produce a canonical, local, engine-independent vo
 2. User voice data is never sent to a remote service.
 3. The local workspace is the only source of truth for sessions, takes, and progress.
 4. The repository owns versioned corpus definitions, scenarios, intentions, language metadata, and application code.
-5. Workspaces reference corpus identifiers and versions, but never store a corpus copy.
+5. Workspaces reference shipped corpus identifiers and versions; user-supplied local corpus snapshots are stored only as explicit input provenance so those sessions can be reopened safely.
 6. Domain modules communicate through typed contracts, not through UI components.
 7. Capture, coverage, and export engines are ports first, implementations later.
 
