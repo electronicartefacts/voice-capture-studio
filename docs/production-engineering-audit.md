@@ -312,6 +312,57 @@ activity cue during "Finalisation…" (real gap, but a missing liveliness, not
 a broken continuity), and a general ambient "breathing" on the idle `Prêt`
 state (too diffuse to land as one scoped change).
 
+## 2026-07-10 homepage front panel redesign
+
+The home screen previously read as a configuration form: a badge, a kicker,
+a headline, a status paragraph, three stat chips, a section header, four
+description cards for the capture modes, a corpus editor, two side-by-side
+buttons, a hint, a coverage ring, a voice/language manager, and up to three
+conditional panels — all visible in the first viewport on desktop, since
+`.home-card` was a two-column grid placing the "hero" and the full
+configuration console side by side. It explained the product before letting
+it exist, in direct tension with `docs/design/PHENOMENOLOGY.md` §1.
+
+Applying the "five-second test" (would a first-time viewer, given five
+seconds and no click, understand they're facing a listening instrument
+rather than settings screen?), `.home-card` becomes a single column at every
+breakpoint. The first viewport now contains only what a physical instrument's
+front panel would show:
+
+- **Removed from the front panel entirely**: the mode badge's descriptive
+  text, the kicker/status paragraph pairing, the three-chip status strip, the
+  section header text, and every mode card's two-line description. None of
+  it is deleted from the product — see "moved" below.
+- **Moved below the fold** (still on the same scroll, in `.home-workbench`,
+  not gated behind an interaction): the operational status message, the
+  status strip, the corpus/backing-track editors, the folder-export button,
+  the coverage console, the voice/speaker manager, and the diagnostics/
+  workspace-backup/capture-profile panels — unchanged in behavior, only
+  relocated.
+- **Merged**: the four capture-mode cards collapse into `.mode-dial`, a
+  compact icon-only control (`CaptureModeSelector`, restyled, same props and
+  handler) reused directly from a camera mode wheel, with the selected
+  mode's name folded into one small caption (`.instrument-mode-label`)
+  instead of repeated per card. The `is-active` class this component shared
+  with an unrelated "paroles complètes" checkbox was split into its own
+  `.session-option` class first — the two had started to need incompatible
+  layouts.
+- **Became the one hero object**: `.launch-button.is-hero` — larger, centered
+  alone in `.instrument-trigger`, the only object the eye has to land on.
+  Its label logic (disabled reasons, mode-aware copy) is untouched; only its
+  visual weight and position changed.
+- **Stayed visible on open**: the filament and halo (invariant, untouched),
+  the mode dial, the hero button, and one short line — the mode's existing
+  `headline` copy, already short and evocative, reused as-is rather than
+  written new.
+
+Verified behaviorally, not just visually: a scripted mode switch
+(`Doublage` → corpus editor appears, button reads "Ajouter un texte";
+`Capture libre` → button reads "Lancer avec téléchargement") confirmed the
+console still reacts correctly to the dial with no logic changes. Full
+`npm run validate` and a targeted run of `capture-flow.spec.ts` and
+`mobile-scroll.spec.ts` passed unchanged.
+
 ## UX, responsive behavior, and motion
 
 The main interaction path is intentional: explicit permission, room-tone

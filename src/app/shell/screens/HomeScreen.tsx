@@ -148,18 +148,57 @@ export function HomeScreen(input: {
 
   return (
     <div className="home-card">
-      <section className="home-hero" aria-labelledby="home-title">
-        <div className="premium-pill">
-          <ModeIcon aria-hidden="true" size={16} />
-          <span>{modeContent.pill}</span>
+      <section className="instrument-face" aria-labelledby="home-title">
+        <CaptureModeSelector
+          mode={input.captureMode}
+          onChange={input.onCaptureModeChange}
+        />
+        <span className="instrument-mode-label">
+          <ModeIcon aria-hidden="true" size={14} />
+          {modeContent.pill}
+        </span>
+
+        <div className="instrument-trigger">
+          <button
+            className="launch-button is-hero"
+            disabled={!input.diagnostics.canRecord || !localCorpusReady}
+            onClick={input.onStart}
+            type="button"
+          >
+            <Play aria-hidden="true" size={22} />
+            <span>
+              {!input.diagnostics.canRecord
+                ? "Enregistrement indisponible"
+                : !localCorpusReady
+                  ? "Ajouter un texte"
+                  : folderSelected
+                    ? "Lancer la session"
+                    : "Lancer avec téléchargement"}
+            </span>
+          </button>
         </div>
-        <div>
-          <p className="soft-label">{modeContent.kicker}</p>
-          <h1 id="home-title">{modeContent.headline}</h1>
-          <p className="plain-text" aria-live="polite">
-            {input.message}
-          </p>
+
+        <h1 id="home-title" className="instrument-line">
+          {modeContent.headline}
+        </h1>
+      </section>
+
+      <section className="home-workbench" aria-label="Réglages de la session">
+        <div className="workbench-header">
+          <div>
+            <p className="soft-label">{modeContent.kicker}</p>
+            <h2>{modeContent.workbenchTitle}</h2>
+          </div>
+          <span className={`setup-pill is-${setupTone}`}>
+            <BadgeCheck aria-hidden="true" size={16} />
+            {setupLabel}
+          </span>
         </div>
+
+        <p className="plain-text" aria-live="polite">
+          {input.message}
+        </p>
+
         <div className="status-strip" aria-label="État de la session">
           <div>
             <HardDrive aria-hidden="true" size={18} />
@@ -182,27 +221,6 @@ export function HomeScreen(input: {
             </span>
           </div>
         </div>
-      </section>
-
-      <section
-        className="home-workbench"
-        aria-label="Préparation de la session"
-      >
-        <div className="workbench-header">
-          <div>
-            <p className="soft-label">Démarrage</p>
-            <h2>{modeContent.workbenchTitle}</h2>
-          </div>
-          <span className={`setup-pill is-${setupTone}`}>
-            <BadgeCheck aria-hidden="true" size={16} />
-            {setupLabel}
-          </span>
-        </div>
-
-        <CaptureModeSelector
-          mode={input.captureMode}
-          onChange={input.onCaptureModeChange}
-        />
 
         {input.captureMode !== "training" && input.captureMode !== "free" && (
           <LocalCorpusEditor
@@ -228,7 +246,7 @@ export function HomeScreen(input: {
               volume={input.backingTrackVolume}
             />
             {input.localCorpusSummary !== null && (
-              <label className="capture-mode-option is-active">
+              <label className="session-option is-active">
                 <input
                   checked={input.continuousLyricsEnabled}
                   onChange={(event) =>
@@ -246,24 +264,6 @@ export function HomeScreen(input: {
         )}
 
         <div className="primary-actions">
-          <button
-            className="launch-button"
-            disabled={!input.diagnostics.canRecord || !localCorpusReady}
-            onClick={input.onStart}
-            type="button"
-          >
-            <Play aria-hidden="true" size={20} />
-            <span>
-              {!input.diagnostics.canRecord
-                ? "Enregistrement indisponible"
-                : !localCorpusReady
-                  ? "Ajouter un texte"
-                  : folderSelected
-                    ? "Lancer la session"
-                    : "Lancer avec téléchargement"}
-            </span>
-          </button>
-
           <button
             className="folder-button"
             onClick={input.onChooseFolder}
@@ -496,7 +496,7 @@ export function CaptureModeSelector(input: {
   readonly onChange: (mode: CaptureMode) => void;
 }) {
   return (
-    <section className="capture-mode-grid" aria-label="Modes de capture">
+    <div className="mode-dial" role="group" aria-label="Modes de l'instrument">
       {captureModeOptions.map((option) => {
         const Icon = option.icon;
 
@@ -506,17 +506,15 @@ export function CaptureModeSelector(input: {
             className={`capture-mode-option${input.mode === option.mode ? " is-active" : ""}`}
             key={option.mode}
             onClick={() => input.onChange(option.mode)}
+            title={option.title}
             type="button"
           >
-            <Icon aria-hidden="true" size={20} />
-            <span>
-              <strong>{option.title}</strong>
-              <small>{option.summary}</small>
-            </span>
+            <Icon aria-hidden="true" size={18} />
+            <span className="sr-only">{option.title}</span>
           </button>
         );
       })}
-    </section>
+    </div>
   );
 }
 

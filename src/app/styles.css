@@ -302,15 +302,13 @@ textarea:focus-visible {
 }
 
 .home-card {
-  align-items: start;
   display: grid;
-  gap: clamp(22px, 4vw, 42px);
-  grid-template-columns: minmax(0, 1.05fr) minmax(360px, 0.86fr);
-  max-width: 1180px;
-  width: min(100%, 1180px);
+  gap: clamp(28px, 6vw, 64px);
+  grid-template-columns: 1fr;
+  max-width: 760px;
+  width: min(100%, 760px);
 }
 
-.home-hero,
 .focus-card,
 .director-panel,
 .technical-page {
@@ -318,9 +316,45 @@ textarea:focus-visible {
   gap: 24px;
 }
 
-.home-hero {
-  align-content: start;
-  padding-block: clamp(12px, 2vw, 26px);
+/* The instrument's front panel: the mode dial, the one primary trigger, and
+   a single calm line. Everything that explains rather than invites the
+   first gesture lives in .home-workbench, below this. */
+.instrument-face {
+  align-content: center;
+  display: grid;
+  gap: 26px;
+  justify-items: center;
+  min-height: min(74vh, 640px);
+  padding-block: clamp(16px, 4vw, 32px);
+  text-align: center;
+}
+
+.instrument-mode-label {
+  align-items: center;
+  color: var(--soft);
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 840;
+  gap: 6px;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.instrument-trigger {
+  display: grid;
+  justify-items: center;
+}
+
+.instrument-line {
+  color: var(--muted);
+  font-weight: 480;
+  line-height: 1.3;
+  margin: 0;
+}
+
+.instrument-face .instrument-line {
+  font-size: clamp(19px, 2.8vw, 26px);
+  max-width: 30ch;
 }
 
 .home-workbench {
@@ -494,13 +528,50 @@ textarea:focus-visible {
   margin: 0;
 }
 
-.capture-mode-grid {
-  display: grid;
-  gap: 10px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+/* The mode dial: a camera's mode wheel, not a row of feature cards. Icon
+   only — the selected mode's name lives in .instrument-mode-label instead
+   of being repeated on every option. */
+.mode-dial {
+  background: color-mix(in srgb, var(--panel) 68%, transparent);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  display: inline-flex;
+  gap: 4px;
+  padding: 5px;
 }
 
 .capture-mode-option {
+  align-items: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  color: var(--muted);
+  display: inline-flex;
+  height: 42px;
+  justify-content: center;
+  transition:
+    background 140ms ease,
+    border-color 140ms ease,
+    color 140ms ease,
+    transform 140ms ease;
+  width: 42px;
+}
+
+.capture-mode-option:hover {
+  color: var(--text);
+  transform: translateY(-1px);
+}
+
+.capture-mode-option.is-active {
+  background: color-mix(in srgb, var(--accent-a) 16%, transparent);
+  border-color: color-mix(in srgb, var(--accent-a) 42%, var(--line));
+  color: var(--text);
+}
+
+/* The one place a mode choice still needs its full title and description:
+   an in-session option, not a mode switch. Keeps the pre-redesign card look
+   deliberately, since this is not part of the front panel's dial. */
+.session-option {
   align-items: start;
   background: color-mix(in srgb, var(--panel-solid) 7%, transparent);
   border: 1px solid var(--line);
@@ -508,46 +579,33 @@ textarea:focus-visible {
   color: var(--muted);
   display: grid;
   gap: 10px;
-  min-height: 150px;
   padding: 13px;
   text-align: left;
   transition:
     background 140ms ease,
     border-color 140ms ease,
-    color 140ms ease,
-    transform 140ms ease;
+    color 140ms ease;
 }
 
-.capture-mode-option:hover {
-  background: var(--panel);
-  border-color: var(--line-strong);
-  color: var(--text);
-  transform: translateY(-1px);
-}
-
-.capture-mode-option.is-active {
+.session-option.is-active {
   background: color-mix(in srgb, var(--accent-a) 12%, transparent);
   border-color: color-mix(in srgb, var(--accent-a) 42%, var(--line));
   color: var(--text);
 }
 
-.capture-mode-option svg {
-  color: var(--accent-a);
-}
-
-.capture-mode-option span {
+.session-option span {
   display: grid;
   gap: 6px;
   min-width: 0;
 }
 
-.capture-mode-option strong {
+.session-option strong {
   color: var(--text);
   font-size: 14px;
   line-height: 1.2;
 }
 
-.capture-mode-option small {
+.session-option small {
   color: var(--muted);
   font-size: 12px;
   font-weight: 710;
@@ -1138,6 +1196,16 @@ textarea:focus-visible {
   border: 1px solid color-mix(in srgb, var(--brand) 78%, var(--accent-b));
   box-shadow: 0 14px 34px color-mix(in srgb, var(--brand) 16%, transparent);
   color: var(--brand-contrast);
+}
+
+/* The instrument's one event. Everything else on the front panel is quiet
+   so the eye has nowhere else to land first. */
+.launch-button.is-hero {
+  box-shadow: 0 22px 70px color-mix(in srgb, var(--brand) 26%, transparent);
+  font-size: 17px;
+  min-height: 72px;
+  padding: 18px 34px;
+  width: auto;
 }
 
 .download-action {
@@ -2525,11 +2593,6 @@ textarea:focus-visible {
     grid-template-columns: 1fr;
   }
 
-  .home-hero {
-    min-height: auto;
-    padding-block: 18px 0;
-  }
-
   .home-card h1,
   .focus-card h1,
   .director-panel h1,
@@ -2602,7 +2665,6 @@ textarea:focus-visible {
 
   .simple-form,
   .backing-track-controls,
-  .capture-mode-grid,
   .capture-profile,
   .voice-create,
   .result-action-grid,
@@ -2635,7 +2697,9 @@ textarea:focus-visible {
   }
 
   .capture-mode-option {
-    min-height: 92px;
+    height: 42px;
+    min-height: 42px;
+    width: 42px;
   }
 
   .coverage-console {
@@ -3201,16 +3265,9 @@ body,
 
 .home-card {
   align-items: start;
-  gap: clamp(30px, 7vw, 92px);
-  grid-template-columns: minmax(0, 0.96fr) minmax(320px, 540px);
-  max-width: 1280px;
-}
-
-.home-hero {
-  gap: 24px;
-  min-height: auto;
-  padding-top: clamp(156px, 28vh, 210px);
-  place-content: start;
+  gap: clamp(30px, 7vw, 64px);
+  grid-template-columns: 1fr;
+  max-width: 760px;
 }
 
 .home-card h1,
@@ -3692,10 +3749,6 @@ body,
     align-items: stretch;
     grid-template-columns: 1fr;
   }
-
-  .home-hero {
-    min-height: auto;
-  }
 }
 
 @media (max-width: 720px) {
@@ -3794,10 +3847,6 @@ body,
 
   .status-strip {
     display: none;
-  }
-
-  .home-hero {
-    gap: 14px;
   }
 
   .result-mark {
@@ -3912,10 +3961,6 @@ body,
   .session-stage {
     min-height: auto;
     padding: 16px 16px calc(24px + env(safe-area-inset-bottom));
-  }
-
-  .home-hero {
-    padding-top: clamp(112px, 19vh, 136px);
   }
 
   .technical-page {
