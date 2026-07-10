@@ -64,6 +64,52 @@ test("recorded take becomes keeper when technical gates and room tone pass", () 
   );
 });
 
+test("mode policies relax speech and SNR thresholds for dubbing and mastering", () => {
+  const { prompt, session } = createPlannedPrompt();
+  const metrics = createMetrics({
+    activeSpeechRatio: 0.2,
+    snrDb: 20,
+  });
+  const profile = createCaptureProfile({
+    roomToneCaptured: true,
+    roomToneNoiseFloorDbfs: -48,
+  });
+
+  const dubbingTake = createRecordedTake({
+    captureMode: "dubbing",
+    durationMs: 3200,
+    fileName: "dubbing.wav",
+    media: createMedia(),
+    metrics,
+    profile,
+    prompt,
+    recordedAt,
+    recognizedTranscript: prompt.text,
+    session,
+    takeId,
+  });
+
+  assert.equal(dubbingTake.quality.verdict, "pass");
+  assert.equal(dubbingTake.captureContext?.captureMode, "dubbing");
+
+  const masteringTake = createRecordedTake({
+    captureMode: "mastering",
+    durationMs: 3200,
+    fileName: "mastering.wav",
+    media: createMedia(),
+    metrics: { ...metrics, activeSpeechRatio: 0.13, snrDb: 15 },
+    profile: { ...profile, roomToneNoiseFloorDbfs: -44 },
+    prompt,
+    recordedAt,
+    recognizedTranscript: prompt.text,
+    session,
+    takeId,
+  });
+
+  assert.equal(masteringTake.quality.verdict, "pass");
+  assert.equal(masteringTake.captureContext?.captureMode, "mastering");
+});
+
 test("browser ASR mismatch requests review but cannot reject physical audio", () => {
   const { prompt, session } = createPlannedPrompt();
   const take = createRecordedTake({

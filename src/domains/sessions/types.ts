@@ -53,6 +53,8 @@ export type RecordedTake = {
 export type TakeCaptureContext = {
   readonly schemaVersion: "voice.capture.context.v1";
   readonly capturedAt: IsoDateTime;
+  /** Mode-specific quality policy used when this take was evaluated. */
+  readonly captureMode?: "training" | "dubbing" | "mastering";
   readonly capture: AudioCaptureProvenance;
   readonly profile: {
     readonly microphoneName: string;

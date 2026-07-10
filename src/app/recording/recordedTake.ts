@@ -19,8 +19,10 @@ import {
   estimateTranscriptMatch,
 } from "../../domains/phonetics";
 import type { PcmRecordingMetrics } from "../audio/pcmRecorder";
+import { getAudioModePolicy, type CaptureAudioMode } from "./audioModePolicy";
 
 export function createRecordedTake(input: {
+  readonly captureMode?: Exclude<CaptureAudioMode, "free">;
   readonly durationMs: number;
   readonly forcedAlignment?: ForcedAlignment;
   readonly fileName: string;
@@ -35,6 +37,8 @@ export function createRecordedTake(input: {
   readonly takeId: TakeId;
   readonly truncated?: boolean;
 }): RecordedTake {
+  const captureMode = input.captureMode ?? "training";
+  const modePolicy = getAudioModePolicy(captureMode);
   const spokenText = input.prompt.spokenText ?? input.prompt.text;
   const phonemeAlignment = alignPromptToPhonemes({
     durationMs: input.durationMs,
@@ -68,7 +72,9 @@ export function createRecordedTake(input: {
   const dcOffsetStatus =
     Math.abs(input.metrics.dcOffset) > 0.02 ? "review" : "pass";
   const speechActivityStatus =
-    input.metrics.activeSpeechRatio < 0.25 ? "review" : "pass";
+    input.metrics.activeSpeechRatio < modePolicy.minimumActiveSpeechRatio
+      ? "review"
+      : "pass";
   const plosiveStatus = input.metrics.plosiveScore > 0.08 ? "review" : "pass";
   const mouthNoiseStatus =
     input.metrics.mouthNoiseScore > 0.08 ? "review" : "pass";
@@ -82,10 +88,12 @@ export function createRecordedTake(input: {
   const roomToneNoiseFloorDbfs =
     input.profile.roomToneNoiseFloorDbfs ?? input.metrics.noiseFloorDbfs;
   const noiseStatus =
-    input.profile.roomToneCaptured && roomToneNoiseFloorDbfs > -50
+    input.profile.roomToneCaptured &&
+    roomToneNoiseFloorDbfs > modePolicy.maximumRoomToneNoiseFloorDbfs
       ? "review"
       : "pass";
-  const snrStatus = input.metrics.snrDb < 24 ? "review" : "pass";
+  const snrStatus =
+    input.metrics.snrDb < modePolicy.minimumSnrDb ? "review" : "pass";
   const verdict =
     captureTruncatedStatus === "fail" ||
     clippingStatus === "fail" ||
@@ -103,7 +111,7 @@ export function createRecordedTake(input: {
           mouthNoiseStatus === "pass" &&
           reverbStatus === "pass" &&
           transcriptStatus !== "fail" &&
-          input.profile.roomToneCaptured
+          (!modePolicy.roomToneRequired || input.profile.roomToneCaptured)
         ? "pass"
         : "review";
   return {
@@ -113,7 +121,7 @@ export function createRecordedTake(input: {
     durationMs: input.durationMs,
     recordedAt: input.recordedAt.toISOString() as RecordedTake["recordedAt"],
     media: input.media,
-    captureContext: createTakeCaptureContext(input),
+    captureContext: createTakeCaptureContext({ ...input, captureMode }),
     transcript: {
       schemaVersion: "voice.transcript.v2",
       originalText: input.prompt.text,
@@ -358,13 +366,21 @@ export function createRecordedTake(input: {
           {
             id: "speech_detected",
             label: "Parole détectée",
-            status: input.metrics.activeSpeechRatio >= 0.1 ? "pass" : "review",
+            status:
+              input.metrics.activeSpeechRatio >=
+              modePolicy.minimumActiveSpeechRatio
+                ? "pass"
+                : "review",
             message: `${Math.round(input.metrics.activeSpeechRatio * 100)} % d'activité vocale estimée depuis le signal.`,
           },
           {
             id: "vad_valid",
             label: "VAD",
-            status: input.metrics.activeSpeechRatio >= 0.1 ? "pass" : "review",
+            status:
+              input.metrics.activeSpeechRatio >=
+              modePolicy.minimumActiveSpeechRatio
+                ? "pass"
+                : "review",
             message:
               "VAD énergétique disponible; Silero peut remplacer cette estimation en post-analyse.",
           },
@@ -508,6 +524,7 @@ function gateSource(
 }
 
 function createTakeCaptureContext(input: {
+  readonly captureMode: Exclude<CaptureAudioMode, "free">;
   readonly media: TakeMedia;
   readonly profile: CaptureProfile;
   readonly recordedAt: Date;
@@ -516,6 +533,7 @@ function createTakeCaptureContext(input: {
     schemaVersion: "voice.capture.context.v1",
     capturedAt:
       input.recordedAt.toISOString() as TakeCaptureContext["capturedAt"],
+    captureMode: input.captureMode,
     capture: input.media.capture,
     profile: {
       microphoneName: input.profile.microphoneName,

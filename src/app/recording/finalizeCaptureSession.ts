@@ -23,6 +23,7 @@ import { createCaptureSessionExportBundle } from "../export/captureSessionExport
 import type { RecordingSaveTarget } from "../storage/workspaceFolder";
 import { createRecordedTake } from "./recordedTake";
 import type { BrowserAsrObservation } from "../../domains/observations";
+import type { CaptureAudioMode } from "./audioModePolicy";
 
 export type FinalizedRecording = {
   readonly blob: Blob;
@@ -75,6 +76,7 @@ export type CaptureFinalizationResult = {
 
 export async function finalizeCaptureSession(input: {
   readonly activePrompt: PromptDefinition | undefined;
+  readonly captureMode?: Exclude<CaptureAudioMode, "free">;
   readonly completedAt?: Date;
   readonly corpus: CorpusManifest;
   readonly folderName: string | null;
@@ -138,6 +140,7 @@ export async function finalizeCaptureSession(input: {
     input.activePrompt === undefined || !audioDownloadAvailable
       ? null
       : createRecordedTake({
+          captureMode: input.captureMode,
           durationMs:
             input.recording.metrics.durationMs ||
             estimateDurationMs(input.activePrompt.text),

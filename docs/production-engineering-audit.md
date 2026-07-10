@@ -434,6 +434,21 @@ Known product limitations:
 3. Exports are alignment-ready, not acoustically aligned.
 4. File System Access is not yet the preferred first-run storage path.
 
+## 2026-07-10 mode-specific audio policy
+
+Quality gates are now evaluated with the capture mode that produced the take.
+Training keeps the strict dataset thresholds for speech activity, SNR, and
+room tone. Dubbing allows more natural pauses and a lower SNR floor, while
+mastering allows a wider performance envelope because a monitored return may
+change the usable voice dynamics. The selected mode is persisted in
+`take.captureContext.captureMode`, so exported quality decisions remain
+auditable rather than looking like universal thresholds.
+
+This is intentionally a policy layer, not a DSP layer: the microphone signal
+stays raw and the same measured metrics are retained. Future work can add
+streaming VAD, chunked long-form capture, and playback-leakage analysis
+without changing the capture contract.
+
 ## Remaining roadmap
 
 1. Run a device matrix on Chrome desktop, Safari desktop, Chrome Android, and

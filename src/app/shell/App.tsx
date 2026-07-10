@@ -2202,6 +2202,10 @@ export function App() {
       "SpeechRecognition" in window || "webkitSpeechRecognition" in window;
     const finalization = await finalizeCaptureSession({
       activePrompt,
+      captureMode:
+        captureMode === "dubbing" || captureMode === "mastering"
+          ? captureMode
+          : "training",
       corpus: activeCorpus,
       folderName,
       recognizedTranscript: recognizedFinalTranscriptRef.current,
