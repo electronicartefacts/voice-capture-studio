@@ -586,6 +586,7 @@ export function DoneScreen(input: {
   readonly fileName: string | null;
   readonly hasNextPrompt: boolean;
   readonly isFreeCapture?: boolean;
+  readonly isContinuousLyricsCapture?: boolean;
   readonly location: string | null;
   readonly metadataDownloadUrl: string | null;
   readonly message: string;
@@ -633,7 +634,9 @@ export function DoneScreen(input: {
             <p className="soft-label">Prochaine action</p>
             <p>
               {input.isFreeCapture
-                ? "La prise libre est complète. Conserve le WAV avec son manifeste JSON de provenance et de mesures."
+                ? input.isContinuousLyricsCapture
+                  ? "La prise complète des paroles est prête. Conserve le WAV avec son manifeste JSON."
+                  : "La prise libre est complète. Conserve le WAV avec son manifeste JSON de provenance et de mesures."
                 : isKeeper
                   ? input.hasNextPrompt
                     ? "Continue avec la phrase suivante tant que la posture et le niveau sont stables."
@@ -649,7 +652,11 @@ export function DoneScreen(input: {
                 type="button"
               >
                 <Play aria-hidden="true" size={19} />
-                <span>Nouvelle capture libre</span>
+                <span>
+                  {input.isContinuousLyricsCapture
+                    ? "Reprendre les paroles"
+                    : "Nouvelle capture libre"}
+                </span>
               </button>
             ) : !isKeeper ? (
               <button

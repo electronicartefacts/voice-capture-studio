@@ -251,6 +251,9 @@ export function App() {
     null,
   );
   const [isFreeCapture, setIsFreeCapture] = useState(false);
+  const [continuousLyricsEnabled, setContinuousLyricsEnabled] = useState(true);
+  const [isContinuousLyricsCapture, setIsContinuousLyricsCapture] =
+    useState(false);
   const [workspaceBackupUrl, setWorkspaceBackupUrl] = useState<string | null>(
     null,
   );
@@ -352,6 +355,14 @@ export function App() {
   const words = useMemo(
     () => promptText.split(/\s+/).filter(Boolean),
     [promptText],
+  );
+  const continuousLyricsText = useMemo(
+    () =>
+      activeCorpus?.scenarios
+        .flatMap((scenario) => scenario.prompts)
+        .map((prompt) => prompt.spokenText ?? prompt.text)
+        .join("\n\n") ?? "",
+    [activeCorpus],
   );
 
   useEffect(() => {
@@ -912,6 +923,10 @@ export function App() {
     setCaptureMode(mode);
     setSession(null);
     resetTakeOutputState();
+    if (mode !== "mastering") {
+      setContinuousLyricsEnabled(false);
+      setIsContinuousLyricsCapture(false);
+    }
 
     if (mode !== "mastering") {
       stopBackingTrackPlayback(true);
@@ -1271,6 +1286,7 @@ export function App() {
     if (captureMode === "free") {
       setSession(null);
       setIsFreeCapture(true);
+      setIsContinuousLyricsCapture(false);
       setSessionRoomTone(null);
       resetTakeOutputState();
       setScreen("permission");
@@ -1281,6 +1297,24 @@ export function App() {
     if (activeCorpus === null) {
       setMessage(
         "Ajoute un texte ou glisse un fichier pour créer le corpus local.",
+      );
+      return;
+    }
+
+    if (captureMode === "mastering" && continuousLyricsEnabled) {
+      if (continuousLyricsText.trim().length === 0) {
+        setMessage("Ajoute des paroles avant de lancer une prise continue.");
+        return;
+      }
+
+      setSession(null);
+      setIsFreeCapture(true);
+      setIsContinuousLyricsCapture(true);
+      setSessionRoomTone(null);
+      resetTakeOutputState();
+      setScreen("permission");
+      setMessage(
+        "Prise continue prête : chante toutes les paroles, puis appuie sur Stop.",
       );
       return;
     }
@@ -1307,6 +1341,7 @@ export function App() {
 
     setSession(nextSession);
     setIsFreeCapture(false);
+    setIsContinuousLyricsCapture(false);
     setCurrentPromptIndex(0);
     hasCalibratedCurrentSessionRef.current = false;
     setSessionRoomTone(null);
@@ -1991,6 +2026,9 @@ export function App() {
       speaker: selectedSpeaker ?? null,
       language: selectedLanguage,
       processing: { localOnly: true, audioWorkletPreferred: true },
+      lyrics: isContinuousLyricsCapture
+        ? { text: continuousLyricsText, capture: "continuous-karaoke" }
+        : null,
     };
     replaceDownloadUrl(audioUrl);
     replaceMetadataDownloadUrl(
@@ -2011,8 +2049,10 @@ export function App() {
     setScreen("done");
     setMessage(
       audioSaveResult.ok
-        ? "Capture libre sauvegardée. Le WAV et le manifeste complet sont prêts."
-        : "Capture libre prête. Télécharge le WAV et son manifeste JSON.",
+        ? isContinuousLyricsCapture
+          ? "Paroles complètes sauvegardées. Le WAV et le manifeste sont prêts."
+          : "Capture libre sauvegardée. Le WAV et le manifeste complet sont prêts."
+        : "Capture prête. Télécharge le WAV et son manifeste JSON.",
     );
   }
 
@@ -2397,6 +2437,8 @@ export function App() {
                   onBackingTrackLoopChange={setBackingTrackLoop}
                   onBackingTrackVolumeChange={setBackingTrackVolume}
                   onCaptureModeChange={selectCaptureMode}
+                  continuousLyricsEnabled={continuousLyricsEnabled}
+                  onContinuousLyricsChange={setContinuousLyricsEnabled}
                   message={message}
                   onChooseFolder={selectFolder}
                   onCustomCorpusFile={loadCustomCorpusFile}
@@ -2453,6 +2495,9 @@ export function App() {
                   audioLevel={audioLevel}
                   currentPromptIndex={currentPromptIndex}
                   isFreeCapture={isFreeCapture}
+                  continuousLyricsText={
+                    isContinuousLyricsCapture ? continuousLyricsText : null
+                  }
                   isFinalizing={isFinalizing}
                   onStop={finishRecording}
                   prompt={activePrompt}
@@ -2490,6 +2535,7 @@ export function App() {
                     lastTake?.quality.verdict === "pass"
                   }
                   isFreeCapture={isFreeCapture}
+                  isContinuousLyricsCapture={isContinuousLyricsCapture}
                   onAgain={prepareSession}
                   onNext={continueToNextPrompt}
                   onHome={() => setScreen("home")}

@@ -67,6 +67,7 @@ export function HomeScreen(input: {
   readonly backingTrackVolume: number;
   readonly captureProfile: CaptureProfile | undefined;
   readonly captureMode: CaptureMode;
+  readonly continuousLyricsEnabled: boolean;
   readonly coverage: CoverageSummary | null;
   readonly customCorpusSourceName: string | null;
   readonly customCorpusText: string;
@@ -80,6 +81,7 @@ export function HomeScreen(input: {
   readonly onBackingTrackLoopChange: (loop: boolean) => void;
   readonly onBackingTrackVolumeChange: (volume: number) => void;
   readonly onCaptureModeChange: (mode: CaptureMode) => void;
+  readonly onContinuousLyricsChange: (enabled: boolean) => void;
   readonly onChooseFolder: () => void;
   readonly onCustomCorpusFile: (file: File) => void;
   readonly onCustomCorpusTextChange: (text: string) => void;
@@ -214,16 +216,33 @@ export function HomeScreen(input: {
         )}
 
         {input.captureMode === "mastering" && (
-          <BackingTrackPanel
-            audioRef={input.backingAudioRef}
-            loop={input.backingTrackLoop}
-            onChange={input.onBackingTrackChange}
-            onClear={input.onBackingTrackClear}
-            onLoopChange={input.onBackingTrackLoopChange}
-            onVolumeChange={input.onBackingTrackVolumeChange}
-            track={input.backingTrack}
-            volume={input.backingTrackVolume}
-          />
+          <>
+            <BackingTrackPanel
+              audioRef={input.backingAudioRef}
+              loop={input.backingTrackLoop}
+              onChange={input.onBackingTrackChange}
+              onClear={input.onBackingTrackClear}
+              onLoopChange={input.onBackingTrackLoopChange}
+              onVolumeChange={input.onBackingTrackVolumeChange}
+              track={input.backingTrack}
+              volume={input.backingTrackVolume}
+            />
+            {input.localCorpusSummary !== null && (
+              <label className="capture-mode-option is-active">
+                <input
+                  checked={input.continuousLyricsEnabled}
+                  onChange={(event) =>
+                    input.onContinuousLyricsChange(event.target.checked)
+                  }
+                  type="checkbox"
+                />
+                <span>
+                  <strong>Paroles complètes en une prise</strong>
+                  <small>Garde le micro ouvert pendant toute la chanson.</small>
+                </span>
+              </label>
+            )}
+          </>
         )}
 
         <div className="primary-actions">
@@ -594,6 +613,7 @@ export function BackingTrackPanel(input: {
   readonly volume: number;
 }) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const volumeProgress = input.volume * 100;
 
   useEffect(() => {
     const audio = input.audioRef.current;
@@ -659,19 +679,26 @@ export function BackingTrackPanel(input: {
         />
       )}
       <div className="backing-track-controls">
-        <label>
+        <label className="backing-track-volume studio-range-control">
           <span>Volume casque</span>
           <input
             aria-label="Volume du retour casque"
+            className="studio-range"
             max={1}
             min={0}
             onChange={(event) =>
               input.onVolumeChange(Number(event.target.value))
             }
             step={0.01}
+            style={
+              {
+                "--range-progress": `${volumeProgress}%`,
+              } as CSSProperties
+            }
             type="range"
             value={input.volume}
           />
+          <strong>{Math.round(volumeProgress)}%</strong>
         </label>
         <label className="inline-toggle">
           <input

@@ -88,6 +88,7 @@ export function KaraokeScreen(input: {
   readonly activeWordIndex: number;
   readonly audioLevel: number;
   readonly currentPromptIndex: number;
+  readonly continuousLyricsText: string | null;
   readonly isFreeCapture: boolean;
   readonly isFinalizing: boolean;
   readonly language: LanguageCode;
@@ -130,9 +131,11 @@ export function KaraokeScreen(input: {
         <div className="recording-dot" aria-live="polite">
           {input.isFinalizing
             ? "Finalisation"
-            : input.isFreeCapture
-              ? "REC · Capture libre"
-              : `REC · Phrase ${input.currentPromptIndex + 1}/${Math.max(input.totalPrompts, 1)}`}
+            : input.continuousLyricsText !== null
+              ? "REC · Paroles complètes"
+              : input.isFreeCapture
+                ? "REC · Capture libre"
+                : `REC · Phrase ${input.currentPromptIndex + 1}/${Math.max(input.totalPrompts, 1)}`}
         </div>
         <div className="recording-meter" aria-label="Niveau micro">
           <Volume2 aria-hidden="true" size={18} />
@@ -172,7 +175,13 @@ export function KaraokeScreen(input: {
           <span>{input.prompt.delivery.tone}</span>
         </div>
       )}
-      {input.isFreeCapture ? (
+      {input.continuousLyricsText !== null ? (
+        <div className="room-tone-copy">
+          <p className="soft-label">Prise karaoké continue</p>
+          <h1>Chante toutes les paroles.</h1>
+          <p className="karaoke-lyrics">{input.continuousLyricsText}</p>
+        </div>
+      ) : input.isFreeCapture ? (
         <div className="room-tone-copy">
           <p className="soft-label">Prise continue</p>
           <h1>Le studio enregistre.</h1>
