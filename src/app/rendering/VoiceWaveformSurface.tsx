@@ -7,14 +7,21 @@ export type VoiceWaveformScreen =
 const DISPLAY_SAMPLES = 260;
 
 export function VoiceWaveformSurface(input: {
+  readonly active: boolean;
+  readonly budget: "full" | "constrained";
   readonly awake: boolean;
   readonly playbackProgress: number;
   readonly screen: VoiceWaveformScreen;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const activeRef = useRef(input.active);
   const awakeRef = useRef(input.awake);
   const playbackProgressRef = useRef(input.playbackProgress);
   const screenRef = useRef(input.screen);
+
+  useEffect(() => {
+    activeRef.current = input.active;
+  }, [input.active]);
 
   useEffect(() => {
     awakeRef.current = input.awake;
@@ -42,6 +49,7 @@ export function VoiceWaveformSurface(input: {
     const xCoordinates = new Float32Array(DISPLAY_SAMPLES);
     const yCoordinates = new Float32Array(DISPLAY_SAMPLES);
     let frameId = 0;
+    let lastFrameAt = -Infinity;
     let renderWidth = 0;
     let renderHeight = 0;
 
@@ -183,14 +191,27 @@ export function VoiceWaveformSurface(input: {
     }
 
     function draw() {
-      if (!awakeRef.current) return;
+      if (!activeRef.current || !awakeRef.current) return;
 
       const frameNow = performance.now();
+      const state = screenRef.current;
+      const targetFrameInterval =
+        input.budget === "constrained"
+          ? 1000 / 12
+          : state === "calibration" || state === "karaoke"
+            ? 1000 / 30
+            : 1000 / 24;
+
+      if (frameNow - lastFrameAt < targetFrameInterval) {
+        frameId = window.requestAnimationFrame(draw);
+        return;
+      }
+
+      lastFrameAt = frameNow;
       const timeSeconds = frameNow * 0.001;
       const theme = readTheme(frameNow);
       const { waveColor, guideColor, playheadColor } = theme;
       const waveAlpha = clampUnit(theme.waveAlpha);
-      const state = screenRef.current;
       const level = getLiveAudioLevel();
       const width = renderWidth;
       const height = renderHeight;
@@ -327,13 +348,15 @@ export function VoiceWaveformSurface(input: {
 
     resize();
     window.addEventListener("resize", resize);
-    if (awakeRef.current) frameId = window.requestAnimationFrame(draw);
+    if (activeRef.current && awakeRef.current) {
+      frameId = window.requestAnimationFrame(draw);
+    }
 
     return () => {
       window.cancelAnimationFrame(frameId);
       window.removeEventListener("resize", resize);
     };
-  }, [input.awake]);
+  }, [input.active, input.awake, input.budget]);
 
   return (
     <canvas aria-hidden="true" className="voice-wave-canvas" ref={canvasRef} />

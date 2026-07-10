@@ -38,6 +38,10 @@ import {
 } from "../rendering/liveAudioSignal";
 import { measureAcousticField } from "../rendering/acousticField";
 import {
+  getAmbientRenderingBudget,
+  type AmbientRenderingBudget,
+} from "../system/renderingBudget";
+import {
   finalizeCaptureSession,
   type FinalizedRecording,
 } from "../recording/finalizeCaptureSession";
@@ -271,6 +275,10 @@ export function App() {
   const [inputSensitivity, setInputSensitivity] = useState(
     readStoredInputSensitivity,
   );
+  const [isPageVisible, setIsPageVisible] = useState(
+    () => document.visibilityState === "visible",
+  );
+  const [isScrolling, setIsScrolling] = useState(false);
   const inputSensitivityRef = useRef(inputSensitivity);
   const appRootRef = useRef<HTMLElement | null>(null);
   const renderedAudioLevelRef = useRef(0);
@@ -280,6 +288,8 @@ export function App() {
   const screenRef = useRef<Screen>("home");
   const activeWordIndexRef = useRef(0);
   const visualAudioLevelRef = useRef(0);
+  const ambientRenderingBudgetRef = useRef<AmbientRenderingBudget>("full");
+  const scrollIdleTimerRef = useRef<number | null>(null);
   const pcmRecorderRef = useRef<PcmRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const speechRecognitionRef = useRef<SpeechRecognitionLike | null>(null);
@@ -348,6 +358,36 @@ export function App() {
   useEffect(() => {
     window.scrollTo(0, 0);
   }, [screen]);
+
+  useEffect(() => {
+    function markScrollActivity() {
+      setIsScrolling(true);
+
+      if (scrollIdleTimerRef.current !== null) {
+        window.clearTimeout(scrollIdleTimerRef.current);
+      }
+
+      scrollIdleTimerRef.current = window.setTimeout(() => {
+        scrollIdleTimerRef.current = null;
+        setIsScrolling(false);
+      }, 140);
+    }
+
+    function updatePageVisibility() {
+      setIsPageVisible(document.visibilityState === "visible");
+    }
+
+    window.addEventListener("scroll", markScrollActivity, { passive: true });
+    document.addEventListener("visibilitychange", updatePageVisibility);
+
+    return () => {
+      window.removeEventListener("scroll", markScrollActivity);
+      document.removeEventListener("visibilitychange", updatePageVisibility);
+      if (scrollIdleTimerRef.current !== null) {
+        window.clearTimeout(scrollIdleTimerRef.current);
+      }
+    };
+  }, []);
   const coverage =
     workspace && activeCorpus !== null
       ? summarizeCoverage({
@@ -631,7 +671,18 @@ export function App() {
     }
 
     function updateAmbientLevel() {
+      const renderingBudget = ambientRenderingBudgetRef.current;
+
+      if (renderingBudget === "paused") {
+        frameId = window.requestAnimationFrame(updateAmbientLevel);
+        return;
+      }
+
       const now = performance.now();
+      if (renderingBudget === "constrained" && now - acousticFieldReadAt < 66) {
+        frameId = window.requestAnimationFrame(updateAmbientLevel);
+        return;
+      }
       analyser.getByteTimeDomainData(timeData);
 
       let sumSquares = 0;
@@ -2083,7 +2134,7 @@ export function App() {
   }
 
   function updateAmbientPointer(event: PointerEvent<HTMLElement>) {
-    if (event.pointerType === "touch") {
+    if (event.pointerType !== "mouse") {
       return;
     }
 
@@ -2106,10 +2157,24 @@ export function App() {
   }
 
   function settleAmbientPointer(event: PointerEvent<HTMLElement>) {
+    if (event.pointerType !== "mouse") {
+      return;
+    }
+
     event.currentTarget.style.setProperty("--pointer-intensity", "0.36");
   }
 
   const isCapturing = screen === "calibration" || screen === "karaoke";
+  const ambientRenderingBudget = getAmbientRenderingBudget({
+    isCapturing,
+    isPageVisible,
+    isScrolling,
+  });
+
+  useEffect(() => {
+    ambientRenderingBudgetRef.current = ambientRenderingBudget;
+  }, [ambientRenderingBudget]);
+
   const appClassName = [
     "simple-app",
     `screen-${screen}`,
@@ -2130,6 +2195,10 @@ export function App() {
     >
       <AmbientBackdrop awake={studioAwake} />
       <VoiceWaveformSurface
+        active={studioAwake && ambientRenderingBudget !== "paused"}
+        budget={
+          ambientRenderingBudget === "constrained" ? "constrained" : "full"
+        }
         awake={studioAwake}
         playbackProgress={reviewPlaybackProgress}
         screen={screen}
