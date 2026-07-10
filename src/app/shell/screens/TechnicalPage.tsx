@@ -74,10 +74,11 @@ export function MicrophoneControlPanel(input: {
           {input.active ? "Actif" : "En veille"}
         </span>
       </div>
-      <label className="microphone-sensitivity">
+      <label className="microphone-sensitivity studio-range-control">
         <span>Sensibilité</span>
         <input
           aria-label="Sensibilité logicielle du micro"
+          className="studio-range"
           max={INPUT_SENSITIVITY_MAX}
           min={INPUT_SENSITIVITY_MIN}
           onChange={(event) =>

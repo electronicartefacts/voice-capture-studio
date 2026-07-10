@@ -4010,11 +4010,11 @@ body,
   }
 }
 
-.microphone-sensitivity {
+.studio-range-control {
   gap: 8px 14px;
 }
 
-.microphone-sensitivity input[type="range"] {
+.studio-range-control .studio-range {
   appearance: none;
   background: linear-gradient(
     90deg,
@@ -4030,7 +4030,7 @@ body,
     border-color 160ms ease;
 }
 
-.microphone-sensitivity input[type="range"]::-webkit-slider-thumb {
+.studio-range-control .studio-range::-webkit-slider-thumb {
   appearance: none;
   background: var(--accent-a);
   border: 3px solid var(--bg-elevated);
@@ -4040,7 +4040,7 @@ body,
   width: 16px;
 }
 
-.microphone-sensitivity input[type="range"]::-moz-range-thumb {
+.studio-range-control .studio-range::-moz-range-thumb {
   background: var(--accent-a);
   border: 3px solid var(--bg-elevated);
   border-radius: 999px;
@@ -4049,16 +4049,27 @@ body,
   width: 10px;
 }
 
-.microphone-sensitivity input[type="range"]:focus-visible {
+.studio-range-control .studio-range:focus-visible {
   border-color: var(--accent-a);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-a) 18%, transparent);
 }
 
-.microphone-sensitivity strong {
+.studio-range-control strong {
   color: var(--accent-a);
   font-size: 12px;
   font-weight: 800;
   letter-spacing: 0.02em;
+}
+
+.backing-track-volume {
+  align-items: center;
+  grid-template-columns: auto 1fr auto;
+}
+
+.backing-track-volume strong {
+  font-variant-numeric: tabular-nums;
+  min-width: 4ch;
+  text-align: right;
 }
 
 /* Keep dataset export actions in the same quiet visual family as the panel. */
