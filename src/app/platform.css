@@ -77,3 +77,80 @@ body,
     gap: 16px;
   }
 }
+
+/* Paint controls before the decorative canvas. This isolates the expensive
+   canvas warm-up from the first interactive frame on mobile Safari. */
+.simple-app.is-awake .voice-wave-canvas {
+  opacity: 0;
+  transition: opacity 360ms var(--ease-standard);
+}
+
+.simple-app.is-awake.is-waveform-ready .voice-wave-canvas {
+  opacity: 1;
+}
+
+/* Keep mobile entry motion short enough to hide a synchronisation beat without
+   delaying comprehension or touch interaction. */
+@media (pointer: coarse) and (prefers-reduced-motion: no-preference) {
+  .simple-header,
+  .site-footer {
+    animation-duration: 260ms;
+  }
+
+  .home-card,
+  .director-panel,
+  .room-tone-screen,
+  .karaoke-screen,
+  .focus-card,
+  .technical-page {
+    animation: platform-card-enter 300ms var(--ease-emphasized) both;
+  }
+
+  @keyframes platform-card-enter {
+    from {
+      opacity: 0;
+      transform: translate3d(0, 10px, 0) scale(0.992);
+    }
+
+    to {
+      opacity: 1;
+      transform: translate3d(0, 0, 0) scale(1);
+    }
+  }
+}
+
+@supports (view-transition-name: studio-stage) {
+  @media (prefers-reduced-motion: no-preference) {
+    .session-stage,
+    .technical-page {
+      view-transition-name: studio-stage;
+    }
+
+    ::view-transition-old(studio-stage) {
+      animation: platform-stage-out 140ms ease-out both;
+    }
+
+    ::view-transition-new(studio-stage) {
+      animation: platform-stage-in 220ms var(--ease-emphasized) both;
+    }
+
+    @keyframes platform-stage-out {
+      to {
+        opacity: 0;
+        transform: translate3d(0, -5px, 0);
+      }
+    }
+
+    @keyframes platform-stage-in {
+      from {
+        opacity: 0;
+        transform: translate3d(0, 8px, 0);
+      }
+
+      to {
+        opacity: 1;
+        transform: translate3d(0, 0, 0);
+      }
+    }
+  }
+}

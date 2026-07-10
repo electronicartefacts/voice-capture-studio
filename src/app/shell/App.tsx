@@ -1,4 +1,12 @@
-import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent,
+} from "react";
+import { flushSync } from "react-dom";
 import { Info } from "lucide-react";
 import {
   canonicalCorpus,
@@ -152,6 +160,7 @@ type AmbientMicrophoneMonitor = {
 const workspaceId = "workspace.local.main" as WorkspaceId;
 const workspaceRepository = createBrowserWorkspaceRepository();
 const ROOM_TONE_CAPTURE_MS = 3000;
+const WAVEFORM_WARMUP_DELAY_MS = 140;
 const RAW_MICROPHONE_CONSTRAINTS: MediaTrackConstraints = {
   autoGainControl: false,
   channelCount: { ideal: 1 },
@@ -214,8 +223,9 @@ function disconnectAudioNode(node: AudioNode | null): void {
 
 export function App() {
   const [studioAwake, setStudioAwake] = useState(false);
+  const [isWaveformReady, setIsWaveformReady] = useState(false);
   const [ritualStatus, setRitualStatus] = useState<RitualStatus>("idle");
-  const [screen, setScreen] = useState<Screen>("home");
+  const [screen, setScreenState] = useState<Screen>("home");
   const [workspace, setWorkspace] = useState<VoiceWorkspace | null>(null);
   const [workspaceDurability, setWorkspaceDurability] =
     useState<WorkspaceDurability | null>(null);
@@ -319,6 +329,36 @@ export function App() {
   const lastTranscriptAtRef = useRef(0);
   const finishRecordingRef = useRef<() => void>(() => undefined);
   const hasCalibratedCurrentSessionRef = useRef(false);
+
+  const setScreen = useCallback((nextScreen: Screen) => {
+    const previousScreen = screenRef.current;
+    const isCaptureTransition =
+      previousScreen === "calibration" ||
+      previousScreen === "karaoke" ||
+      nextScreen === "calibration" ||
+      nextScreen === "karaoke";
+    const prefersReducedMotion = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+    const documentWithViewTransition = document as Document & {
+      startViewTransition?: (update: () => void) => void;
+    };
+
+    // Native View Transitions make card changes continuous where supported.
+    // Capture screens deliberately switch immediately: recording feedback wins.
+    if (
+      !isCaptureTransition &&
+      !prefersReducedMotion &&
+      documentWithViewTransition.startViewTransition !== undefined
+    ) {
+      documentWithViewTransition.startViewTransition(() =>
+        flushSync(() => setScreenState(nextScreen)),
+      );
+      return;
+    }
+
+    setScreenState(nextScreen);
+  }, []);
 
   const speakerProfiles = useMemo(
     () => createSpeakerProfiles(workspace?.speakers),
@@ -559,6 +599,30 @@ export function App() {
     return () =>
       document.removeEventListener("visibilitychange", handleVisibilityChange);
   }, []);
+
+  useEffect(() => {
+    if (!studioAwake) {
+      setIsWaveformReady(false);
+      return;
+    }
+
+    // Paint the interactive cards first. On iPhone Safari, preparing a
+    // full-screen canvas in the same frame can delay their first composite.
+    let warmupTimer: number | null = null;
+    const frameId = window.requestAnimationFrame(() => {
+      warmupTimer = window.setTimeout(
+        () => setIsWaveformReady(true),
+        WAVEFORM_WARMUP_DELAY_MS,
+      );
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      if (warmupTimer !== null) {
+        window.clearTimeout(warmupTimer);
+      }
+    };
+  }, [studioAwake]);
 
   useEffect(() => {
     if (screen !== "technical") {
@@ -2330,6 +2394,7 @@ export function App() {
     "simple-app",
     `screen-${screen}`,
     studioAwake ? "is-awake" : "is-ritual",
+    isWaveformReady ? "is-waveform-ready" : "",
     isCapturing ? "is-recording" : "",
     isFinalizing ? "is-finalizing" : "",
   ]
@@ -2346,7 +2411,7 @@ export function App() {
     >
       <AmbientBackdrop awake={studioAwake} />
       <VoiceWaveformSurface
-        active={studioAwake && ambientRenderingBudget !== "paused"}
+        active={isWaveformReady && ambientRenderingBudget !== "paused"}
         budget={
           ambientRenderingBudget === "constrained" ? "constrained" : "full"
         }
