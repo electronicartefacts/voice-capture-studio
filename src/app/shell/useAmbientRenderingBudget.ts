@@ -3,11 +3,13 @@ import {
   getAmbientRenderingBudget,
   type AmbientRenderingBudget,
 } from "../system/renderingBudget";
+import { createFramePaceMonitor } from "../system/framePaceMonitor";
 
 /**
  * Keeps the decorative audio surface from competing with page navigation.
  * The mutable ref is intentionally shared with audio animation callbacks so
- * they can react to scroll/visibility changes without React updates per frame.
+ * they can react to scroll/visibility/device-strain changes without React
+ * updates per frame.
  */
 export function useAmbientRenderingBudget(input: {
   readonly isCapturing: boolean;
@@ -19,11 +21,13 @@ export function useAmbientRenderingBudget(input: {
     () => document.visibilityState === "visible",
   );
   const [isScrolling, setIsScrolling] = useState(false);
+  const [isDeviceConstrained, setIsDeviceConstrained] = useState(false);
   const scrollIdleTimerRef = useRef<number | null>(null);
   const budget = getAmbientRenderingBudget({
     isCapturing: input.isCapturing,
     isPageVisible,
     isScrolling,
+    isDeviceConstrained,
   });
   const budgetRef = useRef<AmbientRenderingBudget>(budget);
 
@@ -59,6 +63,48 @@ export function useAmbientRenderingBudget(input: {
       if (scrollIdleTimerRef.current !== null) {
         window.clearTimeout(scrollIdleTimerRef.current);
       }
+    };
+  }, []);
+
+  useEffect(() => {
+    const monitor = createFramePaceMonitor();
+    let frameId = 0;
+
+    function sample(now: number) {
+      const constrained = monitor.recordFrame(now);
+
+      setIsDeviceConstrained((previous) =>
+        previous === constrained ? previous : constrained,
+      );
+      frameId = window.requestAnimationFrame(sample);
+    }
+
+    function start() {
+      monitor.reset();
+      frameId = window.requestAnimationFrame(sample);
+    }
+
+    function stop() {
+      window.cancelAnimationFrame(frameId);
+    }
+
+    function handleVisibilityChange() {
+      if (document.visibilityState === "visible") {
+        start();
+      } else {
+        stop();
+      }
+    }
+
+    if (document.visibilityState === "visible") {
+      start();
+    }
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      stop();
     };
   }, []);
 

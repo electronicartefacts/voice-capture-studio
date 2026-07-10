@@ -135,6 +135,8 @@ timing is explicitly marked for acoustic forced alignment downstream.
 | Room tone            |              3000 ms | short stable calibration          |
 | Reading guide        |                90 ms | voice-activity fallback cadence   |
 | Review bars          |                   92 | review waveform density           |
+| Constrained-tier enter |            < 36 fps | sustained frame-pace strain onset |
+| Constrained-tier exit  |            > 50 fps | required recovery before restoring full idle fidelity |
 
 ## Latency and performance model
 
@@ -179,6 +181,37 @@ when its rounded value changes. Halo blur is static; only compositor-friendly
 opacity, scale, and translation respond to sound. These changes remove the
 largest avoidable per-frame React, DOM-style, and dynamic-filter costs without
 slowing the live audio signal.
+
+## 2026-07-10 adaptive quality engine
+
+`getAmbientRenderingBudget` already exposed a three-tier budget type
+(`full`/`constrained`/`paused`), and `VoiceWaveformSurface` and the ambient
+level loop in `App.tsx` already read the `constrained` tier to lower idle
+frame rate and acoustic-field read cadence. Nothing ever produced
+`constrained`: the policy only ever chose between `full` and `paused` from
+page visibility and scroll state. The device-adaptive half of the budget was
+wired end to end but structurally unreachable.
+
+`src/app/system/framePaceMonitor.ts` closes that gap by measuring the actual
+interval between delivered `requestAnimationFrame` callbacks, exponentially
+smoothed, with asymmetric hysteresis (enter under ~36 fps sustained, exit only
+above ~50 fps sustained) so the tier does not flap on a single slow frame.
+Static capability hints were deliberately rejected in favour of this: `Device
+Memory` and the Battery API are Chromium-only and the latter is being removed
+from cross-origin contexts industry-wide, and `hardwareConcurrency` does not
+predict WebKit single-core performance or thermal throttling. A measured frame
+interval is the one signal every engine delivers, and it is true at the moment
+it is read rather than at page load.
+
+`useAmbientRenderingBudget` runs this monitor in its own `requestAnimationFrame`
+loop (stopped on `visibilitychange` so it never counts a backgrounded tab's
+throttled callbacks as strain) and folds the result into
+`getAmbientRenderingBudget` as `isDeviceConstrained`. The invariant ordering is
+explicit in the policy function: capture in progress always returns `full`
+regardless of scroll or measured strain; only once capture ends can scroll
+suppression or sustained device strain lower decorative fidelity. The
+degradation this unlocks — idle waveform frame rate and acoustic-field read
+cadence, both already implemented — never reaches the take being recorded.
 
 ## UX, responsive behavior, and motion
 
