@@ -9,9 +9,14 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   validate:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -28,8 +33,20 @@ jobs:
       - name: Validate
         run: npm run validate
 
+      - name: Audit dependencies
+        run: npm audit --audit-level=high
+
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium firefox webkit
 
       - name: End-to-end tests
         run: npm run test:e2e
+
+      - name: Upload browser traces on failure
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: playwright-traces
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 7

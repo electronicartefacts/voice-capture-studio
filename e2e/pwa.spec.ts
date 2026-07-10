@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 
 const APP_PATH = "/voice-capture-studio/";
 
-test("offline service worker never serves the app shell as a missing module", async ({
+test("offline service worker restarts the app without masking missing modules", async ({
   page,
   context,
 }) => {

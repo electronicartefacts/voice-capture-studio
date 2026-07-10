@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://electronicartefacts.github.io/voice-capture-studio/sitemap.xml

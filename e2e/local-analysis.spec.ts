@@ -4,11 +4,11 @@ const APP_PATH = "/voice-capture-studio/";
 
 // Whisper-tiny runs in single-threaded WASM here, so give the whole flow
 // (capture, model load from the local preview server, inference) plenty of
-// room. Too heavy for CI: run manually with
-// `npx playwright test e2e/local-analysis.spec.ts`.
+// room. Too heavy for every push: the scheduled workflow opts in explicitly,
+// while local runs can still execute this spec directly.
 test.skip(
-  process.env.CI !== undefined,
-  "Inférence WASM trop lente pour la CI; lancer manuellement en local.",
+  process.env.CI !== undefined && process.env.RUN_LOCAL_ANALYSIS_E2E !== "1",
+  "Inférence WASM réservée au job périodique ou à un lancement local explicite.",
 );
 test.setTimeout(300_000);
 

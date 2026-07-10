@@ -1,0 +1,43 @@
+name: Local analysis
+
+on:
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  whisper-and-vad:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      RUN_LOCAL_ANALYSIS_E2E: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run local Whisper and VAD flow
+        run: npx playwright test e2e/local-analysis.spec.ts --project=chromium
+
+      - name: Upload trace on failure
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: local-analysis-trace
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 7

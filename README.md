@@ -83,15 +83,17 @@ npm run format:check
 npm run lint
 npm run typecheck
 npm run test
+npm run test:coverage
 npm run test:e2e
 npm run build
 npm run validate
 ```
 
 `npm run validate` is the CI and release gate. It checks formatting, linting, TypeScript project
-references, unit tests, and the production build. `npm run test:e2e` drives the full capture flow
-(microphone permission, room tone, take, review) in Chromium with a simulated microphone, plus
-workspace persistence across reloads; CI runs it after `validate`.
+references, coverage thresholds, bundle budgets, and the production build. `npm run test:e2e`
+drives the full capture flow in Chromium, verifies responsive layouts in Chromium, Firefox, and
+WebKit, checks the PWA offline restart, and runs automated WCAG A/AA checks; CI runs it after
+`validate`.
 
 ## Architecture
 
@@ -119,6 +121,7 @@ Important documents:
 - [Export structure](docs/export-structure.md)
 - [Capture technology audit](docs/capture-technology-audit.md)
 - [Production engineering audit](docs/production-engineering-audit.md)
+- [Repository maturity scorecard](docs/repository-scorecard.md)
 - [Android and GitHub Pages](docs/android-github-pages.md)
 
 ## GitHub Pages
