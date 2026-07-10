@@ -43,12 +43,154 @@ export function isStandaloneDisplayMode(input: {
   return input.displayModeMatches || input.navigatorStandalone === true;
 }
 
+function installCustomCursor(root: HTMLElement): () => void {
+  const finePointer = window.matchMedia("(hover: hover) and (pointer: fine)");
+  let cursor: HTMLDivElement | null = null;
+  let animationFrame: number | null = null;
+  let pointerX = 0;
+  let pointerY = 0;
+
+  const cursorClasses = [
+    "has-custom-cursor",
+    "custom-cursor-visible",
+    "custom-cursor-pointer",
+    "custom-cursor-text",
+    "custom-cursor-down",
+    "custom-cursor-selecting",
+    "custom-cursor-selection",
+  ];
+
+  function ensureCursor() {
+    if (cursor !== null || !finePointer.matches) return;
+
+    cursor = document.createElement("div");
+    cursor.className = "custom-cursor";
+    cursor.setAttribute("aria-hidden", "true");
+    cursor.innerHTML =
+      '<span class="custom-cursor__ring"></span><span class="custom-cursor__dot"></span>';
+    document.body.append(cursor);
+    root.classList.add("has-custom-cursor");
+  }
+
+  function removeCursor() {
+    cursor?.remove();
+    cursor = null;
+    root.classList.remove(...cursorClasses);
+  }
+
+  function commitPosition() {
+    animationFrame = null;
+    cursor?.style.setProperty("--cursor-x", `${pointerX}px`);
+    cursor?.style.setProperty("--cursor-y", `${pointerY}px`);
+  }
+
+  function schedulePosition() {
+    if (animationFrame === null) {
+      animationFrame = window.requestAnimationFrame(commitPosition);
+    }
+  }
+
+  function isInteractive(target: EventTarget | null): boolean {
+    return (
+      target instanceof Element &&
+      target.closest(
+        'button, a, input, select, textarea, summary, [role="button"], [tabindex]:not([tabindex="-1"])',
+      ) !== null
+    );
+  }
+
+  function isText(target: EventTarget | null): boolean {
+    return (
+      target instanceof Element &&
+      target.closest(
+        "p, h1, h2, h3, h4, h5, h6, li, dt, dd, label, small, blockquote, pre, code, figcaption",
+      ) !== null
+    );
+  }
+
+  function hasSelection(): boolean {
+    const active = document.activeElement;
+    const hasInputSelection =
+      active instanceof HTMLInputElement ||
+      active instanceof HTMLTextAreaElement
+        ? active.selectionStart !== active.selectionEnd
+        : false;
+    return hasInputSelection || Boolean(window.getSelection?.()?.toString());
+  }
+
+  function syncSelection() {
+    if (finePointer.matches) {
+      root.classList.toggle("custom-cursor-selection", hasSelection());
+    }
+  }
+
+  function onMove(event: PointerEvent) {
+    if (!finePointer.matches || event.pointerType === "touch") return;
+    ensureCursor();
+    pointerX = event.clientX;
+    pointerY = event.clientY;
+    schedulePosition();
+    root.classList.add("custom-cursor-visible");
+    root.classList.toggle("custom-cursor-pointer", isInteractive(event.target));
+    root.classList.toggle(
+      "custom-cursor-text",
+      !isInteractive(event.target) && isText(event.target),
+    );
+  }
+
+  function onDown(event: PointerEvent) {
+    if (!finePointer.matches || event.pointerType === "touch") return;
+    root.classList.add("custom-cursor-down");
+    root.classList.toggle("custom-cursor-selecting", isText(event.target));
+  }
+
+  function onUp() {
+    root.classList.remove("custom-cursor-down", "custom-cursor-selecting");
+    syncSelection();
+  }
+
+  function hideCursor() {
+    root.classList.remove(
+      "custom-cursor-visible",
+      "custom-cursor-down",
+      "custom-cursor-selecting",
+    );
+  }
+
+  function updateCapability() {
+    if (finePointer.matches) ensureCursor();
+    else removeCursor();
+  }
+
+  updateCapability();
+  window.addEventListener("pointermove", onMove, { passive: true });
+  window.addEventListener("pointerdown", onDown, { passive: true });
+  window.addEventListener("pointerup", onUp, { passive: true });
+  window.addEventListener("pointerleave", hideCursor, { passive: true });
+  window.addEventListener("blur", hideCursor);
+  document.addEventListener("selectionchange", syncSelection);
+  finePointer.addEventListener("change", updateCapability);
+
+  return () => {
+    if (animationFrame !== null) window.cancelAnimationFrame(animationFrame);
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerdown", onDown);
+    window.removeEventListener("pointerup", onUp);
+    window.removeEventListener("pointerleave", hideCursor);
+    window.removeEventListener("blur", hideCursor);
+    document.removeEventListener("selectionchange", syncSelection);
+    finePointer.removeEventListener("change", updateCapability);
+    removeCursor();
+  };
+}
+
 /** Installs additive platform integration without changing the app workflow. */
 export function installPlatformExperience(): () => void {
   const root = document.documentElement;
   const browserWindow = window as WindowWithVisualViewport;
   const viewport = browserWindow.visualViewport;
   const standaloneQuery = window.matchMedia("(display-mode: standalone)");
+  const removeCustomCursor = installCustomCursor(root);
   let animationFrame: number | null = null;
 
   function updateViewport() {
@@ -100,5 +242,6 @@ export function installPlatformExperience(): () => void {
     viewport?.removeEventListener("resize", scheduleViewportUpdate);
     viewport?.removeEventListener("scroll", scheduleViewportUpdate);
     standaloneQuery.removeEventListener("change", updateDisplayMode);
+    removeCustomCursor();
   };
 }

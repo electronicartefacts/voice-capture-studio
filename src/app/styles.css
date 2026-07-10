@@ -71,9 +71,16 @@ body {
   overflow-x: clip;
 }
 
-body::selection {
-  background: color-mix(in srgb, var(--accent-a) 32%, transparent);
-  color: var(--text);
+::selection {
+  background: color-mix(in srgb, var(--accent-a) 14%, transparent);
+  color: color-mix(in srgb, var(--text) 96%, white);
+  text-shadow: 0 0 10px color-mix(in srgb, var(--accent-a) 72%, transparent);
+}
+
+::-moz-selection {
+  background: color-mix(in srgb, var(--accent-a) 14%, transparent);
+  color: color-mix(in srgb, var(--text) 96%, white);
+  text-shadow: 0 0 10px color-mix(in srgb, var(--accent-a) 72%, transparent);
 }
 
 button,
@@ -2818,6 +2825,135 @@ textarea:focus-visible {
   .ambient-backdrop::after,
   .karaoke-char {
     transform: none;
+  }
+}
+
+/* A precise-pointer layer borrowed from the boot prototype: the cursor
+   acknowledges text, actions, selection, and press without affecting touch. */
+@media (hover: hover) and (pointer: fine) {
+  html.has-custom-cursor,
+  html.has-custom-cursor * {
+    cursor: none !important;
+  }
+
+  .custom-cursor {
+    height: 0;
+    left: 0;
+    opacity: 0;
+    pointer-events: none;
+    position: fixed;
+    top: 0;
+    transform: translate3d(var(--cursor-x, 0px), var(--cursor-y, 0px), 0);
+    transition: opacity 160ms ease;
+    width: 0;
+    will-change: transform, opacity;
+    z-index: 9999;
+  }
+
+  html.custom-cursor-visible .custom-cursor {
+    opacity: 1;
+  }
+
+  .custom-cursor__ring,
+  .custom-cursor__dot {
+    border-radius: 999px;
+    left: 0;
+    position: absolute;
+    top: 0;
+    transform: translate(-50%, -50%);
+    will-change: width, height, opacity, transform;
+  }
+
+  .custom-cursor__ring {
+    background: transparent;
+    border: 1px solid color-mix(in srgb, var(--text) 84%, transparent);
+    box-shadow: 0 0 12px color-mix(in srgb, var(--accent-a) 18%, transparent);
+    height: 1.15rem;
+    transition:
+      width 180ms var(--ease-emphasized),
+      height 180ms var(--ease-emphasized),
+      border-color 180ms ease,
+      opacity 180ms ease,
+      transform 180ms var(--ease-emphasized);
+    width: 1.15rem;
+  }
+
+  .custom-cursor__dot {
+    background: color-mix(in srgb, var(--text) 92%, white);
+    height: 0.23rem;
+    opacity: 0;
+    transition:
+      width 160ms var(--ease-emphasized),
+      height 160ms var(--ease-emphasized),
+      opacity 140ms ease;
+    width: 0.23rem;
+  }
+
+  html.custom-cursor-pointer .custom-cursor__ring {
+    border-color: var(--text);
+    height: 1.42rem;
+    width: 1.42rem;
+  }
+
+  html.custom-cursor-pointer .custom-cursor__dot {
+    opacity: 1;
+  }
+
+  html.custom-cursor-text .custom-cursor__ring {
+    border-color: color-mix(in srgb, var(--text) 64%, transparent);
+    height: 0.95rem;
+    width: 0.95rem;
+  }
+
+  html.custom-cursor-down .custom-cursor__ring {
+    transform: translate(-50%, -50%) scale(0.78);
+  }
+
+  html.custom-cursor-selecting .custom-cursor__ring,
+  html.custom-cursor-selection .custom-cursor__ring {
+    border-color: color-mix(in srgb, var(--accent-a) 88%, var(--text));
+    height: 0.72rem;
+    opacity: 0.9;
+    width: 0.72rem;
+  }
+
+  html.custom-cursor-selecting .custom-cursor__dot,
+  html.custom-cursor-selection .custom-cursor__dot {
+    height: 0.16rem;
+    opacity: 0.62;
+    width: 0.16rem;
+  }
+
+  button:not(:disabled),
+  a,
+  summary,
+  [role="button"],
+  .capture-mode-option,
+  .review-word {
+    transition-timing-function: var(--ease-emphasized);
+  }
+
+  button:not(:disabled):active,
+  a:active,
+  summary:active,
+  [role="button"]:active {
+    transform: scale(0.985);
+  }
+
+  .launch-button:not(:disabled):hover,
+  .download-action:not(:disabled):hover {
+    box-shadow: 0 18px 42px
+      color-mix(in srgb, var(--wave-color) 28%, transparent);
+    transform: translateY(-2px) scale(1.012);
+  }
+
+  .folder-button:not(:disabled):hover,
+  .quiet-button:not(:disabled):hover,
+  .stop-button:not(:disabled):hover,
+  .system-refresh:not(:disabled):hover,
+  .ritual-button:not(:disabled):hover,
+  .capture-mode-option:not(:disabled):hover {
+    transform: translateY(-1px) scale(1.01);
   }
 }
 

@@ -66,6 +66,11 @@ export function OpeningRitual(input: {
           <Mic aria-hidden="true" size={18} />
           <span>{buttonLabel}</span>
         </button>
+        {input.status === "idle" && (
+          <p className="ritual-reassurance">
+            100 % local — votre voix reste sur cet appareil.
+          </p>
+        )}
         {input.status === "denied" && (
           <p>
             L’accès au microphone est nécessaire pour entrer dans le studio.
