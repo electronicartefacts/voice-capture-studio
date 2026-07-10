@@ -1,0 +1,45 @@
+{
+  "schema_version": "voice.capture.package.v1",
+  "package_id": "00000000-0000-4000-8000-000000000000",
+  "dataset_id": "dataset.example",
+  "project_id": "project.voice-capture-studio",
+  "package_version": "1.0.0",
+  "export_version": "1.0.0",
+  "created_at": "2026-07-10T08:00:00.000Z",
+  "producer": {
+    "name": "voice-capture-studio",
+    "version": "0.1.0",
+    "build": null,
+    "commit": null
+  },
+  "scope": {
+    "datasetId": "dataset.example",
+    "projectId": "project.voice-capture-studio",
+    "package_id": "00000000-0000-4000-8000-000000000000",
+    "speakerIds": ["speaker.example"],
+    "languages": ["fr"],
+    "locales": ["fr-FR"],
+    "corpusRefs": [{ "id": "corpus.example", "version": "1.0.0" }],
+    "sessionIds": ["session.example"],
+    "takeStatuses": ["keeper"],
+    "includeRoomTones": true
+  },
+  "counts": {
+    "samples": 1,
+    "speakers": 1,
+    "sessions": 1,
+    "corpora": 1,
+    "languages": 1,
+    "locales": 1,
+    "audio_bytes": 0
+  },
+  "artifacts": [],
+  "rights_status": "blocked",
+  "integrity_status": "verified",
+  "readiness": {
+    "forge_ingestion_ready": false,
+    "training_ready": false,
+    "blocking_reasons": ["rights_not_resolved"],
+    "downstream_required": ["external_forced_alignment_for_training_acceptance"]
+  }
+}

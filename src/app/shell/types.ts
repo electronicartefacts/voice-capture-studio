@@ -18,6 +18,8 @@ export type DatasetExportState =
       readonly status: "done";
       readonly keeperCount: number;
       readonly missingAudioFiles: readonly string[];
+      readonly forgeReady: boolean;
+      readonly blockingReasons: readonly string[];
     }
   | { readonly status: "error"; readonly message: string };
 export type ReadingGuideMode = "speech-recognition" | "voice-activity";

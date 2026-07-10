@@ -12,6 +12,7 @@ output/
 *.pcm
 *.wav
 *.webm
+*.jsonl
 playwright-report/
 test-results/
 public/models/

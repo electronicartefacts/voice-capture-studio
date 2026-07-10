@@ -6,6 +6,7 @@ import {
   resampleBandLimited,
   type PcmRecordingMetrics,
 } from "./pcmAudio";
+import { validatePcmWavBlob } from "./wavValidation";
 import type { AudioCaptureProvenance } from "@domains/sessions";
 import { FREE_CAPTURE_MAX_DURATION_MS } from "../recording/captureLimits";
 
@@ -185,8 +186,11 @@ export async function createPcmRecorder(
               );
         const metrics = analyzePcmSamples(samples, PCM_TARGET_SAMPLE_RATE);
 
+        const blob = encodeWav24(samples, PCM_TARGET_SAMPLE_RATE);
+        await validatePcmWavBlob(blob);
+
         return {
-          blob: encodeWav24(samples, PCM_TARGET_SAMPLE_RATE),
+          blob,
           extension: "wav",
           mimeType: "audio/wav",
           metrics,

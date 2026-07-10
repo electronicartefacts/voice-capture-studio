@@ -54,8 +54,11 @@ import {
   finalizeCaptureSession,
   type FinalizedRecording,
 } from "../recording/finalizeCaptureSession";
-import { createDatasetPackagePlan } from "../export/datasetPackage";
-import { createDatasetZip } from "../export/downloadDatasetPackage";
+import { createVoiceCapturePackageZip } from "../export/downloadDatasetPackage";
+import {
+  createVoiceCapturePackagePlan,
+  type VoiceCapturePackageScope,
+} from "../export/voiceCapturePackage";
 import { createBrowserWorkspaceRepository } from "../storage/browserWorkspaceRepository";
 import { sha256Blob } from "../storage/sha256";
 import {
@@ -64,7 +67,7 @@ import {
   getWorkspaceRecording,
   getRememberedFolderName,
   listBrowserRecordings,
-  saveDatasetPackageToWorkspaceFolder,
+  saveVoiceCapturePackageToWorkspaceFolder,
   saveRecordingToWorkspaceFolder,
   saveTakeMetadataToWorkspaceFolder,
 } from "../storage/workspaceFolder";
@@ -896,25 +899,15 @@ export function App() {
     setDatasetExportState({ status: "preparing" });
 
     try {
-      const plan = createDatasetPackagePlan({
+      const scope = createCurrentVoicePackageScope(workspace, activeCorpus);
+      const plan = await createVoiceCapturePackagePlan({
         corpus: activeCorpus,
-        speaker: selectedSpeaker,
+        getAudioBlob: getWorkspaceRecording,
+        scope,
+        speakerProfiles,
         workspace,
       });
-
-      if (plan.keeperCount === 0) {
-        setDatasetExportState({
-          status: "error",
-          message:
-            "Aucune prise gardée pour l'instant. Enregistre des prises validées avant d'exporter le dataset.",
-        });
-        return;
-      }
-
-      const zip = await createDatasetZip({
-        getAudioBlob: getWorkspaceRecording,
-        plan,
-      });
+      const zip = await createVoiceCapturePackageZip({ plan });
 
       revokeObjectUrl(datasetZipUrlRef.current);
       const url = URL.createObjectURL(zip.blob);
@@ -922,13 +915,15 @@ export function App() {
 
       const anchor = document.createElement("a");
       anchor.href = url;
-      anchor.download = `voice-capture-dataset-${workspace.workspaceId}.zip`;
+      anchor.download = `voice-capture-package-${plan.manifest.package_id}.zip`;
       anchor.click();
 
       setDatasetExportState({
         status: "done",
-        keeperCount: plan.keeperCount,
-        missingAudioFiles: zip.missingAudioFiles,
+        keeperCount: plan.samples.length,
+        missingAudioFiles: [],
+        forgeReady: plan.forgeCompatibility.ready,
+        blockingReasons: plan.forgeCompatibility.errors,
       });
     } catch (error) {
       setDatasetExportState({
@@ -949,27 +944,16 @@ export function App() {
     setDatasetExportState({ status: "preparing" });
 
     try {
-      const plan = createDatasetPackagePlan({
+      const scope = createCurrentVoicePackageScope(workspace, activeCorpus);
+      const plan = await createVoiceCapturePackagePlan({
         corpus: activeCorpus,
-        speaker: selectedSpeaker,
+        getAudioBlob: getWorkspaceRecording,
+        scope,
+        speakerProfiles,
         workspace,
       });
-
-      if (plan.keeperCount === 0) {
-        setDatasetExportState({
-          status: "error",
-          message:
-            "Aucune prise gardée pour l'instant. Enregistre des prises validées avant d'exporter le dataset.",
-        });
-        return;
-      }
-
-      const result = await saveDatasetPackageToWorkspaceFolder({
-        getAudioBlob: getWorkspaceRecording,
-        jsonFiles: plan.jsonFiles,
-        textFiles: plan.textFiles,
-        audioFiles: plan.audioFiles,
-        readme: plan.readme,
+      const result = await saveVoiceCapturePackageToWorkspaceFolder({
+        files: plan.files,
       });
 
       if (!result.ok) {
@@ -979,8 +963,10 @@ export function App() {
 
       setDatasetExportState({
         status: "done",
-        keeperCount: plan.keeperCount,
-        missingAudioFiles: result.value.missingAudioFiles,
+        keeperCount: plan.samples.length,
+        missingAudioFiles: [],
+        forgeReady: plan.forgeCompatibility.ready,
+        blockingReasons: plan.forgeCompatibility.errors,
       });
     } catch (error) {
       setDatasetExportState({
@@ -991,6 +977,38 @@ export function App() {
             : "Le dataset n'a pas pu être écrit dans ce dossier.",
       });
     }
+  }
+
+  function createCurrentVoicePackageScope(
+    currentWorkspace: VoiceWorkspace,
+    corpus: CorpusManifest,
+  ): VoiceCapturePackageScope {
+    const sessionIds = currentWorkspace.capturedSessions
+      .filter(
+        (candidate) =>
+          candidate.speakerId === selectedSpeakerId &&
+          candidate.language === selectedLanguage &&
+          candidate.corpusId === corpus.id,
+      )
+      .map((candidate) => candidate.id);
+
+    if (sessionIds.length === 0) {
+      throw new Error(
+        "Aucune session enregistrée dans le scope actuel. Sélectionne une voix, une langue et un corpus avec au moins une prise gardée.",
+      );
+    }
+
+    return {
+      datasetId: `dataset.${currentWorkspace.workspaceId}.${corpus.id}.${selectedSpeakerId}.${selectedLanguage}`,
+      projectId: "project.voice-capture-studio",
+      speakerIds: [selectedSpeakerId],
+      languages: [selectedLanguage],
+      locales: [selectedLanguage === "fr" ? "fr-FR" : "en-US"],
+      corpusRefs: [{ id: corpus.id, version: corpus.version }],
+      sessionIds,
+      takeStatuses: ["keeper"],
+      includeRoomTones: true,
+    };
   }
 
   async function selectFolder() {

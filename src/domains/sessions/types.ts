@@ -38,11 +38,32 @@ export type RecordedTake = {
   readonly recordedAt: IsoDateTime;
   /** Immutable technical identity of the exact audio object reviewed here. */
   readonly media: TakeMedia;
+  /** Snapshot of capture conditions at finalization; legacy takes may omit it. */
+  readonly captureContext?: TakeCaptureContext;
   readonly transcript: TakeTranscript;
   readonly timing: TakeTiming;
   readonly intent: TakeIntentMetadata;
   readonly quality: TakeQualityReport;
   readonly review: TakeReview;
+};
+
+export type TakeCaptureContext = {
+  readonly schemaVersion: "voice.capture.context.v1";
+  readonly capturedAt: IsoDateTime;
+  readonly capture: AudioCaptureProvenance;
+  readonly profile: {
+    readonly microphoneName: string;
+    readonly audioInterface: string;
+    readonly mouthToMicDistanceCm: number;
+    readonly roomDescription: string;
+    readonly roomToneCaptured: boolean;
+    readonly roomToneNoiseFloorDbfs: number | null;
+    readonly roomTonePeakDbfs: number | null;
+    readonly roomToneIntegratedLufs: number | null;
+    readonly roomToneDurationMs: number | null;
+    readonly calibratedAt: IsoDateTime | null;
+  };
+  readonly roomToneRef: string | null;
 };
 
 export type TakeMedia = {

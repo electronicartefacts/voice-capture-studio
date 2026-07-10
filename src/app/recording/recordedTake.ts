@@ -6,6 +6,7 @@ import type {
   TakeMedia,
   TakeId,
   TakeProsodyMetrics,
+  TakeCaptureContext,
 } from "../../domains/sessions";
 import type { CaptureProfile } from "../../domains/workspace";
 import {
@@ -105,6 +106,7 @@ export function createRecordedTake(input: {
     durationMs: input.durationMs,
     recordedAt: input.recordedAt.toISOString() as RecordedTake["recordedAt"],
     media: input.media,
+    captureContext: createTakeCaptureContext(input),
     transcript: {
       schemaVersion: "voice.transcript.v2",
       originalText: input.prompt.text,
@@ -352,6 +354,32 @@ export function createRecordedTake(input: {
             ? "Prise rejetée techniquement. Reprends avant export."
             : "Prise utilisable en secours. Une reprise plus naturelle serait mieux.",
     },
+  };
+}
+
+function createTakeCaptureContext(input: {
+  readonly media: TakeMedia;
+  readonly profile: CaptureProfile;
+  readonly recordedAt: Date;
+}): TakeCaptureContext {
+  return {
+    schemaVersion: "voice.capture.context.v1",
+    capturedAt:
+      input.recordedAt.toISOString() as TakeCaptureContext["capturedAt"],
+    capture: input.media.capture,
+    profile: {
+      microphoneName: input.profile.microphoneName,
+      audioInterface: input.profile.audioInterface,
+      mouthToMicDistanceCm: input.profile.mouthToMicDistanceCm,
+      roomDescription: input.profile.roomDescription,
+      roomToneCaptured: input.profile.roomToneCaptured,
+      roomToneNoiseFloorDbfs: input.profile.roomToneNoiseFloorDbfs ?? null,
+      roomTonePeakDbfs: input.profile.roomTonePeakDbfs ?? null,
+      roomToneIntegratedLufs: input.profile.roomToneIntegratedLufs ?? null,
+      roomToneDurationMs: input.profile.roomToneDurationMs ?? null,
+      calibratedAt: input.profile.calibratedAt ?? null,
+    },
+    roomToneRef: null,
   };
 }
 

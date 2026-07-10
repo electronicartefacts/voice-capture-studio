@@ -1,4 +1,5 @@
 import type { DatasetPackagePlan } from "./datasetPackage";
+import type { VoiceCapturePackagePlan } from "./voiceCapturePackage";
 import { createZipBlobOffThread } from "./zipService";
 import type { ZipEntryInput } from "./zipWriter";
 
@@ -7,6 +8,17 @@ export type DatasetZipResult = {
   readonly missingAudioFiles: readonly string[];
   readonly writtenFiles: number;
 };
+
+export async function createVoiceCapturePackageZip(input: {
+  readonly plan: VoiceCapturePackagePlan;
+}): Promise<{ readonly blob: Blob; readonly writtenFiles: number }> {
+  return {
+    blob: await createZipBlobOffThread(
+      input.plan.files.map((entry) => ({ path: entry.path, data: entry.data })),
+    ),
+    writtenFiles: input.plan.files.length,
+  };
+}
 
 export async function createDatasetZip(input: {
   readonly getAudioBlob: (fileName: string) => Promise<Blob | undefined>;

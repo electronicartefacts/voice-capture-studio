@@ -10,6 +10,7 @@ import { sha256Blob } from "./sha256";
 
 type DirectoryHandle = {
   readonly name: string;
+  readonly removeEntry?: (name: string) => Promise<void>;
   getDirectoryHandle?: (
     name: string,
     options?: { readonly create?: boolean },
@@ -507,6 +508,71 @@ export async function saveDatasetPackageToWorkspaceFolder(input: {
   }
 }
 
+export async function saveVoiceCapturePackageToWorkspaceFolder(input: {
+  readonly files: readonly { readonly path: string; readonly data: Blob }[];
+}): Promise<
+  Result<
+    { readonly target: "folder"; readonly writtenFiles: number },
+    "folder-unavailable" | "folder-save-failed"
+  >
+> {
+  const handle = await readDirectoryHandle();
+
+  if (handle?.getDirectoryHandle === undefined) {
+    return {
+      ok: false,
+      error: "folder-unavailable",
+      message: "Aucun dossier local connecté pour écrire le package v1.",
+    };
+  }
+
+  if (!(await requestReadWritePermission(handle))) {
+    return {
+      ok: false,
+      error: "folder-unavailable",
+      message:
+        "Autorise l'écriture dans le dossier pour exporter le package v1.",
+    };
+  }
+
+  try {
+    const packageDirectory = await ensureDirectory(
+      handle,
+      "voice-capture-package",
+    );
+    await writeBlob(
+      packageDirectory,
+      "EXPORT_INCOMPLETE",
+      textBlob(
+        "Package creation started; absence of EXPORT_COMPLETE means incomplete.",
+      ),
+    );
+
+    for (const entry of input.files) {
+      assertSafePackagePath(entry.path);
+      await writeNestedBlob(packageDirectory, entry.path, entry.data);
+    }
+
+    await writeBlob(
+      packageDirectory,
+      "EXPORT_COMPLETE",
+      textBlob("voice.capture.package.v1 complete"),
+    );
+    await packageDirectory.removeEntry?.("EXPORT_INCOMPLETE");
+
+    return {
+      ok: true,
+      value: { target: "folder", writtenFiles: input.files.length },
+    };
+  } catch {
+    return {
+      ok: false,
+      error: "folder-save-failed",
+      message: "Impossible d'écrire le package v1 dans ce dossier.",
+    };
+  }
+}
+
 async function writeNestedBlob(
   root: DirectoryHandle,
   path: string,
@@ -568,7 +634,16 @@ export async function saveRecordingToBrowserStorage(
       RECORDINGS_STORE_NAME,
       "readwrite",
     );
-    transaction.objectStore(RECORDINGS_STORE_NAME).put(
+    const store = transaction.objectStore(RECORDINGS_STORE_NAME);
+    const existing = await requestResult<StoredRecording | undefined>(
+      store.get(fileName),
+    );
+    if (existing !== undefined) {
+      throw new Error(
+        `Recording ${fileName} already exists and will not be replaced.`,
+      );
+    }
+    store.put(
       {
         fileName,
         blob: audioBlob,
@@ -772,6 +847,34 @@ function textBlob(value: string): Blob {
 
 function sanitizePathSegment(value: string): string {
   return value.replace(/[^a-zA-Z0-9._-]+/g, "-");
+}
+
+function assertSafePackagePath(path: string): void {
+  if (
+    path.length === 0 ||
+    path.length > 240 ||
+    path.startsWith("/") ||
+    path.includes("\\") ||
+    hasControlCharacter(path)
+  ) {
+    throw new Error(`Unsafe package path: ${path}`);
+  }
+
+  if (
+    path
+      .split("/")
+      .some((segment) => segment === "" || segment === "." || segment === "..")
+  ) {
+    throw new Error(`Unsafe package path: ${path}`);
+  }
+}
+
+function hasControlCharacter(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code < 32 || code === 127) return true;
+  }
+  return false;
 }
 
 async function readDirectoryHandle(): Promise<DirectoryHandle | null> {

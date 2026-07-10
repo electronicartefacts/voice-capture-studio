@@ -323,10 +323,16 @@ export function TechnicalPage(input: {
         </div>
         {input.datasetExportState.status === "done" && (
           <p className="dataset-export-status">
-            {input.datasetExportState.keeperCount} prise(s) gardée(s)
-            incluse(s).
+            {input.datasetExportState.keeperCount} prise(s) gardée(s) incluse(s)
+            dans le package Forge v1.
+            {input.datasetExportState.forgeReady
+              ? " Prêt pour ingestion Forge."
+              : " Ingestion Forge bloquée tant que les droits restent incomplets."}
             {input.datasetExportState.missingAudioFiles.length > 0
               ? ` ${input.datasetExportState.missingAudioFiles.length} fichier(s) audio introuvable(s) dans le stockage local.`
+              : ""}
+            {input.datasetExportState.blockingReasons.length > 0
+              ? ` Raisons: ${input.datasetExportState.blockingReasons.join(", ")}.`
               : ""}
           </p>
         )}
