@@ -308,12 +308,10 @@ export function HomeScreen(input: {
           speakers={input.speakers}
         />
 
-        {input.diagnostics.status !== "ready" && (
-          <SystemHealthPanel
-            diagnostics={input.diagnostics}
-            onRefresh={input.onRefreshDiagnostics}
-          />
-        )}
+        <SystemHealthPanel
+          diagnostics={input.diagnostics}
+          onRefresh={input.onRefreshDiagnostics}
+        />
 
         {input.workspaceDurability === "memory-only" &&
           input.workspaceBackupUrl !== null &&
@@ -734,7 +732,10 @@ export function SystemHealthPanel(input: {
       <div className="system-health-header">
         <div>
           <p className="soft-label">Environnement</p>
-          <strong>{formatRuntimeStatus(input.diagnostics.status)}</strong>
+          <strong>
+            {input.diagnostics.compatibilityScore.value}/100 —{" "}
+            {formatRuntimeStatus(input.diagnostics.status)}
+          </strong>
         </div>
         <AlertTriangle aria-hidden="true" size={18} />
       </div>

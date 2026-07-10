@@ -26,6 +26,7 @@ export type RuntimeDiagnostics = {
   readonly canRecord: boolean;
   readonly canPersistWorkspace: boolean;
   readonly canPersistRecordings: boolean;
+  readonly compatibilityScore: CompatibilityScore;
   readonly canExportFolder: boolean;
   readonly canDownloadFallback: boolean;
   readonly recordingInputCount: number | null;
@@ -38,6 +39,12 @@ export type RuntimeDiagnostics = {
   readonly status: RuntimeStatus;
   readonly storageEstimate: StorageEstimate | null;
   readonly checks: readonly RuntimeCheck[];
+};
+
+export type CompatibilityScore = {
+  /** How fully this browser can realize the studio, including its fallbacks. */
+  readonly value: number;
+  readonly label: "optimal" | "compatible" | "limited" | "blocked";
 };
 
 type StorageEstimate = {
@@ -265,13 +272,13 @@ function buildDiagnostics(input: {
     },
     {
       id: "speech-recognition",
-      label: "Transcription locale",
+      label: "Guidage de transcription",
       status: speechRecognition ? "ready" : "limited",
       detail: speechRecognition
-        ? "Guidage de transcription disponible si le navigateur l'autorise."
+        ? "Guidage de transcription disponible via le moteur du navigateur."
         : "Le guidage de transcription n'est pas exposé par ce navigateur.",
       action: speechRecognition
-        ? "La capture reste locale; la transcription est une aide facultative."
+        ? "Cette aide reste facultative; l'analyse Whisper reste exécutée localement après la prise."
         : "La capture, l'analyse et les exports restent disponibles.",
     },
     {
@@ -337,11 +344,13 @@ function buildDiagnostics(input: {
       : limitedCount > 0
         ? "limited"
         : "ready";
+  const compatibilityScore = calculateCompatibilityScore(checks);
 
   return {
     canRecord,
     canPersistWorkspace,
     canPersistRecordings,
+    compatibilityScore,
     canExportFolder: folderExport,
     canDownloadFallback: downloadFallback,
     recordingInputCount: input.recordingInputCount,
@@ -363,6 +372,57 @@ function buildDiagnostics(input: {
     status,
     storageEstimate: input.storageEstimate,
     checks,
+  };
+}
+
+/**
+ * Scores the actual studio path rather than a browser's raw API count. Core
+ * capture and durable export matter most; optional accelerations raise the
+ * score without making standards-based fallbacks look broken.
+ */
+export function calculateCompatibilityScore(
+  checks: readonly RuntimeCheck[],
+): CompatibilityScore {
+  const weights: Partial<Record<RuntimeCheck["id"], number>> = {
+    "secure-context": 12,
+    microphone: 18,
+    "input-devices": 6,
+    "audio-engine": 14,
+    "workspace-storage": 10,
+    "recording-storage": 12,
+    "folder-export": 4,
+    downloads: 8,
+    "screen-lock": 4,
+    "speech-recognition": 3,
+    "speech-synthesis": 3,
+    "background-processing": 3,
+    "hardware-rendering": 3,
+  };
+  const totalWeight = Object.values(weights).reduce(
+    (sum, weight) => sum + (weight ?? 0),
+    0,
+  );
+  const earnedWeight = checks.reduce((sum, check) => {
+    const weight = weights[check.id] ?? 0;
+
+    return sum + (check.status === "ready" ? weight : 0);
+  }, 0);
+  const value = Math.round((earnedWeight / totalWeight) * 100);
+  const hasBlockedCoreCapability = checks.some(
+    (check) =>
+      check.status === "blocked" &&
+      ["secure-context", "microphone", "audio-engine"].includes(check.id),
+  );
+
+  return {
+    value,
+    label: hasBlockedCoreCapability
+      ? "blocked"
+      : value >= 90
+        ? "optimal"
+        : value >= 70
+          ? "compatible"
+          : "limited",
   };
 }
 

@@ -178,6 +178,10 @@ export function TechnicalPage(input: {
           <span>{formatRuntimeStatus(input.diagnostics.status)}</span>
         </article>
         <article>
+          <strong>Compatibilité</strong>
+          <span>{input.diagnostics.compatibilityScore.value}/100</span>
+        </article>
+        <article>
           <strong>Export</strong>
           <span>
             {input.diagnostics.canExportFolder
@@ -190,14 +194,19 @@ export function TechnicalPage(input: {
         <div>
           <p className="soft-label">Studio Ready</p>
           <strong>
-            {input.diagnostics.recordingInputCount === null
-              ? "Entrées audio à confirmer"
-              : `${input.diagnostics.recordingInputCount} entrée${input.diagnostics.recordingInputCount > 1 ? "s" : ""} audio détectée${input.diagnostics.recordingInputCount > 1 ? "s" : ""}`}
+            {input.diagnostics.compatibilityScore.value}/100 —{" "}
+            {input.diagnostics.compatibilityScore.label === "optimal"
+              ? "capacité optimale"
+              : input.diagnostics.compatibilityScore.label === "compatible"
+                ? "compatibilité étendue"
+                : input.diagnostics.compatibilityScore.label === "limited"
+                  ? "mode de compatibilité"
+                  : "capture bloquée"}
           </strong>
           <span>
-            {input.diagnostics.supportsHardwareRendering
-              ? "Rendu accéléré disponible."
-              : "Rendu Canvas de compatibilité actif."}
+            {input.diagnostics.recordingInputCount === null
+              ? "Entrées audio à confirmer."
+              : `${input.diagnostics.recordingInputCount} entrée${input.diagnostics.recordingInputCount > 1 ? "s" : ""} audio détectée${input.diagnostics.recordingInputCount > 1 ? "s" : ""}.`}
           </span>
         </div>
         <ul>
