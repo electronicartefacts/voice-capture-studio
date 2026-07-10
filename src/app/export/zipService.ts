@@ -42,23 +42,30 @@ function runZipWorker(
     const id = nextRequestId;
     nextRequestId += 1;
 
-    worker.addEventListener(
-      "message",
-      (event: MessageEvent<ZipWorkerResponse>) => {
-        if (event.data.id !== id) {
-          return;
-        }
+    const cleanup = () => {
+      worker.removeEventListener("message", onMessage);
+      worker.removeEventListener("error", onError);
+    };
+    const onMessage = (event: MessageEvent<ZipWorkerResponse>) => {
+      if (event.data.id !== id) {
+        return;
+      }
 
-        if (event.data.ok) {
-          resolve(event.data.blob);
-        } else {
-          reject(new Error(event.data.message));
-        }
-      },
-    );
-    worker.addEventListener("error", () => {
+      cleanup();
+
+      if (event.data.ok) {
+        resolve(event.data.blob);
+      } else {
+        reject(new Error(event.data.message));
+      }
+    };
+    const onError = () => {
+      cleanup();
       reject(new Error("Le worker d'archive ZIP a échoué."));
-    });
+    };
+
+    worker.addEventListener("message", onMessage);
+    worker.addEventListener("error", onError, { once: true });
 
     const request: ZipWorkerRequest = { id, entries };
 

@@ -115,6 +115,7 @@ export function TechnicalPage(input: {
   readonly microphoneActive: boolean;
   readonly microphoneLabel: string | null;
   readonly onBack: () => void;
+  readonly onClearCachedModels: () => void;
   readonly onDownloadDataset: () => void;
   readonly onImportForcedAlignment: (file: File) => void;
   readonly onInputSensitivityChange: (value: number) => void;
@@ -225,6 +226,24 @@ export function TechnicalPage(input: {
       <p className="technical-note">
         Rien n'est envoyé en ligne. Les prises restent sur cet appareil.
       </p>
+      <section className="forced-alignment-panel">
+        <div>
+          <p className="soft-label">Modèles d'analyse</p>
+          <strong>Whisper et détection de parole</strong>
+          <span>
+            Supprime les modèles locaux pour récupérer de l'espace ou forcer
+            leur rechargement après une mise à jour.
+          </span>
+        </div>
+        <button
+          className="folder-button compact"
+          onClick={input.onClearCachedModels}
+          type="button"
+        >
+          <Database aria-hidden="true" size={17} />
+          <span>Vider le cache IA</span>
+        </button>
+      </section>
       <ForcedAlignmentImport onFile={input.onImportForcedAlignment} />
       {input.storageMode === "browser-downloads" && (
         <p className="coach-note">

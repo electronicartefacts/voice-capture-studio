@@ -41,10 +41,7 @@ import {
   setLiveAudioLevel,
 } from "../rendering/liveAudioSignal";
 import { measureAcousticField } from "../rendering/acousticField";
-import {
-  getAmbientRenderingBudget,
-  type AmbientRenderingBudget,
-} from "../system/renderingBudget";
+import { FREE_CAPTURE_MAX_DURATION_MS } from "../recording/captureLimits";
 import {
   finalizeCaptureSession,
   type FinalizedRecording,
@@ -136,6 +133,7 @@ import {
   SiteFooter,
 } from "./screens/StudioChrome";
 import { TechnicalPage } from "./screens/TechnicalPage";
+import { useAmbientRenderingBudget } from "./useAmbientRenderingBudget";
 
 type RecordingWakeLockSentinel = {
   readonly released: boolean;
@@ -281,10 +279,6 @@ export function App() {
   const [inputSensitivity, setInputSensitivity] = useState(
     readStoredInputSensitivity,
   );
-  const [isPageVisible, setIsPageVisible] = useState(
-    () => document.visibilityState === "visible",
-  );
-  const [isScrolling, setIsScrolling] = useState(false);
   const inputSensitivityRef = useRef(inputSensitivity);
   const appRootRef = useRef<HTMLElement | null>(null);
   const renderedAudioLevelRef = useRef(0);
@@ -294,8 +288,6 @@ export function App() {
   const screenRef = useRef<Screen>("home");
   const activeWordIndexRef = useRef(0);
   const visualAudioLevelRef = useRef(0);
-  const ambientRenderingBudgetRef = useRef<AmbientRenderingBudget>("full");
-  const scrollIdleTimerRef = useRef<number | null>(null);
   const pcmRecorderRef = useRef<PcmRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const speechRecognitionRef = useRef<SpeechRecognitionLike | null>(null);
@@ -320,6 +312,7 @@ export function App() {
   const readingGuideLastSpeechAtRef = useRef(0);
   const readingGuideProgressRef = useRef(0);
   const readingGuideFinishTimerRef = useRef<number | null>(null);
+  const freeCaptureLimitTimerRef = useRef<number | null>(null);
   const lastTranscriptAtRef = useRef(0);
   const finishRecordingRef = useRef<() => void>(() => undefined);
   const hasCalibratedCurrentSessionRef = useRef(false);
@@ -365,35 +358,6 @@ export function App() {
     window.scrollTo(0, 0);
   }, [screen]);
 
-  useEffect(() => {
-    function markScrollActivity() {
-      setIsScrolling(true);
-
-      if (scrollIdleTimerRef.current !== null) {
-        window.clearTimeout(scrollIdleTimerRef.current);
-      }
-
-      scrollIdleTimerRef.current = window.setTimeout(() => {
-        scrollIdleTimerRef.current = null;
-        setIsScrolling(false);
-      }, 140);
-    }
-
-    function updatePageVisibility() {
-      setIsPageVisible(document.visibilityState === "visible");
-    }
-
-    window.addEventListener("scroll", markScrollActivity, { passive: true });
-    document.addEventListener("visibilitychange", updatePageVisibility);
-
-    return () => {
-      window.removeEventListener("scroll", markScrollActivity);
-      document.removeEventListener("visibilitychange", updatePageVisibility);
-      if (scrollIdleTimerRef.current !== null) {
-        window.clearTimeout(scrollIdleTimerRef.current);
-      }
-    };
-  }, []);
   const coverage =
     workspace && activeCorpus !== null
       ? summarizeCoverage({
@@ -528,6 +492,7 @@ export function App() {
       stopReadingGuide();
       stopPromptReference();
       clearRoomToneTimers();
+      clearFreeCaptureLimitTimer();
       stopMediaStream();
 
       if (recorder !== null) {
@@ -1466,7 +1431,7 @@ export function App() {
       setMicrophoneLabel(createMicrophoneLabel(stream));
 
       const recorder = await createPcmRecorder(stream, {
-        maxDurationMs: isFreeCapture ? null : undefined,
+        maxDurationMs: isFreeCapture ? FREE_CAPTURE_MAX_DURATION_MS : undefined,
         onLevel: updateVisualAudioLevel,
         onSamples: pushLiveWaveform,
       });
@@ -1509,6 +1474,8 @@ export function App() {
 
     if (!isFreeCapture) {
       startReadingGuide(words, selectedLanguage);
+    } else {
+      scheduleFreeCaptureLimit();
     }
 
     if (captureMode === "mastering") {
@@ -1738,6 +1705,28 @@ export function App() {
     }
   }
 
+  function scheduleFreeCaptureLimit() {
+    clearFreeCaptureLimitTimer();
+
+    freeCaptureLimitTimerRef.current = window.setTimeout(() => {
+      freeCaptureLimitTimerRef.current = null;
+
+      if (screenRef.current === "karaoke" && !isPersistingRef.current) {
+        setMessage(
+          "Limite de capture atteinte : préparation du WAV pour préserver la mémoire de l'appareil.",
+        );
+        void finishRecordingRef.current();
+      }
+    }, FREE_CAPTURE_MAX_DURATION_MS);
+  }
+
+  function clearFreeCaptureLimitTimer() {
+    if (freeCaptureLimitTimerRef.current !== null) {
+      window.clearTimeout(freeCaptureLimitTimerRef.current);
+      freeCaptureLimitTimerRef.current = null;
+    }
+  }
+
   function startRoomToneCalibration(
     stream: MediaStream,
     recorder: PcmRecorder,
@@ -1860,6 +1849,7 @@ export function App() {
     const recorder = pcmRecorderRef.current;
 
     if (recorder !== null) {
+      clearFreeCaptureLimitTimer();
       pcmRecorderRef.current = null;
       isPersistingRef.current = true;
       setIsFinalizing(true);
@@ -2082,6 +2072,33 @@ export function App() {
     return nextDiagnostics;
   }
 
+  async function clearCachedModels() {
+    if (!("caches" in window)) {
+      setMessage(
+        "Le cache des modèles n'est pas disponible dans ce navigateur.",
+      );
+      return;
+    }
+
+    try {
+      const cacheNames = await caches.keys();
+      const modelCaches = cacheNames.filter((name) =>
+        name.startsWith("voice-capture-studio-models-"),
+      );
+
+      await Promise.all(modelCaches.map((name) => caches.delete(name)));
+      setMessage(
+        modelCaches.length === 0
+          ? "Aucun modèle local en cache."
+          : "Cache des modèles supprimé. La prochaine analyse les téléchargera à nouveau.",
+      );
+    } catch {
+      setMessage(
+        "Impossible de supprimer le cache des modèles dans ce navigateur.",
+      );
+    }
+  }
+
   function resetTakeOutputState() {
     stopReadingGuide();
     setActiveWordIndex(0);
@@ -2264,15 +2281,10 @@ export function App() {
   }
 
   const isCapturing = screen === "calibration" || screen === "karaoke";
-  const ambientRenderingBudget = getAmbientRenderingBudget({
-    isCapturing,
-    isPageVisible,
-    isScrolling,
-  });
-
-  useEffect(() => {
-    ambientRenderingBudgetRef.current = ambientRenderingBudget;
-  }, [ambientRenderingBudget]);
+  const {
+    budget: ambientRenderingBudget,
+    budgetRef: ambientRenderingBudgetRef,
+  } = useAmbientRenderingBudget({ isCapturing });
 
   const appClassName = [
     "simple-app",
@@ -2355,6 +2367,7 @@ export function App() {
               onDownloadDataset={downloadDatasetPackage}
               onImportForcedAlignment={loadForcedAlignmentFile}
               onInputSensitivityChange={updateInputSensitivity}
+              onClearCachedModels={() => void clearCachedModels()}
               onWriteDatasetToFolder={writeDatasetPackageToFolder}
               recordings={storedRecordings}
               savedSessions={workspace?.sessions.length ?? 0}

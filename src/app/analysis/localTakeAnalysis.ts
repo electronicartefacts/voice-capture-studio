@@ -41,6 +41,10 @@ export async function analyzeTakeAudio(input: {
   const { transcript, speechSegments } = await new Promise<
     Extract<AnalysisWorkerResponse, { kind: "result" }>
   >((resolve, reject) => {
+    const cleanup = () => {
+      worker.removeEventListener("message", onMessage);
+      worker.removeEventListener("error", onError);
+    };
     const onMessage = (event: MessageEvent<AnalysisWorkerResponse>) => {
       if (event.data.id !== id) {
         return;
@@ -51,7 +55,7 @@ export async function analyzeTakeAudio(input: {
         return;
       }
 
-      worker.removeEventListener("message", onMessage);
+      cleanup();
 
       if (event.data.kind === "result") {
         resolve(event.data);
@@ -60,11 +64,13 @@ export async function analyzeTakeAudio(input: {
       }
     };
 
-    worker.addEventListener("message", onMessage);
-    worker.addEventListener("error", () => {
-      worker.removeEventListener("message", onMessage);
+    const onError = () => {
+      cleanup();
       reject(new Error("Le worker d'analyse locale a échoué."));
-    });
+    };
+
+    worker.addEventListener("message", onMessage);
+    worker.addEventListener("error", onError, { once: true });
 
     const request: AnalysisWorkerRequest = {
       id,

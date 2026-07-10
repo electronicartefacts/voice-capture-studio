@@ -7,6 +7,7 @@ import {
   type PcmRecordingMetrics,
 } from "./pcmAudio";
 import type { AudioCaptureProvenance } from "@domains/sessions";
+import { FREE_CAPTURE_MAX_DURATION_MS } from "../recording/captureLimits";
 
 export type { PcmRecordingMetrics } from "./pcmAudio";
 
@@ -25,8 +26,8 @@ export type PcmRecorder = {
 export type PcmRecorderOptions = {
   readonly onLevel?: (level: number) => void;
   readonly onSamples?: (samples: Float32Array) => void;
-  /** null keeps recording until the user stops or the browser runs out of storage. */
-  readonly maxDurationMs?: number | null;
+  /** Defaults to a bounded two-minute directed take. */
+  readonly maxDurationMs?: number;
 };
 
 type WindowWithAudioContext = Window &
@@ -122,10 +123,7 @@ export async function createPcmRecorder(
   );
   const maxDurationMs = normalizeCaptureDuration(options.maxDurationMs);
   const sampleBuffer = new PcmSampleBuffer({
-    maxSamples:
-      maxDurationMs === null
-        ? Number.MAX_SAFE_INTEGER
-        : Math.ceil((maxDurationMs / 1000) * audioContext.sampleRate),
+    maxSamples: Math.ceil((maxDurationMs / 1000) * audioContext.sampleRate),
   });
   let stopPromise: Promise<PcmRecordingResult> | null = null;
   let source: MediaStreamAudioSourceNode | null = null;
@@ -455,17 +453,12 @@ function computeLevel(samples: Float32Array): number {
   return clamp(Math.max(rmsMeter, peakMeter * 0.78), 0, 1);
 }
 
-function normalizeCaptureDuration(
-  value: number | null | undefined,
-): number | null {
-  if (value === null) {
-    return null;
-  }
+function normalizeCaptureDuration(value: number | undefined): number {
   if (value === undefined || !Number.isFinite(value) || value <= 0) {
     return DEFAULT_MAX_CAPTURE_DURATION_MS;
   }
 
-  return Math.min(value, DEFAULT_MAX_CAPTURE_DURATION_MS);
+  return Math.min(value, FREE_CAPTURE_MAX_DURATION_MS);
 }
 
 function clamp(value: number, min: number, max: number): number {

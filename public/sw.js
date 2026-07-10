@@ -1,5 +1,8 @@
-const CACHE_NAME = "voice-capture-studio-v2";
-const MODEL_CACHE_NAME = "voice-capture-studio-models-v1";
+// Bump these revisions whenever the application shell or shipped ML models
+// change. Keeping application and model caches separate avoids retaining a
+// previous release's modules after an offline restart.
+const CACHE_NAME = "voice-capture-studio-app-v3";
+const MODEL_CACHE_NAME = "voice-capture-studio-models-v2";
 
 function isModelAsset(requestUrl) {
   const scopePath = new URL(self.registration.scope).pathname;
@@ -88,13 +91,22 @@ self.addEventListener("fetch", (event) => {
 
         return networkResponse;
       })
-      .catch(() =>
-        caches
-          .match(event.request)
-          .then(
-            (cachedResponse) =>
-              cachedResponse ?? caches.match(self.registration.scope),
-          ),
-      ),
+      .catch(async () => {
+        const cachedResponse = await caches.match(event.request);
+
+        if (cachedResponse !== undefined) {
+          return cachedResponse;
+        }
+
+        // Never answer a failed script, worker, stylesheet, or model request
+        // with index.html: browsers interpret that as a broken module/chunk.
+        // The application shell is only a valid offline fallback for a page
+        // navigation.
+        if (event.request.mode === "navigate") {
+          return caches.match(self.registration.scope);
+        }
+
+        throw new Error(`Offline asset unavailable: ${requestUrl.pathname}`);
+      }),
   );
 });

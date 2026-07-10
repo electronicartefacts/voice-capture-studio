@@ -55,6 +55,10 @@ import {
   type CreateSpeakerInput,
 } from "../speakerProfiles";
 import type { BackingTrack, CaptureMode } from "../types";
+import {
+  formatCaptureDurationLimit,
+  FREE_CAPTURE_MAX_DURATION_MS,
+} from "../../recording/captureLimits";
 
 export function HomeScreen(input: {
   readonly backingAudioRef: RefObject<HTMLAudioElement | null>;
@@ -128,7 +132,7 @@ export function HomeScreen(input: {
             }`;
   const corpusRecommendation =
     input.captureMode === "free"
-      ? "Aucun corpus ni durée limite : arrête la prise quand tu veux."
+      ? `Aucun corpus : une prise continue peut durer jusqu'à ${formatCaptureDurationLimit(FREE_CAPTURE_MAX_DURATION_MS)}.`
       : input.captureMode === "training"
         ? (input.coverage?.nextRecommendation ??
           "Commence par un silence de pièce, puis deux prises neutres.")

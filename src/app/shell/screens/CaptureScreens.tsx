@@ -10,6 +10,10 @@ import type { PromptDefinition } from "@domains/corpus";
 import { alignPromptToPhonemes } from "@domains/phonetics";
 import type { LanguageCode } from "@shared/index";
 import { getLiveAudioLevel } from "../../rendering/liveAudioSignal";
+import {
+  formatCaptureDurationLimit,
+  FREE_CAPTURE_MAX_DURATION_MS,
+} from "../../recording/captureLimits";
 import { KARAOKE_STYLE_UPDATE_INTERVAL_MS } from "../audioEnvironment";
 import {
   formatDurationSeconds,
@@ -174,7 +178,8 @@ export function KaraokeScreen(input: {
           <h1>Le studio enregistre.</h1>
           <p>
             Parle, chante ou capture l'environnement. Arrête manuellement quand
-            la prise est complète.
+            la prise est complète, dans la limite de{" "}
+            {formatCaptureDurationLimit(FREE_CAPTURE_MAX_DURATION_MS)}.
           </p>
         </div>
       ) : (
@@ -194,7 +199,7 @@ export function KaraokeScreen(input: {
         {input.isFinalizing
           ? "Ne ferme pas l'onglet. Le WAV et les métadonnées sont en préparation."
           : input.isFreeCapture
-            ? "Aucune limite de durée : le WAV et le manifeste local seront produits à l'arrêt."
+            ? `La capture est limitée à ${formatCaptureDurationLimit(FREE_CAPTURE_MAX_DURATION_MS)} pour préserver la mémoire de l'appareil.`
             : "Lis naturellement. La prise se ferme automatiquement à la fin de la phrase."}
       </p>
       {input.readingGuideMode === "speech-recognition" &&
