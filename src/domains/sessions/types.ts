@@ -190,6 +190,7 @@ export type TechnicalQualityMetrics = {
   readonly clippingSampleCount: number;
   readonly clippingRate: number;
   readonly activeSpeechRatio: number;
+  readonly speechActivityThresholdDbfs?: number;
   readonly silenceRatio: number;
   readonly voicedFrameRatio: number;
   readonly meanPitchHz: number | null;

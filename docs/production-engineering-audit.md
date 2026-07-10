@@ -449,6 +449,10 @@ take's measured noise floor and the calibrated room floor. A positive drift
 above 6 dB requests review even when the absolute room floor still looks
 acceptable.
 
+The energy VAD also derives `speechActivityThresholdDbfs` from the take noise
+floor, bounded between -45 and -24 dBFS. This preserves sensitivity in quiet
+rooms while preventing a continuous noisy floor from becoming false speech.
+
 This is intentionally a policy layer, not a DSP layer: the microphone signal
 stays raw and the same measured metrics are retained. Future work can add
 streaming VAD, chunked long-form capture, and playback-leakage analysis

@@ -121,6 +121,29 @@ test("PCM analysis keeps bounded energy envelopes and temporal speech segments",
   assert.ok((metrics.speechSegments?.[0].endMs ?? 1000) <= 800);
 });
 
+test("PCM VAD adapts to a continuous noise floor", () => {
+  const samples = new Float32Array(48_000);
+  const noiseAmplitude = 10 ** (-42 / 20);
+  const voiceAmplitude = 10 ** (-22 / 20);
+
+  for (let index = 0; index < samples.length; index += 1) {
+    const noise =
+      noiseAmplitude * Math.sin((2 * Math.PI * 90 * index) / 48_000);
+    const voice =
+      index >= 16_000 && index < 32_000
+        ? voiceAmplitude * Math.sin((2 * Math.PI * 180 * index) / 48_000)
+        : 0;
+    samples[index] = noise + voice;
+  }
+
+  const metrics = analyzePcmSamples(samples, 48_000);
+
+  assert.ok((metrics.speechActivityThresholdDbfs ?? -96) > -45);
+  assert.ok(metrics.activeSpeechRatio > 0.25);
+  assert.ok(metrics.activeSpeechRatio < 0.5);
+  assert.equal(metrics.speechSegments?.length, 1);
+});
+
 test("PCM analysis uses a finite gated K-weighted loudness estimate", () => {
   const samples = new Float32Array(48_000);
 

@@ -21,6 +21,8 @@ export type PcmRecordingMetrics = {
   readonly clippingSampleCount: number;
   readonly clippingRate: number;
   readonly activeSpeechRatio: number;
+  /** Adaptive energy threshold used by the take-level VAD. */
+  readonly speechActivityThresholdDbfs?: number;
   readonly silenceRatio: number;
   readonly voicedFrameRatio: number;
   readonly meanPitchHz: number | null;
@@ -273,6 +275,8 @@ export function analyzePcmSamples(
   const frameRmsDbfs = computeFrameRmsDbfs(samples);
   const prosody = analyzeProsody(samples, normalizedSampleRate, frameRmsDbfs);
   const noiseFloorDbfs = percentile(frameRmsDbfs, 0.1) ?? MIN_DBFS;
+  const speechActivityThresholdDbfs =
+    deriveSpeechActivityThreshold(noiseFloorDbfs);
   const peakDbfs = amplitudeToDbfs(peak);
   const rmsDbfs = amplitudeToDbfs(rms);
   const estimatedTruePeakDbfs = amplitudeToDbfs(
@@ -293,6 +297,7 @@ export function analyzePcmSamples(
     frameRmsDbfs,
     normalizedSampleRate,
     durationMs,
+    speechActivityThresholdDbfs,
   );
 
   return {
@@ -313,7 +318,12 @@ export function analyzePcmSamples(
     clippingDetected,
     clippingSampleCount: clippedSamples,
     clippingRate: round(clippedSamples / Math.max(samples.length, 1), 6),
-    activeSpeechRatio: computeFrameActivityRatio(frameRmsDbfs, -45, true),
+    activeSpeechRatio: computeFrameActivityRatio(
+      frameRmsDbfs,
+      speechActivityThresholdDbfs,
+      true,
+    ),
+    speechActivityThresholdDbfs,
     silenceRatio: computeFrameActivityRatio(frameRmsDbfs, -55, false),
     voicedFrameRatio: prosody.voicedFrameRatio,
     meanPitchHz: prosody.meanPitchHz,
@@ -357,13 +367,14 @@ function createEnergyActivitySegments(
   frameRmsDbfs: readonly number[],
   sampleRate: number,
   durationMs: number,
+  activityThresholdDbfs: number,
 ): readonly PcmActivitySegment[] {
   const hopMs = (1024 / sampleRate) * 1000;
   const segments: PcmActivitySegment[] = [];
   let activeStart: number | null = null;
 
   for (let index = 0; index <= frameRmsDbfs.length; index += 1) {
-    const active = (frameRmsDbfs[index] ?? MIN_DBFS) >= -45;
+    const active = (frameRmsDbfs[index] ?? MIN_DBFS) >= activityThresholdDbfs;
 
     if (active && activeStart === null) {
       activeStart = index;
@@ -383,6 +394,13 @@ function createEnergyActivitySegments(
   }
 
   return segments;
+}
+
+function deriveSpeechActivityThreshold(noiseFloorDbfs: number): number {
+  // Keep the quiet-room behavior of the historical -45 dBFS gate, but move
+  // upward with a noisy floor so constant background sound is not classified
+  // as speech. The upper bound leaves headroom for a quiet but usable voice.
+  return round(clamp(noiseFloorDbfs + 12, -45, -24), 1);
 }
 
 function analyzeProsody(

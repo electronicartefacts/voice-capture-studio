@@ -204,6 +204,7 @@ export function createRecordedTake(input: {
         clippingSampleCount: input.metrics.clippingSampleCount,
         clippingRate: input.metrics.clippingRate,
         activeSpeechRatio: input.metrics.activeSpeechRatio,
+        speechActivityThresholdDbfs: input.metrics.speechActivityThresholdDbfs,
         silenceRatio: input.metrics.silenceRatio,
         voicedFrameRatio: input.metrics.voicedFrameRatio,
         meanPitchHz: input.metrics.meanPitchHz,
