@@ -16,6 +16,7 @@ export function VoiceWaveformSurface(input: {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const activeRef = useRef(input.active);
   const awakeRef = useRef(input.awake);
+  const budgetRef = useRef(input.budget);
   const playbackProgressRef = useRef(input.playbackProgress);
   const screenRef = useRef(input.screen);
 
@@ -26,6 +27,10 @@ export function VoiceWaveformSurface(input: {
   useEffect(() => {
     awakeRef.current = input.awake;
   }, [input.awake]);
+
+  useEffect(() => {
+    budgetRef.current = input.budget;
+  }, [input.budget]);
 
   useEffect(() => {
     playbackProgressRef.current = input.playbackProgress;
@@ -196,7 +201,7 @@ export function VoiceWaveformSurface(input: {
       const frameNow = performance.now();
       const state = screenRef.current;
       const targetFrameInterval =
-        input.budget === "constrained"
+        budgetRef.current === "constrained"
           ? 1000 / 12
           : state === "calibration" || state === "karaoke"
             ? 1000 / 30
@@ -356,7 +361,7 @@ export function VoiceWaveformSurface(input: {
       window.cancelAnimationFrame(frameId);
       window.removeEventListener("resize", resize);
     };
-  }, [input.active, input.awake, input.budget]);
+  }, [input.active, input.awake]);
 
   return (
     <canvas aria-hidden="true" className="voice-wave-canvas" ref={canvasRef} />
