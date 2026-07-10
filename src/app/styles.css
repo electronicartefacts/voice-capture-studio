@@ -675,6 +675,7 @@ textarea:focus-visible {
 
 .workspace-backup {
   align-items: center;
+  animation: materialize var(--motion-slow) var(--ease-emphasized) both;
   background: color-mix(in srgb, var(--accent-b) 12%, transparent);
   border: 1px solid color-mix(in srgb, var(--accent-b) 36%, var(--line));
   border-radius: var(--radius);
@@ -744,6 +745,7 @@ textarea:focus-visible {
 }
 
 .system-health {
+  animation: materialize var(--motion-slow) var(--ease-emphasized) both;
   background: color-mix(in srgb, var(--panel-solid) 7%, transparent);
   border: 1px solid var(--line);
   border-radius: var(--radius);

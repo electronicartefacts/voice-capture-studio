@@ -108,6 +108,9 @@ docs/         Architecture, workspace, corpus, export, and Pages notes
 
 Important documents:
 
+- [Phenomenology](docs/design/PHENOMENOLOGY.md) — the product's governing
+  constitution: invariants, physical laws, the perceptual state machine, and
+  what every future feature must stay coherent with.
 - [Architecture doctrine](docs/architecture-doctrine.md)
 - [Browser-native engineering manifesto](docs/browser-native-engineering-manifesto.md)
 - [System model](docs/system-model.md)
