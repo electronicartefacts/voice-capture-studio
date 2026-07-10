@@ -1,0 +1,79 @@
+/* Native browser integration. This is deliberately separate from the studio
+   art direction so viewport and input fixes remain platform-only. */
+:root {
+  --app-viewport-height: 100dvh;
+  --app-viewport-offset-top: 0px;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body,
+#root,
+.simple-app {
+  min-height: var(--app-viewport-height);
+}
+
+/* `viewport-fit=cover` opts into the device edges. Keep content clear of the
+   notch, Dynamic Island and Home Indicator while preserving native scrolling. */
+.simple-header {
+  padding-top: calc(20px + env(safe-area-inset-top));
+}
+
+.opening-ritual {
+  min-height: var(--app-viewport-height);
+  padding: calc(24px + env(safe-area-inset-top))
+    calc(24px + env(safe-area-inset-right))
+    calc(24px + env(safe-area-inset-bottom))
+    calc(24px + env(safe-area-inset-left));
+}
+
+.site-footer {
+  padding-bottom: calc(30px + env(safe-area-inset-bottom));
+}
+
+@media (pointer: coarse) {
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
+  body {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  button,
+  a,
+  input[type="checkbox"],
+  input[type="radio"],
+  select,
+  summary {
+    touch-action: manipulation;
+  }
+
+  input,
+  select,
+  textarea {
+    font-size: max(16px, 1em);
+  }
+}
+
+@media (display-mode: standalone) {
+  :root {
+    color-scheme: dark;
+  }
+}
+
+@media (orientation: landscape) and (max-height: 540px) {
+  .opening-ritual {
+    padding-block: calc(16px + env(safe-area-inset-top))
+      calc(16px + env(safe-area-inset-bottom));
+  }
+
+  .opening-ritual > div {
+    gap: 16px;
+  }
+}

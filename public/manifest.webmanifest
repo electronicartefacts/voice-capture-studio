@@ -2,18 +2,40 @@
   "name": "Voice Capture Studio",
   "short_name": "Voice Studio",
   "description": "Guided local voice capture with clean audio and session metadata.",
+  "id": "./",
+  "lang": "fr",
   "start_url": ".",
   "scope": ".",
   "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
   "background_color": "#050506",
   "theme_color": "#050506",
-  "orientation": "portrait",
+  "categories": ["music", "productivity", "utilities"],
   "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
     {
       "src": "icon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Nouvelle prise",
+      "short_name": "Enregistrer",
+      "url": "./"
     }
   ]
 }

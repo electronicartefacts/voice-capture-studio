@@ -1,7 +1,7 @@
 // Bump these revisions whenever the application shell or shipped ML models
 // change. Keeping application and model caches separate avoids retaining a
 // previous release's modules after an offline restart.
-const CACHE_NAME = "voice-capture-studio-app-v3";
+const CACHE_NAME = "voice-capture-studio-app-v4";
 const MODEL_CACHE_NAME = "voice-capture-studio-models-v2";
 
 function isModelAsset(requestUrl) {
@@ -22,6 +22,9 @@ self.addEventListener("install", (event) => {
           self.registration.scope,
           `${self.registration.scope}manifest.webmanifest`,
           `${self.registration.scope}icon.svg`,
+          `${self.registration.scope}icon-192.png`,
+          `${self.registration.scope}icon-512.png`,
+          `${self.registration.scope}apple-touch-icon.png`,
         ]),
       ),
   );
