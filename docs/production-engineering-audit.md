@@ -363,6 +363,60 @@ console still reacts correctly to the dial with no logic changes. Full
 `npm run validate` and a targeted run of `capture-flow.spec.ts` and
 `mobile-scroll.spec.ts` passed unchanged.
 
+## 2026-07-10 front panel composition pass
+
+With the front-panel architecture settled (previous section), this pass
+audited only its composition — hierarchy, mass, void, alignment, center of
+gravity — across six device categories (iPhone SE, iPhone Pro Max, a mid
+Android phone, iPad portrait, a 13" MacBook, a 27" display), measuring actual
+DOM rects rather than judging by eye.
+
+**Finding, quantified.** `.instrument-face`'s height was `min-height: min(74vh,
+640px)`. The 640px ceiling was invisible on phones (74vh already undercuts it)
+but actively fought the composition on anything taller: measured against true
+viewport center, the control cluster's centroid sat 154px above center on the
+iPad viewport and 263px above center on the 27" display, with the leftover
+space dumped below as an oversized, unbalanced gap — on the 27" display, over
+half the workbench console was already visible in the first viewport, which
+is exactly the "explains itself before existing" failure mode the front panel
+redesign was meant to close. Removing the ceiling in favor of a floor
+(`max(74vh, 460px)`, the floor only ever engaging below any viewport in the
+support matrix) dropped the worst center-of-gravity offset from 263px to 50px
+and cut the 27" display's leftover peek from 663px to 237px, with zero effect
+on the phones and the MacBook, which were never affected by the ceiling.
+
+**Finding, quantified.** The dial, its mode-name caption, the hero button,
+and the closing line all sat on one uniform 26px grid gap. Measured, this
+meant the mode dial was exactly as far from its own label as the label was
+from the button, and the button was exactly as far from the dial above it as
+the caption line was from the button — no spatial signal that the dial and
+button are one control complex versus the line being a separate, quieter
+coda. Retuned to a tiered rhythm — 10px dial-to-label, 18px label-to-button,
+34px button-to-line — so the dial reads as mounted to the button rather than
+floating independently, while the closing line gets a clear pause before it.
+(A `margin-top` on `.instrument-line` initially lost a specificity fight
+against the pre-existing `.home-card h1 { margin: 0 }` reset and silently did
+nothing; moving it into the already-more-specific
+`.instrument-face .instrument-line` rule — the same rule already carrying
+the line's font-size override — fixed it. Re-measured after the fix to
+confirm the exact 10/18/34 rhythm actually lands on all six viewports, not
+just in the stylesheet.)
+
+**Not changed, deliberately.** The curve's own vertical position, the halo,
+the dial's and button's internal logic, and the fluid `clamp()`/`vw`-based
+sizing already in place for the headline and card gaps were left alone —
+each already scales continuously across the six categories without a
+per-device override, which is itself the evidence that no bespoke tweak per
+screen size was warranted. The hero button's fixed intrinsic width (339px at
+every breakpoint, since `.is-hero` is content-sized rather than stretched)
+was checked and kept: a physical trigger does not resize with its mounting
+plate, and it stayed the strongest fixation point in every capture.
+
+Verified with fresh DOM measurements after each change (not just visual
+re-inspection), a scripted mode switch confirming `CaptureModeSelector` still
+drives the console correctly, full `npm run validate`, and a targeted run of
+`capture-flow.spec.ts` and `mobile-scroll.spec.ts`.
+
 ## UX, responsive behavior, and motion
 
 The main interaction path is intentional: explicit permission, room-tone

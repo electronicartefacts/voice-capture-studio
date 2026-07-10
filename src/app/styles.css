@@ -322,9 +322,17 @@ textarea:focus-visible {
 .instrument-face {
   align-content: center;
   display: grid;
-  gap: 26px;
+  /* The tightest gap in this rhythm: the base value ties the dial straight
+     to its own label. .instrument-trigger and .instrument-line add their
+     own margin-top on top of this to open the two wider gaps below. */
+  gap: 10px;
   justify-items: center;
-  min-height: min(74vh, 640px);
+  /* A floor for short/landscape viewports, deliberately uncapped above it:
+     the front panel must stay the dominant mass at every real height in the
+     support matrix (iPad and a 27" display both exceeded a fixed ceiling by
+     hundreds of pixels, pushing the whole composition into the top third of
+     the viewport instead of balancing on its center of gravity). */
+  min-height: max(74vh, 460px);
   padding-block: clamp(16px, 4vw, 32px);
   text-align: center;
 }
@@ -343,6 +351,10 @@ textarea:focus-visible {
 .instrument-trigger {
   display: grid;
   justify-items: center;
+  /* Combined with the 10px base gap: 18px between the label and the
+     button -- enough for the button to still read as its own object, not
+     so much that it stops reading as one dial-and-trigger complex. */
+  margin-top: 8px;
 }
 
 .instrument-line {
@@ -355,6 +367,10 @@ textarea:focus-visible {
 .instrument-face .instrument-line {
   font-size: clamp(19px, 2.8vw, 26px);
   max-width: 30ch;
+  /* Combined with the 10px base gap: 34px above the line -- a clear pause
+     separating the quiet caption from the control cluster above it. Needs
+     .instrument-face's specificity to win over .home-card h1's margin: 0. */
+  margin-top: 24px;
 }
 
 .home-workbench {
