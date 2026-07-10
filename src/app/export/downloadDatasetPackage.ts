@@ -1,5 +1,6 @@
 import type { DatasetPackagePlan } from "./datasetPackage";
-import { createZipBlob, type ZipEntryInput } from "./zipWriter";
+import { createZipBlobOffThread } from "./zipService";
+import type { ZipEntryInput } from "./zipWriter";
 
 export type DatasetZipResult = {
   readonly blob: Blob;
@@ -36,7 +37,7 @@ export async function createDatasetZip(input: {
   }
 
   return {
-    blob: await createZipBlob(entries),
+    blob: await createZipBlobOffThread(entries),
     missingAudioFiles: Array.from(new Set(missingAudioFiles)),
     writtenFiles: entries.length,
   };
