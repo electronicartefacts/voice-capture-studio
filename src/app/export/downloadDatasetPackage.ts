@@ -1,4 +1,3 @@
-import type { Result } from "@shared/index";
 import type { DatasetPackagePlan } from "./datasetPackage";
 import { createZipBlob, type ZipEntryInput } from "./zipWriter";
 
@@ -42,11 +41,6 @@ export async function createDatasetZip(input: {
     writtenFiles: entries.length,
   };
 }
-
-export type DatasetFolderSaveResult = Result<
-  { readonly target: "folder"; readonly writtenFiles: number },
-  "folder-unavailable" | "folder-save-failed"
->;
 
 function jsonBlob(value: unknown): Blob {
   return new Blob([JSON.stringify(value, null, 2)], {

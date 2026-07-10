@@ -16,6 +16,7 @@ type DirectoryHandle = {
       close: () => Promise<void>;
       write: (data: Blob) => Promise<void>;
     }>;
+    getFile?: () => Promise<Blob>;
   }>;
   queryPermission?: (descriptor?: {
     readonly mode?: "read" | "readwrite";
@@ -430,7 +431,11 @@ export async function saveDatasetPackageToWorkspaceFolder(input: {
   readonly readme: string;
 }): Promise<
   Result<
-    { readonly target: "folder"; readonly writtenFiles: number },
+    {
+      readonly target: "folder";
+      readonly writtenFiles: number;
+      readonly missingAudioFiles: readonly string[];
+    },
     "folder-unavailable" | "folder-save-failed"
   >
 > {
@@ -455,6 +460,7 @@ export async function saveDatasetPackageToWorkspaceFolder(input: {
   try {
     const datasetDirectory = await ensureDirectory(handle, "dataset");
     let writtenFiles = 0;
+    const missingAudioFiles: string[] = [];
 
     await writeBlob(datasetDirectory, "README.md", textBlob(input.readme));
     writtenFiles++;
@@ -473,6 +479,7 @@ export async function saveDatasetPackageToWorkspaceFolder(input: {
       const blob = await input.getAudioBlob(file.sourceFileName);
 
       if (blob === undefined) {
+        missingAudioFiles.push(file.sourceFileName);
         continue;
       }
 
@@ -482,7 +489,11 @@ export async function saveDatasetPackageToWorkspaceFolder(input: {
 
     return {
       ok: true,
-      value: { target: "folder", writtenFiles },
+      value: {
+        target: "folder",
+        writtenFiles,
+        missingAudioFiles: Array.from(new Set(missingAudioFiles)),
+      },
     };
   } catch {
     return {
@@ -615,6 +626,40 @@ export async function getBrowserRecording(
   }
 }
 
+export async function getWorkspaceRecording(
+  fileName: string,
+): Promise<Blob | undefined> {
+  const browserRecording = await getBrowserRecording(fileName);
+
+  if (browserRecording !== undefined) {
+    return browserRecording;
+  }
+
+  const handle = await readDirectoryHandle();
+
+  if (
+    handle?.getDirectoryHandle === undefined ||
+    handle.getFileHandle === undefined ||
+    !(await requestPermission(handle, "read"))
+  ) {
+    return undefined;
+  }
+
+  try {
+    const takesDirectory = await handle.getDirectoryHandle("takes");
+
+    if (takesDirectory.getFileHandle === undefined) {
+      return undefined;
+    }
+
+    const fileHandle = await takesDirectory.getFileHandle(fileName);
+
+    return await fileHandle.getFile?.();
+  } catch {
+    return undefined;
+  }
+}
+
 async function saveDirectoryHandle(handle: DirectoryHandle): Promise<void> {
   inMemoryDirectoryHandle = handle;
   let database: IDBDatabase;
@@ -670,7 +715,14 @@ async function writeBlob(
 async function requestReadWritePermission(
   handle: DirectoryHandle,
 ): Promise<boolean> {
-  const descriptor = { mode: "readwrite" as const };
+  return requestPermission(handle, "readwrite");
+}
+
+async function requestPermission(
+  handle: DirectoryHandle,
+  mode: "read" | "readwrite",
+): Promise<boolean> {
+  const descriptor = { mode };
 
   try {
     if (

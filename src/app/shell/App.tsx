@@ -111,7 +111,7 @@ import { createBrowserWorkspaceRepository } from "../storage/browserWorkspaceRep
 import {
   canChooseSystemFolder,
   chooseWorkspaceFolder,
-  getBrowserRecording,
+  getWorkspaceRecording,
   getRememberedFolderName,
   listBrowserRecordings,
   saveDatasetPackageToWorkspaceFolder,
@@ -972,7 +972,7 @@ export function App() {
       }
 
       const zip = await createDatasetZip({
-        getAudioBlob: getBrowserRecording,
+        getAudioBlob: getWorkspaceRecording,
         plan,
       });
 
@@ -1025,7 +1025,7 @@ export function App() {
       }
 
       const result = await saveDatasetPackageToWorkspaceFolder({
-        getAudioBlob: getBrowserRecording,
+        getAudioBlob: getWorkspaceRecording,
         jsonFiles: plan.jsonFiles,
         textFiles: plan.textFiles,
         audioFiles: plan.audioFiles,
@@ -1040,7 +1040,7 @@ export function App() {
       setDatasetExportState({
         status: "done",
         keeperCount: plan.keeperCount,
-        missingAudioFiles: [],
+        missingAudioFiles: result.value.missingAudioFiles,
       });
     } catch (error) {
       setDatasetExportState({
@@ -5477,7 +5477,7 @@ function TechnicalPage(input: {
             {input.datasetExportState.keeperCount} prise(s) gardée(s)
             incluse(s).
             {input.datasetExportState.missingAudioFiles.length > 0
-              ? ` ${input.datasetExportState.missingAudioFiles.length} fichier(s) audio introuvable(s) dans le cache navigateur.`
+              ? ` ${input.datasetExportState.missingAudioFiles.length} fichier(s) audio introuvable(s) dans le stockage local.`
               : ""}
           </p>
         )}

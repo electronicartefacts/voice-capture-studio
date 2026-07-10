@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createDatasetPackagePlan } from "../src/app/export/datasetPackage";
+import { createDatasetZip } from "../src/app/export/downloadDatasetPackage";
 import { canonicalCorpus, type PromptDefinition } from "../src/domains/corpus";
 import { alignPromptToPhonemes } from "../src/domains/phonetics";
 import { initialSpeakers } from "../src/domains/speakers";
@@ -59,8 +60,12 @@ test("dataset package plan includes only keeper takes and covers the documented 
   assert.equal(plan.keeperCount, 1);
 
   const keeperTakeId = completedSession.takes[0].id;
-  const rawPaths = plan.audioFiles.map((file) => file.path);
-  const processedPaths = plan.audioFiles.map((file) => file.path);
+  const rawPaths = plan.audioFiles
+    .filter((file) => file.path.startsWith("raw/"))
+    .map((file) => file.path);
+  const processedPaths = plan.audioFiles
+    .filter((file) => file.path.startsWith("processed/"))
+    .map((file) => file.path);
 
   assert.ok(rawPaths.includes(`raw/${keeperTakeId}.wav`));
   assert.ok(processedPaths.includes(`processed/${keeperTakeId}.wav`));
@@ -107,6 +112,30 @@ test("dataset package plan includes only keeper takes and covers the documented 
     ),
   );
   assert.match(plan.readme, /Keeper takes: 1 \/ 2/);
+});
+
+test("dataset zip reports each missing source audio file once", async () => {
+  const result = await createDatasetZip({
+    getAudioBlob: async () => undefined,
+    plan: {
+      readme: "dataset",
+      jsonFiles: [],
+      textFiles: [],
+      audioFiles: [
+        { path: "raw/take.wav", sourceFileName: "take.wav" },
+        { path: "processed/take.wav", sourceFileName: "take.wav" },
+      ],
+      takeCount: 1,
+      keeperCount: 1,
+    },
+  });
+
+  assert.deepEqual(result.missingAudioFiles, ["take.wav"]);
+  assert.equal(
+    result.writtenFiles,
+    1,
+    "README remains explicit in the archive",
+  );
 });
 
 function findPrompt(
