@@ -252,6 +252,31 @@ handheld device doubles as physical excitation of the device's own
 microphone. Silence and stillness are correct for an instrument whose sensor
 and body share one enclosure with the target.
 
+## 2026-07-10 microphone awakening
+
+Two moments in the opening ritual were flattened into instant state
+switches: `studioAwake` going false→true, and the underlying browser
+permission decision it depends on. Both now have a distinct, honest motion
+signature instead of sharing the app's generic transition tokens.
+
+`ritual-button.is-requesting` (an actual CSS class now, not just a disabled
+attribute) grows a looping ring while the native permission dialog is open.
+Its duration is deliberately indeterminate — a determinate progress bar would
+promise an end time the user's own decision doesn't have. `prefers-reduced-
+motion` already forces every animation to a single 1 ms frame globally, so
+this degrades for free.
+
+`.ambient-backdrop.is-awake .voice-halo` layers a second, one-shot
+`halo-ignite` animation alongside the permanent `halo-drift` orbit: the halo
+comes into blur from a sharp point rather than simply fading up at its
+resting blur radius. It deliberately does not use a `both`/`forwards` fill
+mode — after 1.4 s it falls back to the halo's ordinary audio-reactive
+`opacity`/`filter` declarations rather than freezing on the keyframe's last
+value, so the ignition never fights the live signal it hands off to.
+Verified end to end with a real (fake-device) browser run: `is-idle` →
+click → `is-requesting` → `main.is-awake` with `halo-drift, halo-ignite`
+both present on the computed style, backdrop settling to full opacity.
+
 ## UX, responsive behavior, and motion
 
 The main interaction path is intentional: explicit permission, room-tone

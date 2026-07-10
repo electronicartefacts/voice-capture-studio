@@ -58,7 +58,7 @@ export function OpeningRitual(input: {
       <div>
         <h1>Bienvenue dans Voice Capture Studio.</h1>
         <button
-          className="ritual-button"
+          className={`ritual-button is-${input.status}`}
           disabled={input.status === "requesting"}
           onClick={input.onAwaken}
           type="button"
