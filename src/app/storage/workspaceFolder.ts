@@ -1,11 +1,14 @@
 import type { Result } from "@shared/index";
 import {
   FOLDER_STORE_NAME,
-  RECORDINGS_STORE_NAME,
   openDatabase,
   requestResult,
   transactionDone,
 } from "./indexedDb";
+import {
+  getBrowserRecording,
+  saveRecordingToBrowserStorage,
+} from "./browserRecordingStorage";
 import { sha256Blob } from "./sha256";
 
 type DirectoryHandle = {
@@ -45,12 +48,6 @@ const FALLBACK_FOLDER_NAME = "Stockage du navigateur";
 let inMemoryDirectoryHandle: DirectoryHandle | null = null;
 
 export type RecordingSaveTarget = "browser" | "browser-and-folder" | "folder";
-
-export type StoredRecording = {
-  readonly blob: Blob;
-  readonly fileName: string;
-  readonly savedAt: string;
-};
 
 export function getRememberedFolderName(): string | null {
   try {
@@ -638,87 +635,6 @@ type VoiceCaptureReportsJson = {
   readonly prosodyDistribution: unknown;
   readonly datasetReadiness: unknown;
 };
-
-export async function saveRecordingToBrowserStorage(
-  fileName: string,
-  audioBlob: Blob,
-): Promise<void> {
-  const database = await openDatabase();
-
-  try {
-    const transaction = database.transaction(
-      RECORDINGS_STORE_NAME,
-      "readwrite",
-    );
-    const store = transaction.objectStore(RECORDINGS_STORE_NAME);
-    const existing = await requestResult<StoredRecording | undefined>(
-      store.get(fileName),
-    );
-    if (existing !== undefined) {
-      throw new Error(
-        `Recording ${fileName} already exists and will not be replaced.`,
-      );
-    }
-    store.put(
-      {
-        fileName,
-        blob: audioBlob,
-        savedAt: new Date().toISOString(),
-      },
-      fileName,
-    );
-
-    await transactionDone(transaction);
-  } finally {
-    database.close();
-  }
-}
-
-export async function listBrowserRecordings(): Promise<
-  readonly StoredRecording[]
-> {
-  const database = await openDatabase();
-
-  try {
-    const transaction = database.transaction(RECORDINGS_STORE_NAME, "readonly");
-    const request = transaction.objectStore(RECORDINGS_STORE_NAME).getAll();
-    const recordings = await requestResult<StoredRecording[]>(request);
-
-    await transactionDone(transaction);
-
-    return recordings.sort((left, right) =>
-      right.savedAt.localeCompare(left.savedAt),
-    );
-  } finally {
-    database.close();
-  }
-}
-
-export async function getBrowserRecording(
-  fileName: string,
-): Promise<Blob | undefined> {
-  let database: IDBDatabase;
-
-  try {
-    database = await openDatabase();
-  } catch {
-    return undefined;
-  }
-
-  try {
-    const transaction = database.transaction(RECORDINGS_STORE_NAME, "readonly");
-    const request = transaction
-      .objectStore(RECORDINGS_STORE_NAME)
-      .get(fileName);
-    const recording = await requestResult<StoredRecording | undefined>(request);
-
-    await transactionDone(transaction);
-
-    return recording?.blob;
-  } finally {
-    database.close();
-  }
-}
 
 export async function getWorkspaceRecording(
   fileName: string,

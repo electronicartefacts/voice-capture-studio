@@ -2,6 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import "fake-indexeddb/auto";
 import { createBrowserWorkspaceRepository } from "../src/app/storage/browserWorkspaceRepository";
+import {
+  getBrowserRecording,
+  saveRecordingToBrowserStorage,
+  saveRecordingsToBrowserStorage,
+} from "../src/app/storage/browserRecordingStorage";
 import { canonicalCorpus } from "../src/domains/corpus";
 import { initialSpeakers } from "../src/domains/speakers";
 import { createEmptyWorkspace } from "../src/domains/workspace";
@@ -111,6 +116,24 @@ test("workspace repository migrates a legacy localStorage workspace to IndexedDB
   assert.equal(
     migratedResult.value.workspace.workspaceId,
     workspace.workspaceId,
+  );
+});
+
+test("recording archive import is atomic when a file name already exists", async () => {
+  await resetIndexedDb();
+  await saveRecordingToBrowserStorage("existing.wav", new Blob(["existing"]));
+
+  await assert.rejects(() =>
+    saveRecordingsToBrowserStorage([
+      { fileName: "new.wav", blob: new Blob(["new"]) },
+      { fileName: "existing.wav", blob: new Blob(["replacement"]) },
+    ]),
+  );
+
+  assert.equal(await getBrowserRecording("new.wav"), undefined);
+  assert.equal(
+    await getBrowserRecording("existing.wav")?.then((blob) => blob?.text()),
+    "existing",
   );
 });
 

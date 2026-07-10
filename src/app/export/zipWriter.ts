@@ -203,7 +203,7 @@ function getCrcTable(): Uint32Array {
   return table;
 }
 
-function crc32(bytes: Uint8Array): number {
+export function crc32(bytes: Uint8Array): number {
   const table = getCrcTable();
   let crc = 0xffffffff;
 

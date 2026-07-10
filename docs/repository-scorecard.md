@@ -27,20 +27,20 @@ dimensions.
 | Responsive behavior           |      4 |     96 |      96 | Mobile, tablet, landscape and desktop profiles are verified without horizontal overflow.                                                               |
 | Browser compatibility         |      4 |     95 |      95 | Chromium, Firefox and WebKit layout checks pass; complete microphone capture remains Chromium-automated.                                               |
 | PWA and offline resilience    |      3 |     90 |      95 | The installed shell now proves a complete offline restart and refuses invalid module fallbacks.                                                        |
-| Performance                   |      6 |     91 |      93 | Initial budgets are 170 KiB gzip for JavaScript and 16 KiB for CSS; current values are 155.9 and 14.1 KiB. Field and low-end-device profiles remain.   |
+| Performance                   |      6 |     91 |      93 | Initial budgets are 170 KiB gzip for JavaScript and 16 KiB for CSS; current values are 158.3 and 14.8 KiB. Archive verification loads only on demand.  |
 | Audio capture fidelity        |      7 |     95 |      95 | PCM WAV, adaptive VAD, loudness, clipping, pitch, room tone and provenance are covered; a hardware lab matrix remains.                                 |
 | Local Whisper and VAD         |      4 |     88 |      97 | The full on-device model flow passes locally and is scheduled weekly in CI. More representative speech fixtures remain.                                |
 | Corpus quality                |      3 |     95 |      95 | Stable IDs, bilingual balance, capture gates and local corpus parsing are tested.                                                                      |
 | Dataset and export contracts  |      6 |     97 |      97 | Forge package integrity, rights gates, relations, checksums and missing-audio failures are tested.                                                     |
-| Data integrity and provenance |      5 |     96 |      96 | Keeper-only projections, immutable hashes and capture provenance are enforced.                                                                         |
-| Persistence and recovery      |      5 |     91 |      91 | IndexedDB, folder and download fallbacks are strong; a restorable archive containing metadata and audio is still missing.                              |
+| Data integrity and provenance |      5 |     96 |      97 | Keeper-only projections, immutable hashes, capture provenance and archive CRC/SHA/WAV verification are enforced.                                       |
+| Persistence and recovery      |      5 |     91 |      98 | A versioned archive restores workspace metadata and every referenced WAV through collision-safe, atomic browser storage. Recovery drills remain.       |
 | Privacy                       |      5 |     96 |      96 | Capture and model inference are local; optional browser speech recognition is identified separately.                                                   |
 | Application security          |      4 |     82 |      92 | CSP, restricted object/base/form sources, referrer policy and private reporting are present; HTTP response headers require a host with header control. |
 | Supply-chain health           |      3 |     80 |      93 | Zero known npm vulnerabilities, CI audit, lockfile and Dependabot for npm and Actions. Provenance attestations and SBOM publication remain.            |
 | Architecture                  |      5 |     88 |      88 | Domain boundaries are clear, but the app orchestrator and several UI modules are oversized.                                                            |
 | Static code quality           |      4 |     92 |      92 | Strict TypeScript, lint and formatting are release gates.                                                                                              |
 | Maintainability               |      4 |     84 |      84 | `App.tsx`, `styles.css`, workspace folder storage and large screens need staged decomposition.                                                         |
-| Automated testing             |      6 |     91 |      98 | 101 unit tests, enforced 91.78/82.08/90.60 line/branch/function coverage, 29 regular browser scenarios, and the heavy model flow pass.                 |
+| Automated testing             |      6 |     91 |      99 | Archive corruption, missing audio, future versions, atomic conflicts and a clear/restore/reload browser flow join the existing model checks.           |
 | CI/CD                         |      4 |     88 |      97 | Multi-engine CI, dependency audit, concurrency, timeouts, traces on failure and scheduled model inference are configured.                              |
 | Diagnostics and operability   |      2 |     85 |      85 | Runtime capability and frame-pacing diagnostics are local; there is no exportable support bundle or privacy-safe field profile.                        |
 | Documentation and onboarding  |      3 |     91 |      94 | Architecture, capture, dataset, rights, platform and this scorecard are documented.                                                                    |
@@ -50,7 +50,7 @@ dimensions.
 | Release engineering           |      2 |     78 |      78 | Build and Pages deployment are automated, but tags, immutable release archives, SBOM and provenance are not.                                           |
 | Deployment reliability        |      2 |     93 |      93 | Static HTTPS deployment, base-path tests, PWA checks and build gates are strong; header control and rollback rehearsal remain.                         |
 
-**Weighted score: 90.8 → 93.4 / 100.**
+**Weighted score: 90.8 → 93.8 / 100.**
 
 ## Changes made in this audit
 
@@ -63,16 +63,17 @@ dimensions.
 - Added full dependency auditing, Dependabot updates, bounded CI execution and
   trace retention on failures.
 - Added a scheduled and manually triggerable end-to-end Whisper/VAD job.
+- Added a complete, self-verifying workspace archive with audio restoration and
+  non-overwriting IndexedDB import.
 - Preserved the existing bundle budgets and multi-engine layout matrix.
 
 ## Path to the maximum level
 
 ### Priority 0 — closes correctness and recovery gaps
 
-1. **Restorable workspace archive.** Define a versioned archive that contains
-   workspace metadata, every referenced WAV, hashes and a verified import
-   transaction. Restore into a clean profile and reject partial or future
-   schemas atomically.
+1. **Archive migrations and recovery drills.** Add explicit migrations when the
+   archive or workspace schemas evolve, exercise large multi-session archives,
+   and rehearse cross-device recovery plus rollback from a tagged release.
 2. **Real-device audio lab.** Maintain measured fixtures for iPhone Safari,
    Android Chrome, macOS Safari, Windows Edge, USB interfaces, Bluetooth input
    and interrupted/backgrounded captures. Record sample-rate negotiation,

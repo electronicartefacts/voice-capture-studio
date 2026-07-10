@@ -62,13 +62,17 @@ import {
   type VoiceCapturePackageScope,
 } from "../export/voiceCapturePackage";
 import { createBrowserWorkspaceRepository } from "../storage/browserWorkspaceRepository";
+import {
+  getBrowserRecording,
+  listBrowserRecordings,
+  saveRecordingsToBrowserStorage,
+} from "../storage/browserRecordingStorage";
 import { sha256Blob } from "../storage/sha256";
 import {
   canChooseSystemFolder,
   chooseWorkspaceFolder,
   getWorkspaceRecording,
   getRememberedFolderName,
-  listBrowserRecordings,
   saveVoiceCapturePackageToWorkspaceFolder,
   saveRecordingToWorkspaceFolder,
   saveTakeMetadataToWorkspaceFolder,
@@ -328,6 +332,7 @@ export function App() {
   const backingTrackUrlRef = useRef<string | null>(null);
   const storedRecordingUrlsRef = useRef<readonly string[]>([]);
   const datasetZipUrlRef = useRef<string | null>(null);
+  const workspaceArchiveUrlRef = useRef<string | null>(null);
   const ambientMonitorRef = useRef<AmbientMicrophoneMonitor | null>(null);
   const isPersistingRef = useRef(false);
   const roomToneCaptureTimerRef = useRef<number | null>(null);
@@ -610,6 +615,7 @@ export function App() {
       revokeObjectUrl(workspaceBackupUrlRef.current);
       revokeObjectUrl(backingTrackUrlRef.current);
       revokeObjectUrl(datasetZipUrlRef.current);
+      revokeObjectUrl(workspaceArchiveUrlRef.current);
       revokeStoredRecordingUrls();
     };
   }, []);
@@ -976,6 +982,74 @@ export function App() {
             : "Le dataset n'a pas pu être généré.",
       });
     }
+  }
+
+  async function downloadWorkspaceArchive(): Promise<number> {
+    const { createWorkspaceArchive } =
+      await import("../storage/workspaceArchive");
+    const currentWorkspace = await ensureWorkspace();
+    const archive = await createWorkspaceArchive({
+      workspace: currentWorkspace,
+      getAudioBlob: getWorkspaceRecording,
+      now: new Date(),
+    });
+
+    revokeObjectUrl(workspaceArchiveUrlRef.current);
+    const url = URL.createObjectURL(archive.blob);
+    workspaceArchiveUrlRef.current = url;
+
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = archive.fileName;
+    anchor.click();
+
+    setMessage(
+      `Archive complète prête avec ${archive.recordingCount} WAV vérifié${archive.recordingCount > 1 ? "s" : ""}.`,
+    );
+    return archive.recordingCount;
+  }
+
+  async function importWorkspaceArchive(file: File): Promise<number> {
+    const { readWorkspaceArchive } =
+      await import("../storage/workspaceArchive");
+    const restored = await readWorkspaceArchive(file);
+    const recordingsToAdd: {
+      readonly fileName: string;
+      readonly blob: Blob;
+    }[] = [];
+
+    for (const recording of restored.recordings) {
+      const existing = await getBrowserRecording(recording.fileName);
+      if (existing === undefined) {
+        recordingsToAdd.push(recording);
+        continue;
+      }
+
+      const existingHash = await sha256Blob(existing);
+      if (existingHash !== recording.sha256) {
+        throw new Error(
+          `Un WAV différent utilise déjà le nom ${recording.fileName}; restauration annulée.`,
+        );
+      }
+    }
+
+    await saveRecordingsToBrowserStorage(recordingsToAdd);
+    const saveResult = await workspaceRepository.save(restored.workspace);
+    if (!saveResult.ok) {
+      throw new Error(saveResult.message);
+    }
+
+    hasRestoredLocalCorpusRef.current = false;
+    applyWorkspaceReceipt(saveResult.value);
+    setSession(null);
+    setCurrentPromptIndex(0);
+    resetTakeOutputState();
+    await refreshStoredRecordings();
+    setMessage(
+      `Workspace restauré avec ${restored.recordings.length} WAV vérifié${restored.recordings.length > 1 ? "s" : ""}.`,
+    );
+
+    return restored.recordings.length;
   }
 
   async function writeDatasetPackageToFolder() {
@@ -2708,7 +2782,9 @@ export function App() {
               microphoneLabel={microphoneLabel}
               onBack={() => setScreen("home")}
               onDownloadDataset={downloadDatasetPackage}
+              onDownloadWorkspaceArchive={downloadWorkspaceArchive}
               onImportForcedAlignment={loadForcedAlignmentFile}
+              onImportWorkspaceArchive={importWorkspaceArchive}
               onInputSensitivityChange={updateInputSensitivity}
               onClearCachedModels={() => void clearCachedModels()}
               onWriteDatasetToFolder={writeDatasetPackageToFolder}

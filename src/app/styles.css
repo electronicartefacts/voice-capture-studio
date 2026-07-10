@@ -4261,10 +4261,29 @@ body,
   font-size: 0.85rem;
 }
 
+.workspace-archive-actions {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(180px, 1fr));
+}
+
+.workspace-archive-actions .quiet-button,
+.workspace-archive-actions .folder-button {
+  min-height: 42px;
+}
+
+.workspace-archive-panel .archive-status-error {
+  color: var(--accent-c);
+}
+
 @media (max-width: 720px) {
   .forced-alignment-panel {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .workspace-archive-actions {
+    grid-template-columns: 1fr;
   }
 }
 

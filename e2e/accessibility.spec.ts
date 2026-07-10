@@ -56,3 +56,13 @@ test("active studio meets the automated WCAG A and AA baseline", async ({
   await expect(page.locator("main.screen-home")).toBeVisible();
   await expectNoSeriousAccessibilityViolations(page);
 });
+
+test("quality and archive controls meet the automated WCAG A and AA baseline", async ({
+  page,
+}) => {
+  await enterStudio(page);
+  await page.getByRole("button", { name: "Qualité et exports" }).click();
+
+  await expect(page.getByTestId("workspace-archive")).toBeVisible();
+  await expectNoSeriousAccessibilityViolations(page);
+});

@@ -91,3 +91,34 @@ Workspace rules:
 4. Keep migrations explicit whenever `schemaVersion` changes.
 5. Store complete session metadata locally so a take can be reviewed without reopening the corpus.
 6. Keep capture profile data with the workspace and copy it into Forge session metadata.
+
+## Restorable archive
+
+The technical page exports `voice-capture-studio.*.workspace.zip` as the
+portable recovery unit:
+
+```text
+manifest.json
+audio/<sha256>.wav
+audio/<sha256>.wav
+...
+```
+
+The manifest stores the complete workspace plus a mapping from every referenced
+recording file name to its content-addressed WAV. Export aborts if any referenced
+audio is missing, malformed, or inconsistent with its stored media identity.
+
+Import is intentionally strict:
+
+1. ZIP paths, sizes, entry count and CRC32 values are checked before use.
+2. The archive format and workspace schema must be supported.
+3. Every workspace audio reference must have exactly one manifest mapping.
+4. Every WAV must be canonical mono 48 kHz / 24-bit PCM and match its SHA-256.
+5. Existing browser recordings are reused only when their hash matches; a name
+   collision with different bytes cancels the restore.
+6. New WAVs are added in one IndexedDB transaction before the restored workspace
+   is saved, so progress can never point at a partially imported batch.
+
+The smaller JSON backup remains an emergency metadata-only download for
+memory-only browser sessions. The ZIP archive is the complete cross-profile
+backup because it includes the audio itself.

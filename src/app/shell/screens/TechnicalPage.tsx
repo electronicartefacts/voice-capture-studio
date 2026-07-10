@@ -1,4 +1,4 @@
-import { useRef, type CSSProperties, type ChangeEvent } from "react";
+import { useRef, useState, type CSSProperties, type ChangeEvent } from "react";
 import {
   ArrowLeft,
   Database,
@@ -118,7 +118,9 @@ export function TechnicalPage(input: {
   readonly onBack: () => void;
   readonly onClearCachedModels: () => void;
   readonly onDownloadDataset: () => void;
+  readonly onDownloadWorkspaceArchive: () => Promise<number>;
   readonly onImportForcedAlignment: (file: File) => void;
+  readonly onImportWorkspaceArchive: (file: File) => Promise<number>;
   readonly onInputSensitivityChange: (value: number) => void;
   readonly onWriteDatasetToFolder: () => void;
   readonly recordings: readonly DownloadableRecording[];
@@ -259,6 +261,10 @@ export function TechnicalPage(input: {
       <p className="technical-note">
         Rien n'est envoyé en ligne. Les prises restent sur cet appareil.
       </p>
+      <WorkspaceArchivePanel
+        onDownload={input.onDownloadWorkspaceArchive}
+        onImport={input.onImportWorkspaceArchive}
+      />
       <section className="forced-alignment-panel">
         <div>
           <p className="soft-label">Modèles d'analyse</p>
@@ -376,6 +382,119 @@ export function TechnicalPage(input: {
   );
 }
 
+function WorkspaceArchivePanel(input: {
+  readonly onDownload: () => Promise<number>;
+  readonly onImport: (file: File) => Promise<number>;
+}) {
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [state, setState] = useState<
+    | { readonly status: "idle" | "working" }
+    | { readonly status: "done" | "error"; readonly message: string }
+  >({ status: "idle" });
+
+  async function downloadArchive() {
+    setState({ status: "working" });
+    try {
+      const recordingCount = await input.onDownload();
+      setState({
+        status: "done",
+        message: `Archive prête : ${recordingCount} WAV vérifié${recordingCount > 1 ? "s" : ""}.`,
+      });
+    } catch (error) {
+      setState({
+        status: "error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Impossible de créer l'archive du workspace.",
+      });
+    }
+  }
+
+  async function importArchive(file: File) {
+    setState({ status: "working" });
+    try {
+      const recordingCount = await input.onImport(file);
+      setState({
+        status: "done",
+        message: `Workspace restauré avec ${recordingCount} WAV vérifié${recordingCount > 1 ? "s" : ""}.`,
+      });
+    } catch (error) {
+      setState({
+        status: "error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Impossible de restaurer cette archive.",
+      });
+    }
+  }
+
+  function handleFileSelection(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = "";
+
+    if (file !== undefined) {
+      void importArchive(file);
+    }
+  }
+
+  const isWorking = state.status === "working";
+
+  return (
+    <section
+      className="forced-alignment-panel workspace-archive-panel"
+      data-testid="workspace-archive"
+    >
+      <div>
+        <p className="soft-label">Sauvegarde complète</p>
+        <strong>Workspace et WAV vérifiés</strong>
+        <span>
+          Exporte ou restaure la progression avec tous les fichiers audio
+          référencés. Aucun fichier existant n'est remplacé.
+        </span>
+        {(state.status === "done" || state.status === "error") && (
+          <span
+            className={state.status === "error" ? "archive-status-error" : ""}
+            role={state.status === "error" ? "alert" : "status"}
+          >
+            {state.message}
+          </span>
+        )}
+      </div>
+      <div className="workspace-archive-actions">
+        <button
+          className="folder-button compact"
+          disabled={isWorking}
+          onClick={() => void downloadArchive()}
+          type="button"
+        >
+          <Download aria-hidden="true" size={17} />
+          <span>{isWorking ? "Vérification…" : "Exporter l'archive"}</span>
+        </button>
+        <button
+          className="quiet-button"
+          disabled={isWorking}
+          onClick={() => fileInputRef.current?.click()}
+          type="button"
+        >
+          <Upload aria-hidden="true" size={17} />
+          <span>Restaurer une archive</span>
+        </button>
+      </div>
+      <input
+        accept=".zip,application/zip"
+        aria-label="Archive complète du workspace à restaurer"
+        className="sr-only"
+        data-testid="workspace-archive-input"
+        onChange={handleFileSelection}
+        ref={fileInputRef}
+        type="file"
+      />
+    </section>
+  );
+}
+
 export function ForcedAlignmentImport(input: {
   readonly onFile: (file: File) => void;
 }) {
@@ -409,6 +528,7 @@ export function ForcedAlignmentImport(input: {
       </button>
       <input
         accept=".json,application/json"
+        aria-label="Fichier JSON d'alignement acoustique à importer"
         className="sr-only"
         onChange={handleFileSelection}
         ref={fileInputRef}

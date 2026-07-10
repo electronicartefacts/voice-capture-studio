@@ -21,6 +21,8 @@ open-source foundation for privacy-preserving voice capture workflows.
   handoff metadata.
 - Keeper/review/reject flow so coverage only advances on accepted material.
 - Browser-private workspace storage with explicit downloads and folder export where supported.
+- Verified workspace archives that restore progression and every referenced WAV without overwriting
+  existing audio.
 - Static GitHub Pages deployment with PWA manifest and service worker support.
 - Domain-oriented TypeScript architecture with unit coverage for corpus, workspace, recording, and
   export behavior.
@@ -153,8 +155,7 @@ HTTPS, which GitHub Pages provides.
 
 ## Roadmap
 
-- Workspace restore/import for downloaded backups.
-- Explicit workspace schema migration pipeline.
+- Explicit workspace/archive schema migration pipeline and recovery drills.
 - Corpus tombstone support for long-lived compatibility.
 - Stronger File System Access first-run flow where supported.
 - More export targets once the `voice.capture_session` contract stabilizes.

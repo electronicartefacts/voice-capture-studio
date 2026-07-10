@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { readStoredZipEntries } from "../src/app/export/zipReader";
 import { createZipBlob } from "../src/app/export/zipWriter";
 
 test("zip writer produces an archive readable by a standard unzip tool", async () => {
@@ -35,6 +36,35 @@ test("zip writer produces an archive readable by a standard unzip tool", async (
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
+});
+
+test("zip reader verifies and restores every stored entry", async () => {
+  const archive = await createZipBlob([
+    { path: "manifest.json", data: new Blob(["manifest"]) },
+    { path: "audio/hash.wav", data: new Blob([new Uint8Array([1, 2, 3])]) },
+  ]);
+  const entries = await readStoredZipEntries(archive);
+
+  assert.deepEqual([...entries.keys()], ["manifest.json", "audio/hash.wav"]);
+  assert.equal(await entries.get("manifest.json")?.text(), "manifest");
+  assert.deepEqual(
+    new Uint8Array(await entries.get("audio/hash.wav")!.arrayBuffer()),
+    new Uint8Array([1, 2, 3]),
+  );
+});
+
+test("zip reader rejects bytes that no longer match the stored checksum", async () => {
+  const archive = await createZipBlob([
+    { path: "manifest.json", data: new Blob(["manifest"]) },
+  ]);
+  const bytes = new Uint8Array(await archive.arrayBuffer());
+
+  bytes[30 + "manifest.json".length] ^= 0xff;
+
+  await assert.rejects(
+    () => readStoredZipEntries(new Blob([bytes])),
+    /checksum mismatch/,
+  );
 });
 
 test("zip writer preserves multiple nested entries and byte-for-byte content", async () => {
