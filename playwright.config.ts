@@ -70,6 +70,22 @@ export default defineConfig({
         },
       },
     },
+    {
+      name: "firefox-layout",
+      testMatch: "e2e/cross-engine-layout.spec.ts",
+      use: {
+        ...devices["Desktop Firefox"],
+        permissions: [],
+      },
+    },
+    {
+      name: "webkit-layout",
+      testMatch: "e2e/cross-engine-layout.spec.ts",
+      use: {
+        ...devices["Desktop Safari"],
+        permissions: [],
+      },
+    },
   ],
   webServer: localPreviewServer,
 });

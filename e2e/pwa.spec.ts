@@ -12,7 +12,15 @@ test("offline service worker never serves the app shell as a missing module", as
     return navigator.serviceWorker.controller !== null;
   });
 
+  // Reload once under service-worker control so the app shell and its module
+  // graph have both passed through the runtime cache before the offline boot.
+  await page.reload();
+  await expect(page.locator("main.screen-home")).toBeVisible();
+
   await context.setOffline(true);
+
+  await page.reload();
+  await expect(page.locator("main.screen-home")).toBeVisible();
 
   const assetResult = await page.evaluate(async () => {
     try {

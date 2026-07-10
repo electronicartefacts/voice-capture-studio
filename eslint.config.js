@@ -65,6 +65,7 @@ export default tseslint.config(
   {
     files: [
       "eslint.config.js",
+      "check-build-budget.mjs",
       "vite.config.ts",
       "playwright.config.ts",
       "tests/**/*.ts",
