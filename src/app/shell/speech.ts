@@ -16,6 +16,23 @@ export type SpeechRecognitionEventLike = {
     readonly [index: number]: SpeechRecognitionResultLike | undefined;
   };
 };
+
+export type FreeCaptureTranscript = {
+  readonly schemaVersion: "voice.free_transcript.v1";
+  /** Browser recognition is optional and may use a browser-managed service. */
+  readonly engine: "browser_speech_recognition" | "unavailable";
+  readonly status: "detected" | "no-final-words" | "unavailable";
+  /** Only final hypotheses are retained in a capture manifest. */
+  readonly text: string;
+  readonly wordCount: number;
+  readonly words: readonly DetectedSpeechWord[];
+};
+
+export type DetectedSpeechWord = {
+  readonly word: string;
+  readonly normalized: string;
+  readonly occurrence: number;
+};
 export type SpeechRecognitionLike = {
   continuous: boolean;
   interimResults: boolean;
@@ -43,18 +60,78 @@ export function formatSpeechRecognitionLanguage(
 export function extractSpeechRecognitionTranscript(
   event: SpeechRecognitionEventLike,
 ): string {
+  return extractSpeechRecognitionTranscriptByFinality(event, false);
+}
+
+/**
+ * Keeps transient browser hypotheses on screen, but never serializes them as
+ * capture evidence. Browsers resend prior final results with each event, so
+ * rebuilding this string from the full result list also avoids duplicates.
+ */
+export function extractFinalSpeechRecognitionTranscript(
+  event: SpeechRecognitionEventLike,
+): string {
+  return extractSpeechRecognitionTranscriptByFinality(event, true);
+}
+
+function extractSpeechRecognitionTranscriptByFinality(
+  event: SpeechRecognitionEventLike,
+  finalOnly: boolean,
+): string {
   const segments: string[] = [];
 
   for (let index = 0; index < event.results.length; index += 1) {
     const result = event.results[index];
     const transcript = result?.[0]?.transcript;
 
-    if (transcript !== undefined) {
+    if (transcript !== undefined && (!finalOnly || result?.isFinal === true)) {
       segments.push(transcript);
     }
   }
 
   return segments.join(" ").trim();
+}
+
+export function createFreeCaptureTranscript(input: {
+  readonly finalTranscript: string;
+  readonly recognitionAvailable: boolean;
+}): FreeCaptureTranscript {
+  const text = input.finalTranscript.trim();
+  const words = extractDetectedSpeechWords(text);
+
+  return {
+    schemaVersion: "voice.free_transcript.v1",
+    engine: input.recognitionAvailable
+      ? "browser_speech_recognition"
+      : "unavailable",
+    status: !input.recognitionAvailable
+      ? "unavailable"
+      : words.length > 0
+        ? "detected"
+        : "no-final-words",
+    text,
+    wordCount: words.length,
+    words,
+  };
+}
+
+export function extractDetectedSpeechWords(
+  transcript: string,
+): readonly DetectedSpeechWord[] {
+  const occurrences = new Map<string, number>();
+
+  return (
+    transcript.match(/[\p{Letter}\p{Number}][\p{Letter}\p{Number}'’-]*/gu) ?? []
+  )
+    .map((word) => ({ word, normalized: normalizeSpeechToken(word) }))
+    .filter((word) => word.normalized.length > 0)
+    .map((word) => {
+      const occurrence = (occurrences.get(word.normalized) ?? 0) + 1;
+
+      occurrences.set(word.normalized, occurrence);
+
+      return { ...word, occurrence };
+    });
 }
 
 export function alignTranscriptToPrompt(

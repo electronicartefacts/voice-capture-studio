@@ -104,10 +104,16 @@ export function KaraokeScreen(input: {
     input.words.length === 0
       ? 0
       : ((input.activeWordIndex + 1) / input.words.length) * 100;
+  const detectedWordCount = input.recognizedTranscript
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean).length;
   const guideLabel =
-    input.readingGuideMode === "speech-recognition"
-      ? "Suivi des mots"
-      : "Suivi vocal";
+    input.isFreeCapture && input.readingGuideMode === "speech-recognition"
+      ? `Mots · ${detectedWordCount}`
+      : input.readingGuideMode === "speech-recognition"
+        ? "Suivi des mots"
+        : "Suivi vocal";
   const alignmentPreview = useMemo(
     () =>
       input.prompt === undefined
@@ -208,25 +214,42 @@ export function KaraokeScreen(input: {
         {input.isFinalizing
           ? "Ne ferme pas l'onglet. Le WAV et les métadonnées sont en préparation."
           : input.isFreeCapture
-            ? `La capture est limitée à ${formatCaptureDurationLimit(FREE_CAPTURE_MAX_DURATION_MS)} pour préserver la mémoire de l'appareil.`
+            ? input.readingGuideMode === "speech-recognition"
+              ? `Les mots finalisés sont ajoutés au manifeste de cette prise. La capture reste limitée à ${formatCaptureDurationLimit(FREE_CAPTURE_MAX_DURATION_MS)}.`
+              : `La capture est limitée à ${formatCaptureDurationLimit(FREE_CAPTURE_MAX_DURATION_MS)} pour préserver la mémoire de l'appareil.`
             : "Lis naturellement. La prise se ferme automatiquement à la fin de la phrase."}
       </p>
-      {input.readingGuideMode === "speech-recognition" &&
+      {input.isFreeCapture && input.recognizedTranscript.trim().length > 0 && (
+        <div
+          aria-live="polite"
+          className="speech-follow-line"
+          data-testid="free-capture-words"
+        >
+          <span className="soft-label">
+            Mots détectés · {detectedWordCount}
+          </span>
+          <span>{createTranscriptPreview(input.recognizedTranscript)}</span>
+        </div>
+      )}
+      {!input.isFreeCapture &&
+        input.readingGuideMode === "speech-recognition" &&
         input.recognizedTranscript.trim().length > 0 && (
           <p className="speech-follow-line">
             {createTranscriptPreview(input.recognizedTranscript)}
           </p>
         )}
-      <div
-        className="read-progress"
-        aria-label="Progression de lecture"
-        aria-valuemax={100}
-        aria-valuemin={0}
-        aria-valuenow={Math.round(progress)}
-        role="progressbar"
-      >
-        <span style={{ width: formatPercent(progress) }} />
-      </div>
+      {!input.isFreeCapture && (
+        <div
+          className="read-progress"
+          aria-label="Progression de lecture"
+          aria-valuemax={100}
+          aria-valuemin={0}
+          aria-valuenow={Math.round(progress)}
+          role="progressbar"
+        >
+          <span style={{ width: formatPercent(progress) }} />
+        </div>
+      )}
     </div>
   );
 }

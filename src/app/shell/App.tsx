@@ -110,6 +110,8 @@ import {
 } from "./speakerProfiles";
 import {
   alignTranscriptToPrompt,
+  createFreeCaptureTranscript,
+  extractFinalSpeechRecognitionTranscript,
   estimateSpeechGuideDurationMs,
   extractSpeechRecognitionTranscript,
   formatSpeechRecognitionLanguage,
@@ -304,6 +306,8 @@ export function App() {
   const pcmRecorderRef = useRef<PcmRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const speechRecognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const recognizedFinalTranscriptRef = useRef("");
+  const freeSpeechRecognitionAvailableRef = useRef(false);
   const wakeLockRef = useRef<RecordingWakeLockSentinel | null>(null);
   const backingAudioRef = useRef<HTMLAudioElement | null>(null);
   const downloadUrlRef = useRef<string | null>(null);
@@ -820,6 +824,10 @@ export function App() {
   }
 
   useEffect(() => {
+    if (screen === "karaoke" && isFreeCapture) {
+      return;
+    }
+
     if (screen !== "karaoke" || words.length === 0) {
       stopReadingGuide();
       return;
@@ -828,7 +836,7 @@ export function App() {
     startReadingGuide(words, selectedLanguage);
 
     return () => stopReadingGuide();
-  }, [screen, promptText, selectedLanguage]);
+  }, [isFreeCapture, screen, promptText, selectedLanguage]);
 
   async function ensureWorkspace(): Promise<VoiceWorkspace> {
     if (workspaceOpenBlocker !== null) {
@@ -1593,6 +1601,7 @@ export function App() {
     if (!isFreeCapture) {
       startReadingGuide(words, selectedLanguage);
     } else {
+      startFreeWordDetection(selectedLanguage);
       scheduleFreeCaptureLimit();
     }
 
@@ -1615,6 +1624,7 @@ export function App() {
     activeWordIndexRef.current = 0;
     setActiveWordIndex(0);
     setRecognizedTranscript("");
+    recognizedFinalTranscriptRef.current = "";
 
     const speechRecognitionStarted = startSpeechRecognitionGuide(
       promptWords,
@@ -1690,6 +1700,62 @@ export function App() {
       return true;
     } catch {
       return false;
+    }
+  }
+
+  function startFreeWordDetection(language: LanguageCode) {
+    stopReadingGuide();
+    setRecognizedTranscript("");
+    recognizedFinalTranscriptRef.current = "";
+    freeSpeechRecognitionAvailableRef.current = false;
+
+    const SpeechRecognitionConstructor =
+      (window as WindowWithSpeechRecognition).SpeechRecognition ??
+      (window as WindowWithSpeechRecognition).webkitSpeechRecognition;
+
+    if (SpeechRecognitionConstructor === undefined) {
+      setReadingGuideMode("voice-activity");
+      return;
+    }
+
+    try {
+      const recognition = new SpeechRecognitionConstructor();
+
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = formatSpeechRecognitionLanguage(language);
+      recognition.maxAlternatives = 1;
+      recognition.onresult = (event) => {
+        const displayTranscript = extractSpeechRecognitionTranscript(event);
+        const finalTranscript = extractFinalSpeechRecognitionTranscript(event);
+
+        if (displayTranscript.length > 0) {
+          setRecognizedTranscript(displayTranscript);
+        }
+
+        if (finalTranscript.length > 0) {
+          recognizedFinalTranscriptRef.current = finalTranscript;
+        }
+      };
+      recognition.onerror = () => {
+        if (speechRecognitionRef.current === recognition) {
+          speechRecognitionRef.current = null;
+          setReadingGuideMode("voice-activity");
+        }
+      };
+      recognition.onend = () => {
+        if (speechRecognitionRef.current === recognition) {
+          speechRecognitionRef.current = null;
+          setReadingGuideMode("voice-activity");
+        }
+      };
+
+      recognition.start();
+      speechRecognitionRef.current = recognition;
+      freeSpeechRecognitionAvailableRef.current = true;
+      setReadingGuideMode("speech-recognition");
+    } catch {
+      setReadingGuideMode("voice-activity");
     }
   }
 
@@ -1814,6 +1880,47 @@ export function App() {
     }
 
     clearReadingGuideFinishTimer();
+  }
+
+  async function stopFreeWordDetection() {
+    const recognition = speechRecognitionRef.current;
+
+    if (recognition === null) {
+      return;
+    }
+
+    await new Promise<void>((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) {
+          return;
+        }
+
+        settled = true;
+        window.clearTimeout(timeout);
+        if (speechRecognitionRef.current === recognition) {
+          speechRecognitionRef.current = null;
+        }
+        resolve();
+      };
+      const timeout = window.setTimeout(() => {
+        try {
+          recognition.abort();
+        } catch {
+          // Recognition may already have stopped after the final result.
+        }
+        finish();
+      }, 750);
+
+      recognition.onend = finish;
+      recognition.onerror = finish;
+
+      try {
+        recognition.stop();
+      } catch {
+        finish();
+      }
+    });
   }
 
   function clearReadingGuideFinishTimer() {
@@ -1974,6 +2081,9 @@ export function App() {
       setMessage("Préparation du fichier...");
 
       try {
+        if (isFreeCapture) {
+          await stopFreeWordDetection();
+        }
         const recording = await recorder.stop();
         await persistFinishedSession(recording);
       } catch {
@@ -2112,6 +2222,10 @@ export function App() {
       lyrics: isContinuousLyricsCapture
         ? { text: continuousLyricsText, capture: "continuous-karaoke" }
         : null,
+      transcript: createFreeCaptureTranscript({
+        finalTranscript: recognizedFinalTranscriptRef.current,
+        recognitionAvailable: freeSpeechRecognitionAvailableRef.current,
+      }),
     };
     replaceDownloadUrl(audioUrl);
     replaceMetadataDownloadUrl(
@@ -2226,6 +2340,8 @@ export function App() {
     stopReadingGuide();
     setActiveWordIndex(0);
     setRecognizedTranscript("");
+    recognizedFinalTranscriptRef.current = "";
+    freeSpeechRecognitionAvailableRef.current = false;
     setLastTake(null);
     setReviewPlaybackProgress(0);
     setSavedFileName(null);
