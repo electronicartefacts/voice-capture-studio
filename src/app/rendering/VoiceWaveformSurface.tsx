@@ -234,18 +234,18 @@ export function VoiceWaveformSurface(input: {
       const visualHeight = Math.min(
         isQuietSurface
           ? isCompactSurface
-            ? 220
+            ? 280
             : 180
           : isCompactSurface
-            ? 300
+            ? 360
             : 260,
         height *
           (isQuietSurface
             ? isCompactSurface
-              ? 0.2
+              ? 0.28
               : 0.16
             : isCompactSurface
-              ? 0.28
+              ? 0.38
               : 0.25),
       );
 
