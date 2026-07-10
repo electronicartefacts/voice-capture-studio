@@ -109,6 +109,7 @@ docs/         Architecture, workspace, corpus, export, and Pages notes
 Important documents:
 
 - [Architecture doctrine](docs/architecture-doctrine.md)
+- [Browser-native engineering manifesto](docs/browser-native-engineering-manifesto.md)
 - [System model](docs/system-model.md)
 - [Corpus structure](docs/corpus-structure.md)
 - [Workspace structure](docs/workspace-structure.md)

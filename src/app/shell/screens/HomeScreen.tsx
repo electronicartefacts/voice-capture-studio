@@ -724,6 +724,7 @@ export function SystemHealthPanel(input: {
   const visibleChecks = input.diagnostics.checks.filter((check) =>
     [
       "microphone",
+      "input-devices",
       "audio-engine",
       "recording-storage",
       "folder-export",

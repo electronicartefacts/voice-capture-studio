@@ -186,6 +186,38 @@ export function TechnicalPage(input: {
           </span>
         </article>
       </div>
+      <section className="studio-ready-panel" aria-label="Rapport Studio Ready">
+        <div>
+          <p className="soft-label">Studio Ready</p>
+          <strong>
+            {input.diagnostics.recordingInputCount === null
+              ? "Entrées audio à confirmer"
+              : `${input.diagnostics.recordingInputCount} entrée${input.diagnostics.recordingInputCount > 1 ? "s" : ""} audio détectée${input.diagnostics.recordingInputCount > 1 ? "s" : ""}`}
+          </strong>
+          <span>
+            {input.diagnostics.supportsHardwareRendering
+              ? "Rendu accéléré disponible."
+              : "Rendu Canvas de compatibilité actif."}
+          </span>
+        </div>
+        <ul>
+          <li>
+            {input.diagnostics.supportsBackgroundProcessing
+              ? "Traitements locaux en arrière-plan"
+              : "Traitements locaux compatibles"}
+          </li>
+          <li>
+            {input.diagnostics.supportsLocalSpeechRecognition
+              ? "Guidage de transcription disponible"
+              : "Transcription optionnelle indisponible"}
+          </li>
+          <li>
+            {input.diagnostics.supportsSpeechSynthesis
+              ? "Référence vocale disponible"
+              : "Référence vocale indisponible"}
+          </li>
+        </ul>
+      </section>
       {input.coverage !== null && (
         <div className="dataset-score">
           <h2>Qualité vocale</h2>

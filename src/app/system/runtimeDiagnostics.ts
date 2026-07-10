@@ -4,12 +4,18 @@ export type RuntimeCheck = {
   readonly id:
     | "secure-context"
     | "microphone"
+    | "input-devices"
     | "audio-engine"
     | "workspace-storage"
     | "recording-storage"
     | "folder-export"
     | "downloads"
-    | "screen-lock";
+    | "screen-lock"
+    | "speech-recognition"
+    | "speech-synthesis"
+    | "background-processing"
+    | "hardware-rendering"
+    | "motion-preference";
   readonly label: string;
   readonly status: RuntimeStatus;
   readonly detail: string;
@@ -22,6 +28,11 @@ export type RuntimeDiagnostics = {
   readonly canPersistRecordings: boolean;
   readonly canExportFolder: boolean;
   readonly canDownloadFallback: boolean;
+  readonly recordingInputCount: number | null;
+  readonly supportsLocalSpeechRecognition: boolean;
+  readonly supportsSpeechSynthesis: boolean;
+  readonly supportsBackgroundProcessing: boolean;
+  readonly supportsHardwareRendering: boolean;
   readonly primaryAction: string;
   readonly primaryRisk: string | null;
   readonly status: RuntimeStatus;
@@ -47,18 +58,22 @@ type NavigatorWithWakeLock = Navigator & {
 export function createRuntimeDiagnosticsSnapshot(): RuntimeDiagnostics {
   return buildDiagnostics({
     microphonePermission: null,
+    recordingInputCount: null,
     storageEstimate: null,
   });
 }
 
 export async function inspectRuntime(): Promise<RuntimeDiagnostics> {
-  const [microphonePermission, storageEstimate] = await Promise.all([
-    inspectMicrophonePermission(),
-    inspectStorageEstimate(),
-  ]);
+  const [microphonePermission, recordingInputCount, storageEstimate] =
+    await Promise.all([
+      inspectMicrophonePermission(),
+      inspectAudioInputCount(),
+      inspectStorageEstimate(),
+    ]);
 
   return buildDiagnostics({
     microphonePermission,
+    recordingInputCount,
     storageEstimate,
   });
 }
@@ -105,6 +120,7 @@ export function createMicrophoneErrorMessage(error: unknown): string {
 
 function buildDiagnostics(input: {
   readonly microphonePermission: PermissionState | null;
+  readonly recordingInputCount: number | null;
   readonly storageEstimate: StorageEstimate | null;
 }): RuntimeDiagnostics {
   const secureContext = window.isSecureContext || isLocalDevelopmentOrigin();
@@ -120,6 +136,14 @@ function buildDiagnostics(input: {
   const downloadFallback = canUseDownloadFallback();
   const screenLock =
     (navigator as NavigatorWithWakeLock).wakeLock !== undefined;
+  const speechRecognition =
+    "SpeechRecognition" in window || "webkitSpeechRecognition" in window;
+  const speechSynthesis = "speechSynthesis" in window;
+  const backgroundProcessing = "Worker" in window;
+  const hardwareRendering = "gpu" in navigator || canCreateWebGlContext();
+  const reducedMotion = window.matchMedia?.(
+    "(prefers-reduced-motion: reduce)",
+  ).matches;
 
   const microphoneBlockedByPermission = input.microphonePermission === "denied";
   const canRecord =
@@ -159,6 +183,19 @@ function buildDiagnostics(input: {
         : microphoneApiAvailable
           ? "Autorise le micro au lancement."
           : "Utilise Chrome, Edge, Safari récent ou Firefox récent.",
+    },
+    {
+      id: "input-devices",
+      label: "Entrées audio",
+      status: getInputDeviceStatus({
+        microphoneApiAvailable,
+        recordingInputCount: input.recordingInputCount,
+      }),
+      detail: describeAudioInputs(input.recordingInputCount),
+      action:
+        input.recordingInputCount === 0
+          ? "Branche ou sélectionne un microphone, puis vérifie à nouveau."
+          : "Le navigateur utilisera l'entrée choisie par défaut.",
     },
     {
       id: "audio-engine",
@@ -226,10 +263,73 @@ function buildDiagnostics(input: {
         ? "La prise demandera le verrouillage écran si possible."
         : "Désactive le verrouillage automatique pendant une session longue.",
     },
+    {
+      id: "speech-recognition",
+      label: "Transcription locale",
+      status: speechRecognition ? "ready" : "limited",
+      detail: speechRecognition
+        ? "Guidage de transcription disponible si le navigateur l'autorise."
+        : "Le guidage de transcription n'est pas exposé par ce navigateur.",
+      action: speechRecognition
+        ? "La capture reste locale; la transcription est une aide facultative."
+        : "La capture, l'analyse et les exports restent disponibles.",
+    },
+    {
+      id: "speech-synthesis",
+      label: "Référence vocale",
+      status: speechSynthesis ? "ready" : "limited",
+      detail: speechSynthesis
+        ? "Lecture de référence disponible dans le navigateur."
+        : "La lecture de référence n'est pas disponible ici.",
+      action: speechSynthesis
+        ? "Utilise-la uniquement comme repère de lecture."
+        : "Lis directement la direction de prise affichée.",
+    },
+    {
+      id: "background-processing",
+      label: "Traitements en arrière-plan",
+      status: backgroundProcessing ? "ready" : "limited",
+      detail: backgroundProcessing
+        ? "Le navigateur peut déléguer les calculs compatibles hors de l'interface."
+        : "Les traitements restent sur le fil principal de cette session.",
+      action: backgroundProcessing
+        ? "L'interface privilégie la réactivité pendant la prise."
+        : "Les fonctions essentielles restent disponibles.",
+    },
+    {
+      id: "hardware-rendering",
+      label: "Rendu accéléré",
+      status: hardwareRendering ? "ready" : "limited",
+      detail: hardwareRendering
+        ? "WebGL ou WebGPU est détecté pour les surfaces compatibles."
+        : "Le rendu Canvas de compatibilité reste actif.",
+      action: hardwareRendering
+        ? "Le rendu s'adapte automatiquement au navigateur."
+        : "Les visualisations restent fonctionnelles avec une qualité adaptée.",
+    },
+    {
+      id: "motion-preference",
+      label: "Confort visuel",
+      status: reducedMotion ? "limited" : "ready",
+      detail: reducedMotion
+        ? "Les animations sont réduites selon la préférence système."
+        : "Les animations peuvent accompagner le retour visuel.",
+      action: reducedMotion
+        ? "La capture et le signal audio ne sont pas affectés."
+        : "La préférence système reste prioritaire.",
+    },
   ];
   const blockingCheck = checks.find((check) => check.status === "blocked");
   const limitedCount = checks.filter(
-    (check) => check.status === "limited",
+    (check) =>
+      check.status === "limited" &&
+      ![
+        "speech-recognition",
+        "speech-synthesis",
+        "background-processing",
+        "hardware-rendering",
+        "motion-preference",
+      ].includes(check.id),
   ).length;
   const status: RuntimeStatus =
     blockingCheck !== undefined
@@ -244,6 +344,11 @@ function buildDiagnostics(input: {
     canPersistRecordings,
     canExportFolder: folderExport,
     canDownloadFallback: downloadFallback,
+    recordingInputCount: input.recordingInputCount,
+    supportsLocalSpeechRecognition: speechRecognition,
+    supportsSpeechSynthesis: speechSynthesis,
+    supportsBackgroundProcessing: backgroundProcessing,
+    supportsHardwareRendering: hardwareRendering,
     primaryAction: createPrimaryAction({
       canRecord,
       canPersistRecordings,
@@ -259,6 +364,43 @@ function buildDiagnostics(input: {
     storageEstimate: input.storageEstimate,
     checks,
   };
+}
+
+export function describeAudioInputs(
+  recordingInputCount: number | null,
+): string {
+  if (recordingInputCount === null) {
+    return "Le navigateur ne peut pas encore lister les entrées audio.";
+  }
+
+  if (recordingInputCount === 0) {
+    return "Aucune entrée audio détectée.";
+  }
+
+  return `${recordingInputCount} entrée${recordingInputCount > 1 ? "s" : ""} audio détectée${recordingInputCount > 1 ? "s" : ""}.`;
+}
+
+function getInputDeviceStatus(input: {
+  readonly microphoneApiAvailable: boolean;
+  readonly recordingInputCount: number | null;
+}): RuntimeStatus {
+  if (!input.microphoneApiAvailable || input.recordingInputCount === 0) {
+    return "blocked";
+  }
+
+  return input.recordingInputCount === null ? "limited" : "ready";
+}
+
+function canCreateWebGlContext(): boolean {
+  try {
+    const canvas = document.createElement("canvas");
+    return (
+      canvas.getContext("webgl2") !== null ||
+      canvas.getContext("webgl") !== null
+    );
+  } catch {
+    return false;
+  }
 }
 
 function createPrimaryAction(input: {
@@ -333,6 +475,21 @@ async function inspectMicrophonePermission(): Promise<PermissionState | null> {
 
     return permission.state;
   } catch {
+    return null;
+  }
+}
+
+async function inspectAudioInputCount(): Promise<number | null> {
+  try {
+    if (navigator.mediaDevices?.enumerateDevices === undefined) {
+      return null;
+    }
+
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    return devices.filter((device) => device.kind === "audioinput").length;
+  } catch {
+    // Device enumeration can be withheld until permission is granted. The
+    // capture path remains the source of truth in that case.
     return null;
   }
 }

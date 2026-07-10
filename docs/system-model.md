@@ -21,8 +21,10 @@ documentation, and deployment configuration. User voice data belongs outside the
    `capturedSessions` repair a missing or stale `corpusProgress` projection before planning.
 4. If no workspace exists, `createEmptyWorkspace` seeds speakers, settings, and an empty progress
    projection.
-5. `inspectRuntime` computes browser capability diagnostics for microphone, Web Audio, storage,
-   folder export, downloads, and wake lock.
+5. `inspectRuntime` computes browser capability diagnostics for microphone permission and inputs,
+   Web Audio, storage, folder export, downloads, wake lock, optional speech APIs, Workers,
+   accelerated rendering, and reduced-motion preference. Optional capabilities enhance only their
+   dependent workflow.
 6. `planSession` selects prompt ids from the canonical corpus by language, speaker progress, and
    simple diversity scoring. Local text corpora are parsed into cue-safe prompts and their latest
    source snapshot is persisted in the workspace.
