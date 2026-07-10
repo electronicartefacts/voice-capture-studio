@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { getLiveAudioLevel, liveAudioSignal } from "./liveAudioSignal";
+import { getWaveformSamplePosition } from "./waveformGeometry";
 
 export type VoiceWaveformScreen =
   "home" | "permission" | "calibration" | "karaoke" | "done" | "technical";
@@ -141,11 +142,12 @@ export function VoiceWaveformSurface(input: {
 
     function createIdleWaveSample(
       index: number,
+      sampleCount: number,
       timeSeconds: number,
       level: number,
       state: VoiceWaveformScreen,
     ): number {
-      const position = index / Math.max(1, DISPLAY_SAMPLES - 1);
+      const position = getWaveformSamplePosition(index, sampleCount);
       const phase = position * Math.PI * 2;
       const recordingGain =
         state === "karaoke"
@@ -271,7 +273,7 @@ export function VoiceWaveformSurface(input: {
       );
 
       for (let index = 0; index < displaySamples; index += 1) {
-        const position = index / Math.max(1, displaySamples - 1);
+        const position = getWaveformSamplePosition(index, displaySamples);
         const edge = Math.abs(position - 0.5) * 2;
         const envelope = Math.pow(
           0.5 - 0.5 * Math.cos(Math.PI * Math.max(0, 1 - edge)),
@@ -282,14 +284,20 @@ export function VoiceWaveformSurface(input: {
         const targetSample = isLiveSurface
           ? softLimitWaveSample(
               liveAudioSignal.samples[
-                Math.round(position * (DISPLAY_SAMPLES - 1))
+                Math.round(position * (liveAudioSignal.samples.length - 1))
               ] *
                 liveGain +
                 breath,
               0.88,
               4.8,
             )
-          : createIdleWaveSample(index, timeSeconds, level, state);
+          : createIdleWaveSample(
+              index,
+              displaySamples,
+              timeSeconds,
+              level,
+              state,
+            );
         const smoothing = isLiveSurface
           ? 0.6
           : state === "karaoke"
