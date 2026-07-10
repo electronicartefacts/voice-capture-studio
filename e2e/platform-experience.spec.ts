@@ -23,9 +23,11 @@ test("platform shell exposes a keyboard-safe viewport and touch-safe controls", 
     )
     .not.toBe("");
 
-  await expect(page.locator(".ritual-button")).toHaveCSS(
-    "touch-action",
-    "manipulation",
-  );
-  await expect(page.locator(".opening-ritual")).toHaveCSS("min-height", /px$/);
+  // Permission can already be granted in CI, in which case onboarding is
+  // skipped before the assertion. Both entry controls must expose the same
+  // coarse-pointer behavior.
+  await expect(
+    page.locator(".ritual-button, button.launch-button").first(),
+  ).toHaveCSS("touch-action", "manipulation");
+  await expect(page.locator("main.simple-app")).toHaveCSS("min-height", /px$/);
 });
