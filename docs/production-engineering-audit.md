@@ -119,24 +119,24 @@ timing is explicitly marked for acoustic forced alignment downstream.
 
 ## Parameter map
 
-| Parameter            |                Value | Responsibility                    |
-| -------------------- | -------------------: | --------------------------------- |
-| Display samples      |                  260 | filament density and Bézier cost  |
-| Worklet batch        |          1024 frames | 21.3 ms maximum at 48 kHz         |
-| Stop flush guard     |               500 ms | prevents browser shutdown hangs   |
-| Capture target       | mono, 48 kHz, 24-bit | archive-compatible WAV            |
-| Ambient FFT          |                 2048 | field resolution                  |
-| Analyser smoothing   |                 0.42 | spectral stability                |
-| Field update maximum |                20 Hz | avoids style churn                |
-| Fresh-signal window  |               260 ms | prevents stale live trace         |
-| React audio UI       |      12.5 Hz maximum | keeps the shell off audio cadence |
-| Karaoke style writes |        30 Hz maximum | bounds character DOM updates      |
-| Input sensitivity    |   0.5-3; default 1.6 | visual/meter gain only            |
-| Room tone            |              3000 ms | short stable calibration          |
-| Reading guide        |                90 ms | voice-activity fallback cadence   |
-| Review bars          |                   92 | review waveform density           |
-| Constrained-tier enter |            < 36 fps | sustained frame-pace strain onset |
-| Constrained-tier exit  |            > 50 fps | required recovery before restoring full idle fidelity |
+| Parameter              |                Value | Responsibility                                        |
+| ---------------------- | -------------------: | ----------------------------------------------------- |
+| Display samples        |                  260 | filament density and Bézier cost                      |
+| Worklet batch          |          1024 frames | 21.3 ms maximum at 48 kHz                             |
+| Stop flush guard       |               500 ms | prevents browser shutdown hangs                       |
+| Capture target         | mono, 48 kHz, 24-bit | archive-compatible WAV                                |
+| Ambient FFT            |                 2048 | field resolution                                      |
+| Analyser smoothing     |                 0.42 | spectral stability                                    |
+| Field update maximum   |                20 Hz | avoids style churn                                    |
+| Fresh-signal window    |               260 ms | prevents stale live trace                             |
+| React audio UI         |      12.5 Hz maximum | keeps the shell off audio cadence                     |
+| Karaoke style writes   |        30 Hz maximum | bounds character DOM updates                          |
+| Input sensitivity      |   0.5-3; default 1.6 | visual/meter gain only                                |
+| Room tone              |              3000 ms | short stable calibration                              |
+| Reading guide          |                90 ms | voice-activity fallback cadence                       |
+| Review bars            |                   92 | review waveform density                               |
+| Constrained-tier enter |             < 36 fps | sustained frame-pace strain onset                     |
+| Constrained-tier exit  |             > 50 fps | required recovery before restoring full idle fidelity |
 
 ## Latency and performance model
 
@@ -212,6 +212,45 @@ regardless of scroll or measured strain; only once capture ends can scroll
 suppression or sustained device strain lower decorative fidelity. The
 degradation this unlocks — idle waveform frame rate and acoustic-field read
 cadence, both already implemented — never reaches the take being recorded.
+
+## 2026-07-10 perceptual audit
+
+With rendering cost considered settled, this pass audited the experience for
+perceptual truth rather than frame budget: does every reactive surface
+represent something real, and does every reading arrive the way a measuring
+instrument would show it?
+
+**Review playback was animating a fiction.** `ListeningReviewSurface` already
+decodes the finished take once, per 92 time buckets, computing both a peak
+(for the static waveform bar heights) and an RMS value that was discarded.
+The halo and filament energy driving live playback instead came from
+`Math.sin(progress * wordCount)` combined with a second sine at a fixed
+2.2 multiplier — a canned pulse with no relationship to what was audibly
+playing. A loud take and a near-silent take produced the same on-screen
+motion. `ReviewWaveformBar` now keeps `rmsPercent`, and playback energy is a
+smoothed (0.35 EMA) read of the bucket under the playhead. The instrument now
+answers to the actual recording during review exactly as it does to the live
+microphone during capture; the mission's core claim — the browser is
+connected to something real — no longer breaks the moment a user replays
+their own take.
+
+**The coverage ring taught nothing about arrival.** `--coverage` drove a
+conic-gradient with no transition, so a completed prompt updated the corpus
+ring instantly rather than sweeping to its new reading. `--coverage` is now
+declared through `@property` (`syntax: "<percentage>"`) so the custom
+property itself is interpolable, and the ring transitions over 700 ms. A
+gauge that jumps reads as a UI update; a gauge that sweeps reads as a needle
+finding a new measurement. `prefers-reduced-motion` already forces all
+transition durations to 1 ms globally, so this degrades for free.
+
+**Rejected: audio or haptic confirmation cues.** A chime on start/stop, or
+`navigator.vibrate` on state changes, is the standard "make it feel alive"
+move for a consumer app, and was deliberately not added here. This product's
+subject is the room itself: a start/stop tone would bleed into the very
+silence a room-tone calibration is measuring, and a vibration pulse on a
+handheld device doubles as physical excitation of the device's own
+microphone. Silence and stillness are correct for an instrument whose sensor
+and body share one enclosure with the target.
 
 ## UX, responsive behavior, and motion
 

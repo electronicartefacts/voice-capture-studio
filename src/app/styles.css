@@ -702,6 +702,12 @@ textarea:focus-visible {
   margin: 0;
 }
 
+@property --coverage {
+  inherits: true;
+  initial-value: 0%;
+  syntax: "<percentage>";
+}
+
 .coverage-ring {
   --coverage: 0%;
   align-items: center;
@@ -717,6 +723,9 @@ textarea:focus-visible {
   inline-size: 76px;
   justify-items: center;
   position: relative;
+  /* A registered custom property can be interpolated: the ring sweeps to a
+     new reading like a real gauge instead of teleporting between values. */
+  transition: --coverage 700ms var(--ease-standard);
 }
 
 .coverage-ring::before {

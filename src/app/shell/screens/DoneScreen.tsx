@@ -44,6 +44,7 @@ export function ListeningReviewSurface(input: {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const onEnergyChangeRef = useRef(input.onEnergyChange);
   const onProgressChangeRef = useRef(input.onProgressChange);
+  const smoothedPlaybackEnergyRef = useRef(0);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(
     Math.max(0, (input.take?.durationMs ?? 0) / 1000),
@@ -110,6 +111,7 @@ export function ListeningReviewSurface(input: {
     setLoopEnabled(false);
     setLoopStart(0);
     setLoopEnd(1);
+    smoothedPlaybackEnergyRef.current = 0;
     onProgressChangeRef.current(0);
     onEnergyChangeRef.current(0);
   }, [input.audioUrl, input.take]);
@@ -122,19 +124,29 @@ export function ListeningReviewSurface(input: {
 
     let frameId = 0;
 
+    // The halo and filament must trace the take actually being heard, not an
+    // invented pulse: decoded per-bucket loudness is the true amplitude at
+    // this instant of playback, so a plosive or a silence reads exactly as
+    // loud or as quiet on screen as it does through the speaker.
     function animatePlaybackEnergy() {
       const audio = audioRef.current;
       const progress =
         audio === null || durationSeconds <= 0
           ? playbackProgress
           : audio.currentTime / durationSeconds;
-      const wordPulse = Math.abs(
-        Math.sin(progress * Math.PI * Math.max(2, wordTimings.length)),
+      const barIndex = Math.max(
+        0,
+        Math.min(
+          waveformBars.length - 1,
+          Math.floor(progress * waveformBars.length),
+        ),
       );
-      const phrasePulse = Math.abs(Math.sin(progress * Math.PI * 2.2));
+      const measuredEnergy = waveformBars[barIndex].rmsPercent / 100;
 
+      smoothedPlaybackEnergyRef.current +=
+        (measuredEnergy - smoothedPlaybackEnergyRef.current) * 0.35;
       onEnergyChangeRef.current(
-        Math.min(1, 0.08 + wordPulse * 0.34 + phrasePulse * 0.18),
+        Math.min(1, 0.04 + smoothedPlaybackEnergyRef.current * 0.92),
       );
       frameId = window.requestAnimationFrame(animatePlaybackEnergy);
     }
@@ -142,7 +154,7 @@ export function ListeningReviewSurface(input: {
     frameId = window.requestAnimationFrame(animatePlaybackEnergy);
 
     return () => window.cancelAnimationFrame(frameId);
-  }, [durationSeconds, isPlaying, playbackProgress, wordTimings.length]);
+  }, [durationSeconds, isPlaying, playbackProgress, waveformBars]);
 
   function updateTime(nextTime: number) {
     const boundedTime = Math.max(0, Math.min(durationSeconds, nextTime));
@@ -497,15 +509,18 @@ function formatPlaybackTime(seconds: number): string {
 
 export type ReviewWaveformBar = {
   readonly heightPercent: number;
+  readonly rmsPercent: number;
   readonly silent: boolean;
 };
 
 function createPlaceholderWaveformBars(): readonly ReviewWaveformBar[] {
   return Array.from({ length: REVIEW_WAVEFORM_BAR_COUNT }, (_, index) => {
     const center = 1 - Math.abs(index / (REVIEW_WAVEFORM_BAR_COUNT - 1) - 0.5);
+    const heightPercent = 10 + center * 12;
 
     return {
-      heightPercent: 10 + center * 12,
+      heightPercent,
+      rmsPercent: heightPercent,
       silent: false,
     };
   });
@@ -541,6 +556,7 @@ async function extractReviewWaveformBars(
       );
       const buckets: { readonly peak: number; readonly rms: number }[] = [];
       let maxPeak = 0;
+      let maxRms = 0;
 
       for (
         let bucketIndex = 0;
@@ -562,6 +578,7 @@ async function extractReviewWaveformBars(
         const rms = Math.sqrt(sumSquares / Math.max(1, end - start));
 
         maxPeak = Math.max(maxPeak, peak);
+        maxRms = Math.max(maxRms, rms);
         buckets.push({ peak, rms });
       }
 
@@ -571,6 +588,7 @@ async function extractReviewWaveformBars(
 
       return buckets.map((bucket) => ({
         heightPercent: Math.max(6, Math.round((bucket.peak / maxPeak) * 100)),
+        rmsPercent: maxRms <= 0 ? 0 : Math.round((bucket.rms / maxRms) * 100),
         silent: bucket.rms < 0.004,
       }));
     } finally {
