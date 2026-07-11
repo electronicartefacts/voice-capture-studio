@@ -192,6 +192,8 @@ export function installPlatformExperience(): () => void {
   const standaloneQuery = window.matchMedia("(display-mode: standalone)");
   const removeCustomCursor = installCustomCursor(root);
   let animationFrame: number | null = null;
+  let committedHeight = -1;
+  let committedOffsetTop = -1;
 
   function updateViewport() {
     animationFrame = null;
@@ -200,11 +202,20 @@ export function installPlatformExperience(): () => void {
       visualViewportHeight: viewport?.height,
     });
 
-    root.style.setProperty("--app-viewport-height", `${height}px`);
-    root.style.setProperty(
-      "--app-viewport-offset-top",
-      `${Math.max(0, Math.round(viewport?.offsetTop ?? 0))}px`,
-    );
+    const offsetTop = Math.max(0, Math.round(viewport?.offsetTop ?? 0));
+
+    // VisualViewport may emit dozens of scroll events while Safari moves its
+    // chrome. Avoid invalidating layout when the effective geometry did not
+    // change; dynamic viewport units remain the no-JavaScript fallback.
+    if (height !== committedHeight) {
+      root.style.setProperty("--app-viewport-height", `${height}px`);
+      committedHeight = height;
+    }
+
+    if (offsetTop !== committedOffsetTop) {
+      root.style.setProperty("--app-viewport-offset-top", `${offsetTop}px`);
+      committedOffsetTop = offsetTop;
+    }
   }
 
   function scheduleViewportUpdate() {

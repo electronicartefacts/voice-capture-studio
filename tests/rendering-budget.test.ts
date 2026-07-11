@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { getAmbientRenderingBudget } from "../src/app/system/renderingBudget";
 
-test("ambient rendering pauses decorative work during a visible page scroll", () => {
+test("ambient rendering stays at full cadence during a visible page scroll", () => {
   assert.equal(
     getAmbientRenderingBudget({
       isCapturing: false,
@@ -10,7 +10,7 @@ test("ambient rendering pauses decorative work during a visible page scroll", ()
       isScrolling: true,
       isDeviceConstrained: false,
     }),
-    "paused",
+    "full",
   );
 });
 
@@ -62,7 +62,7 @@ test("capture feedback ignores measured device strain, the invariant curve never
   );
 });
 
-test("scroll suppression takes precedence over the constrained tier while idle", () => {
+test("scroll continuity takes precedence over the constrained tier while idle", () => {
   assert.equal(
     getAmbientRenderingBudget({
       isCapturing: false,
@@ -70,6 +70,6 @@ test("scroll suppression takes precedence over the constrained tier while idle",
       isScrolling: true,
       isDeviceConstrained: true,
     }),
-    "paused",
+    "full",
   );
 });

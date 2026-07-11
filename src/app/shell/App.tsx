@@ -852,9 +852,8 @@ export function App() {
 
     function scheduleAmbientLevelUpdate() {
       if (ambientRenderingBudgetRef.current === "paused") {
-        // The microphone stays available, but decorative analysis yields its
-        // frame budget while mobile Safari composites a scroll. Polling at a
-        // low cadence resumes the signal immediately after the scroll settles.
+        // A backgrounded page keeps the microphone monitor available without
+        // paying display cadence. Visible scrolling never reaches this branch.
         pausedTimerId = window.setTimeout(() => {
           pausedTimerId = null;
           frameId = window.requestAnimationFrame(updateAmbientLevel);
@@ -874,7 +873,10 @@ export function App() {
       }
 
       const now = performance.now();
-      if (renderingBudget === "constrained" && now - acousticFieldReadAt < 66) {
+      if (
+        renderingBudget === "constrained" &&
+        now - acousticFieldReadAt < 1000 / 30
+      ) {
         scheduleAmbientLevelUpdate();
         return;
       }
@@ -900,7 +902,7 @@ export function App() {
         updateVisualAudioLevel(Math.min(1, smoothedLevel * 7));
       }
 
-      if (now - acousticFieldReadAt >= 50) {
+      if (now - acousticFieldReadAt >= 1000 / 30) {
         analyser.getByteFrequencyData(frequencyData);
         applyAcousticField(
           measureAcousticField(

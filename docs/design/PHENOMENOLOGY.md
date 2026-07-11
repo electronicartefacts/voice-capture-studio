@@ -240,7 +240,7 @@ before arming capture.
 
 - Intention: total fidelity, zero interpretation.
 - Energy: matches the voice, sample for sample.
-- Speed: display cadence (24–30 fps depending on screen), never throttled
+- Speed: display cadence (up to 60 fps, with a 30 fps constrained floor), never throttled
   regardless of scroll or measured device strain (invariant 3).
 - Lives: the filament, the meter bar, the halo, the karaoke text's
   amplitude-driven wave.

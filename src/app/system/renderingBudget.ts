@@ -1,8 +1,7 @@
 /**
- * The capture pipeline must never compete with navigation. This policy keeps
- * presentation work explicitly separate from audio capture and analysis.
- * The studio's visual identity remains present at every budget; only the
- * freshness of decorative signal data is allowed to adapt.
+ * The capture pipeline must never compete with presentation work. This policy
+ * keeps the live instrument continuous while the page is visible; only a
+ * hidden page may suspend it, and measured strain may lower its fidelity.
  */
 export type AmbientRenderingBudget = "full" | "constrained" | "paused";
 
@@ -23,11 +22,11 @@ export function getAmbientRenderingBudget(input: {
     return "full";
   }
 
-  // On mobile Safari, even a low-frequency full-screen canvas competes with
-  // compositing while the browser chrome moves during a scroll. Decorative
-  // rendering can stop completely; only idle/ambient screens pay this cost.
+  // The waveform and acoustic light field are part of the instrument, not a
+  // disposable decoration. A visible scroll must therefore keep display-rate
+  // feedback even when the browser temporarily reports poor frame pacing.
   if (input.isScrolling) {
-    return "paused";
+    return "full";
   }
 
   // Sustained real frame-pacing strain lowers decorative fidelity (waveform

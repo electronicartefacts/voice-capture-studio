@@ -6,10 +6,9 @@ import {
 import { createFramePaceMonitor } from "../system/framePaceMonitor";
 
 /**
- * Keeps the decorative audio surface from competing with page navigation.
- * The mutable ref is intentionally shared with audio animation callbacks so
- * they can react to scroll/visibility/device-strain changes without React
- * updates per frame.
+ * Keeps the live audio surface continuous while adapting secondary drawing
+ * fidelity to real device strain. The mutable ref is intentionally shared
+ * with animation callbacks so they can react without React updates per frame.
  */
 export function useAmbientRenderingBudget(input: {
   readonly isCapturing: boolean;
@@ -22,6 +21,7 @@ export function useAmbientRenderingBudget(input: {
   );
   const [isScrolling, setIsScrolling] = useState(false);
   const [isDeviceConstrained, setIsDeviceConstrained] = useState(false);
+  const isScrollingRef = useRef(false);
   const scrollIdleTimerRef = useRef<number | null>(null);
   const budget = getAmbientRenderingBudget({
     isCapturing: input.isCapturing,
@@ -37,6 +37,7 @@ export function useAmbientRenderingBudget(input: {
 
   useEffect(() => {
     function markScrollActivity() {
+      isScrollingRef.current = true;
       setIsScrolling(true);
 
       if (scrollIdleTimerRef.current !== null) {
@@ -45,6 +46,7 @@ export function useAmbientRenderingBudget(input: {
 
       scrollIdleTimerRef.current = window.setTimeout(() => {
         scrollIdleTimerRef.current = null;
+        isScrollingRef.current = false;
         setIsScrolling(false);
       }, 180);
     }
@@ -63,6 +65,8 @@ export function useAmbientRenderingBudget(input: {
       if (scrollIdleTimerRef.current !== null) {
         window.clearTimeout(scrollIdleTimerRef.current);
       }
+
+      isScrollingRef.current = false;
     };
   }, []);
 
@@ -71,7 +75,16 @@ export function useAmbientRenderingBudget(input: {
     let frameId = 0;
 
     function sample(now: number) {
-      const constrained = monitor.recordFrame(now);
+      // Safari may withhold animation frames while its browser chrome moves.
+      // That gap describes the scroll compositor, not the device's sustainable
+      // drawing pace, so it must not poison the post-scroll quality tier.
+      let constrained = false;
+
+      if (isScrollingRef.current) {
+        monitor.reset();
+      } else {
+        constrained = monitor.recordFrame(now);
+      }
 
       setIsDeviceConstrained((previous) =>
         previous === constrained ? previous : constrained,

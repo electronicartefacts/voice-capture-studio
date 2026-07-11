@@ -6,8 +6,11 @@ export type VoiceWaveformScreen =
   "home" | "permission" | "calibration" | "karaoke" | "done" | "technical";
 
 const DISPLAY_SAMPLES = 260;
-const COMPACT_DISPLAY_SAMPLES = 160;
+const COMPACT_DISPLAY_SAMPLES = 128;
 const MOBILE_RESIZE_THRESHOLD_PX = 160;
+const CONSTRAINED_FRAME_INTERVAL_MS = 1000 / 30;
+const FULL_FRAME_INTERVAL_MS = 1000 / 60;
+const FRAME_INTERVAL_TOLERANCE_MS = 0.75;
 
 export function VoiceWaveformSurface(input: {
   readonly active: boolean;
@@ -64,8 +67,12 @@ export function VoiceWaveformSurface(input: {
     let displaySamples = DISPLAY_SAMPLES;
 
     function resize() {
-      const nextWidth = window.innerWidth;
-      const nextHeight = window.innerHeight;
+      const nextWidth = Math.round(
+        window.visualViewport?.width ?? window.innerWidth,
+      );
+      const nextHeight = Math.round(
+        window.visualViewport?.height ?? window.innerHeight,
+      );
 
       // Safari iOS emits resize events while its URL bar expands or collapses.
       // Reallocating a full-screen canvas for every one of those events stalls
@@ -89,6 +96,7 @@ export function VoiceWaveformSurface(input: {
       surfaceCanvas.width = Math.floor(renderWidth * dpr);
       surfaceCanvas.height = Math.floor(renderHeight * dpr);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.imageSmoothingEnabled = true;
 
       for (let index = 0; index < displaySamples; index += 1) {
         xCoordinates[index] =
@@ -227,10 +235,8 @@ export function VoiceWaveformSurface(input: {
       }
 
       if (budgetRef.current === "paused") {
-        // Keep the last composited waveform on screen while Safari scrolls,
-        // but do not keep a requestAnimationFrame callback alive at display
-        // cadence. The timer makes the surface wake promptly once scrolling
-        // settles without rebuilding its full-size backing store.
+        // Hidden pages keep their last composited frame without spending at
+        // display cadence. The timer wakes the surface promptly on foreground.
         pausedTimerId = window.setTimeout(() => {
           pausedTimerId = null;
           frameId = window.requestAnimationFrame(draw);
@@ -253,12 +259,13 @@ export function VoiceWaveformSurface(input: {
       const state = screenRef.current;
       const targetFrameInterval =
         budgetRef.current === "constrained"
-          ? 1000 / 12
-          : state === "calibration" || state === "karaoke"
-            ? 1000 / 30
-            : 1000 / 24;
+          ? CONSTRAINED_FRAME_INTERVAL_MS
+          : FULL_FRAME_INTERVAL_MS;
 
-      if (frameNow - lastFrameAt < targetFrameInterval) {
+      if (
+        frameNow - lastFrameAt + FRAME_INTERVAL_TOLERANCE_MS <
+        targetFrameInterval
+      ) {
         scheduleDraw();
         return;
       }
@@ -377,13 +384,12 @@ export function VoiceWaveformSurface(input: {
         primaryWidth * (1 + level * (isCompactSurface ? 0.22 : 0.12));
 
       if (isCompactSurface && !isCaptureSurface) {
-        // A denser central filament reads as more responsive than distant,
-        // barely visible layers on a phone, while drawing 44% fewer splines.
-        drawSpline(-2.2, 0.42, alpha * 0.1, waveColor);
-        drawSpline(-0.7, 1.02, alpha * 0.25, waveColor);
-        drawSpline(0, energizedPrimaryWidth, alpha * 0.76, waveColor);
-        drawSpline(0.7, 1.02, alpha * 0.25, waveColor);
-        drawSpline(2.2, 0.42, alpha * 0.1, waveColor);
+        // Spend the mobile budget on freshness: three tightly layered splines
+        // preserve the luminous filament while leaving enough headroom to draw
+        // it at display cadence through touch scrolling.
+        drawSpline(-1.35, 0.76, alpha * 0.18, waveColor);
+        drawSpline(0, energizedPrimaryWidth, alpha * 0.8, waveColor);
+        drawSpline(1.35, 0.76, alpha * 0.18, waveColor);
       } else {
         drawSpline(-4, 0.26, alpha * 0.04, waveColor);
         drawSpline(-2.4, 0.42, alpha * 0.09, waveColor);
@@ -428,6 +434,7 @@ export function VoiceWaveformSurface(input: {
 
     resize();
     window.addEventListener("resize", resize);
+    window.visualViewport?.addEventListener("resize", resize);
     if (activeRef.current && awakeRef.current) {
       frameId = window.requestAnimationFrame(draw);
     }
@@ -438,6 +445,7 @@ export function VoiceWaveformSurface(input: {
         window.clearTimeout(pausedTimerId);
       }
       window.removeEventListener("resize", resize);
+      window.visualViewport?.removeEventListener("resize", resize);
     };
   }, [input.active, input.awake]);
 

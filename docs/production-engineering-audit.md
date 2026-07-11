@@ -121,13 +121,14 @@ timing is explicitly marked for acoustic forced alignment downstream.
 
 | Parameter              |                Value | Responsibility                                        |
 | ---------------------- | -------------------: | ----------------------------------------------------- |
-| Display samples        |                  260 | filament density and Bézier cost                      |
+| Display samples        |     260 / 128 mobile | filament density and Bézier cost                      |
 | Worklet batch          |          1024 frames | 21.3 ms maximum at 48 kHz                             |
 | Stop flush guard       |               500 ms | prevents browser shutdown hangs                       |
 | Capture target         | mono, 48 kHz, 24-bit | archive-compatible WAV                                |
 | Ambient FFT            |                 2048 | field resolution                                      |
 | Analyser smoothing     |                 0.42 | spectral stability                                    |
-| Field update maximum   |                20 Hz | avoids style churn                                    |
+| Field update maximum   |                30 Hz | responsive light field without display-rate FFT work  |
+| Waveform cadence       |    60 / 30 fps floor | continuous visible instrument, including scroll       |
 | Fresh-signal window    |               260 ms | prevents stale live trace                             |
 | React audio UI         |      12.5 Hz maximum | keeps the shell off audio cadence                     |
 | Karaoke style writes   |        30 Hz maximum | bounds character DOM updates                          |
@@ -208,10 +209,11 @@ loop (stopped on `visibilitychange` so it never counts a backgrounded tab's
 throttled callbacks as strain) and folds the result into
 `getAmbientRenderingBudget` as `isDeviceConstrained`. The invariant ordering is
 explicit in the policy function: capture in progress always returns `full`
-regardless of scroll or measured strain; only once capture ends can scroll
-suppression or sustained device strain lower decorative fidelity. The
-degradation this unlocks — idle waveform frame rate and acoustic-field read
-cadence, both already implemented — never reaches the take being recorded.
+regardless of scroll or measured strain. Visible scroll also returns `full`;
+only a hidden page pauses the instrument, while sustained strain outside scroll
+may lower the waveform and acoustic field to their 30 fps floor. Scroll-delivery
+gaps are reset in the pace monitor so Safari chrome movement cannot poison the
+quality tier after the gesture ends.
 
 ## 2026-07-10 perceptual audit
 

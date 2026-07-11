@@ -25,7 +25,7 @@ is reported as a limited runtime capability.
 
 ## Implemented improvements
 
-- Dynamic viewport handling uses `100dvh` as the CSS baseline and `VisualViewport` as the real visible-height signal. Updates are animation-frame coalesced, avoiding resize storms while Safari moves its browser chrome.
+- Dynamic viewport handling progresses through `100vh`, `100svh`, and `100dvh`, then uses `VisualViewport` as the real visible-height signal. Updates are animation-frame coalesced and unchanged geometry is ignored, avoiding layout churn while Safari moves its browser chrome.
 - `viewport-fit=cover` and safe-area padding protect interactive content from display cutouts and the bottom gesture area; landscape onboarding compresses without forcing a portrait-only recording flow.
 - Mobile controls use touch manipulation behavior and 16px minimum text inputs to prevent accidental double-tap delay and iOS form zoom. Native elastic scrolling is deliberately preserved.
 - The manifest has a stable ID, standalone/window-controls display fallback, maskable icon declaration, meaningful categories and a start shortcut. The service worker cache revision was advanced so installed clients fetch the new shell.
