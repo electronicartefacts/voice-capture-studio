@@ -168,7 +168,7 @@ test("a guided take flows from launch to the review screen", async ({
     .toBe(true);
 });
 
-test("free capture removes unavailable controls and false reading progress", async ({
+test("free capture removes unavailable controls and can replay the finished recording", async ({
   page,
 }) => {
   await enterStudio(page);
@@ -191,6 +191,19 @@ test("free capture removes unavailable controls and false reading progress", asy
   await expect(page.locator(".free-capture-guidance small")).toBeVisible();
   await expect(page.locator(".speech-follow-line")).toHaveCount(0);
   await expect(page.locator(".recording-assist")).toHaveCount(0);
+
+  await page.waitForTimeout(1_000);
+  await page.getByRole("button", { name: "Arrêter" }).click();
+
+  await expect(page.locator("main.screen-done")).toBeVisible({
+    timeout: 30_000,
+  });
+  await expect(
+    page.getByRole("region", { name: "Écoute de la prise" }),
+  ).toBeVisible();
+  await expect(page.getByText("Capture LIBRE")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Écouter" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Début" })).toBeEnabled();
 });
 
 test("dubbing connects a YouTube scene to the scripted recording surface", async ({

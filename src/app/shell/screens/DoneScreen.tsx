@@ -360,7 +360,7 @@ export function ListeningReviewSurface(input: {
     }
   }
 
-  if (input.take === null) {
+  if (input.take === null && input.audioUrl === null) {
     return (
       <section className="listening-review" aria-label="Écoute de la prise">
         <p className="soft-label">Écoute</p>
@@ -371,12 +371,16 @@ export function ListeningReviewSurface(input: {
     );
   }
 
-  const reviewFileName = input.fileName ?? input.take.fileName;
-  const takeReference = String(input.take.id)
-    .replace(/^take[._-]?/i, "")
-    .slice(0, 8)
-    .toUpperCase();
-  const technicalFormat = input.take.quality.technical;
+  const reviewFileName =
+    input.fileName ?? input.take?.fileName ?? "Capture audio";
+  const takeReference =
+    input.take === null
+      ? "LIBRE"
+      : String(input.take.id)
+          .replace(/^take[._-]?/i, "")
+          .slice(0, 8)
+          .toUpperCase();
+  const technicalFormat = input.take?.quality.technical ?? null;
 
   return (
     <section className="listening-review" aria-label="Écoute de la prise">
@@ -398,7 +402,8 @@ export function ListeningReviewSurface(input: {
         <div className="take-identity">
           <p className="soft-label">Moniteur de prise</p>
           <h2>
-            Prise <span>{takeReference}</span>
+            {input.take === null ? "Capture" : "Prise"}{" "}
+            <span>{takeReference}</span>
           </h2>
           <p className="take-file-name" title={reviewFileName}>
             {reviewFileName}
@@ -422,9 +427,9 @@ export function ListeningReviewSurface(input: {
       >
         <span aria-hidden="true" className="waveform-format">
           <span>
-            {technicalFormat.sampleRateHz / 1000} kHz ·{" "}
-            {technicalFormat.bitDepth}
-            -bit
+            {technicalFormat === null
+              ? "Audio local"
+              : `${technicalFormat.sampleRateHz / 1000} kHz · ${technicalFormat.bitDepth}-bit`}
           </span>
           <span>WAVE / PCM</span>
         </span>
