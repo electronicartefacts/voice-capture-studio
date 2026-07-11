@@ -62,11 +62,7 @@ import {
   type VoiceCapturePackageScope,
 } from "../export/voiceCapturePackage";
 import { createBrowserWorkspaceRepository } from "../storage/browserWorkspaceRepository";
-import {
-  getBrowserRecording,
-  listBrowserRecordings,
-  saveRecordingsToBrowserStorage,
-} from "../storage/browserRecordingStorage";
+import { listBrowserRecordings } from "../storage/browserRecordingStorage";
 import { sha256Blob } from "../storage/sha256";
 import {
   canChooseSystemFolder,
@@ -1013,28 +1009,7 @@ export function App() {
     const { readWorkspaceArchive } =
       await import("../storage/workspaceArchive");
     const restored = await readWorkspaceArchive(file);
-    const recordingsToAdd: {
-      readonly fileName: string;
-      readonly blob: Blob;
-    }[] = [];
-
-    for (const recording of restored.recordings) {
-      const existing = await getBrowserRecording(recording.fileName);
-      if (existing === undefined) {
-        recordingsToAdd.push(recording);
-        continue;
-      }
-
-      const existingHash = await sha256Blob(existing);
-      if (existingHash !== recording.sha256) {
-        throw new Error(
-          `Un WAV différent utilise déjà le nom ${recording.fileName}; restauration annulée.`,
-        );
-      }
-    }
-
-    await saveRecordingsToBrowserStorage(recordingsToAdd);
-    const saveResult = await workspaceRepository.save(restored.workspace);
+    const saveResult = await workspaceRepository.restoreArchive(restored);
     if (!saveResult.ok) {
       throw new Error(saveResult.message);
     }

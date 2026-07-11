@@ -137,6 +137,82 @@ test("recording archive import is atomic when a file name already exists", async
   );
 });
 
+test("workspace archive restore commits workspace and WAVs together", async () => {
+  await resetIndexedDb();
+  const repository = createBrowserWorkspaceRepository();
+  const workspace = createEmptyWorkspace({
+    corpus: canonicalCorpus,
+    speakers: initialSpeakers,
+    now: new Date("2026-07-11T08:00:00.000Z"),
+  });
+  const blob = new Blob(["restored WAV"]);
+
+  const result = await repository.restoreArchive({
+    workspace,
+    recordings: [
+      {
+        fileName: "restored.wav",
+        blob,
+        sha256: "a".repeat(64),
+      },
+    ],
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(
+    await getBrowserRecording("restored.wav")?.then((value) => value?.text()),
+    "restored WAV",
+  );
+  const reopened = await createBrowserWorkspaceRepository().open(
+    workspace.workspaceId,
+  );
+  assert.equal(reopened.ok, true);
+  if (reopened.ok) {
+    assert.equal(reopened.value.workspace.workspaceId, workspace.workspaceId);
+  }
+});
+
+test("workspace archive restore leaves both stores untouched on a name collision", async () => {
+  await resetIndexedDb();
+  await saveRecordingToBrowserStorage("existing.wav", new Blob(["existing"]));
+  const repository = createBrowserWorkspaceRepository();
+  const workspace = createEmptyWorkspace({
+    corpus: canonicalCorpus,
+    speakers: initialSpeakers,
+    now: new Date("2026-07-11T08:00:00.000Z"),
+  });
+
+  await assert.rejects(
+    () =>
+      repository.restoreArchive({
+        workspace,
+        recordings: [
+          {
+            fileName: "new.wav",
+            blob: new Blob(["new"]),
+            sha256: "b".repeat(64),
+          },
+          {
+            fileName: "existing.wav",
+            blob: new Blob(["replacement"]),
+            sha256: "c".repeat(64),
+          },
+        ],
+      }),
+    /restauration annulée/,
+  );
+
+  assert.equal(await getBrowserRecording("new.wav"), undefined);
+  assert.equal(
+    await getBrowserRecording("existing.wav")?.then((value) => value?.text()),
+    "existing",
+  );
+  const reopened = await createBrowserWorkspaceRepository().open(
+    workspace.workspaceId,
+  );
+  assert.equal(reopened.ok, false);
+});
+
 function createLocalStorageStub(initialValues: Record<string, string> = {}) {
   const values = new Map<string, string>(Object.entries(initialValues));
 

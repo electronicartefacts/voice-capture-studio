@@ -7,16 +7,32 @@ import type {
 } from "../../domains/workspace";
 import { normalizeWorkspacePayload } from "../../domains/workspace";
 import {
+  RECORDINGS_STORE_NAME,
   WORKSPACE_STORE_NAME,
   isIndexedDbAvailable,
+  openDatabase,
   readStoreValue,
   requestPersistentStorage,
+  transactionDone,
   writeStoreValue,
 } from "./indexedDb";
+import { getBrowserRecording } from "./browserRecordingStorage";
+import { sha256Blob } from "./sha256";
 
 const STORAGE_KEY = "voice-capture-studio.workspace.v1";
 
-export function createBrowserWorkspaceRepository(): WorkspaceRepository {
+export type BrowserWorkspaceRepository = WorkspaceRepository & {
+  readonly restoreArchive: (input: {
+    readonly workspace: VoiceWorkspace;
+    readonly recordings: readonly {
+      readonly fileName: string;
+      readonly blob: Blob;
+      readonly sha256: string;
+    }[];
+  }) => ReturnType<WorkspaceRepository["save"]>;
+};
+
+export function createBrowserWorkspaceRepository(): BrowserWorkspaceRepository {
   let inMemoryWorkspace: VoiceWorkspace | null = null;
   let inMemoryDurability: WorkspaceDurability = "memory-only";
 
@@ -170,6 +186,74 @@ export function createBrowserWorkspaceRepository(): WorkspaceRepository {
           },
         };
       }
+    },
+
+    async restoreArchive(input): ReturnType<WorkspaceRepository["save"]> {
+      if (!isIndexedDbAvailable()) {
+        throw new Error(
+          "Ce navigateur ne peut pas restaurer les WAV sans stockage local fiable.",
+        );
+      }
+
+      let database: IDBDatabase;
+      try {
+        database = await openDatabase();
+      } catch {
+        throw new Error(
+          "Le stockage local est indisponible; la restauration est annulée pour préserver l'archive.",
+        );
+      }
+
+      try {
+        const recordingsToAdd = [] as (typeof input.recordings)[number][];
+        for (const recording of input.recordings) {
+          const existing = await getBrowserRecording(recording.fileName);
+          if (existing === undefined) {
+            recordingsToAdd.push(recording);
+            continue;
+          }
+          if ((await sha256Blob(existing)) !== recording.sha256) {
+            throw new Error(
+              `Un WAV différent utilise déjà le nom ${recording.fileName}; restauration annulée.`,
+            );
+          }
+        }
+
+        const transaction = database.transaction(
+          [RECORDINGS_STORE_NAME, WORKSPACE_STORE_NAME],
+          "readwrite",
+        );
+        const recordings = transaction.objectStore(RECORDINGS_STORE_NAME);
+
+        for (const recording of recordingsToAdd) {
+          recordings.add(
+            {
+              fileName: recording.fileName,
+              blob: recording.blob,
+              savedAt: new Date().toISOString(),
+            },
+            recording.fileName,
+          );
+        }
+        transaction
+          .objectStore(WORKSPACE_STORE_NAME)
+          .put(input.workspace, STORAGE_KEY);
+        await transactionDone(transaction);
+      } finally {
+        database.close();
+      }
+
+      inMemoryWorkspace = input.workspace;
+      inMemoryDurability = "persistent";
+      requestPersistentStorage();
+
+      return {
+        ok: true,
+        value: {
+          workspace: input.workspace,
+          durability: "persistent",
+        },
+      };
     },
   };
 }
