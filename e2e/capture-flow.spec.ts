@@ -144,7 +144,10 @@ test("free capture removes unavailable controls and false reading progress", asy
   });
   await expect(page.locator(".read-progress")).toHaveCount(0);
   await expect(page.locator(".free-capture-line")).toBeVisible();
-  await expect(page.getByText("À l'écoute.", { exact: true })).toBeVisible();
+  await expect(page.locator(".free-capture-line")).toBeEmpty();
+  await expect(page.getByText("Le studio enregistre.")).toHaveCount(0);
+  await expect(page.locator(".free-capture-guidance p")).toBeVisible();
+  await expect(page.locator(".free-capture-guidance small")).toBeVisible();
   await expect(page.locator(".speech-follow-line")).toHaveCount(0);
   await expect(page.locator(".recording-assist")).toHaveCount(0);
 });

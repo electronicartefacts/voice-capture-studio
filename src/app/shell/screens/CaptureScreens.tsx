@@ -18,6 +18,10 @@ import type { LanguageCode } from "@shared/index";
 import { getLiveAudioLevel } from "../../rendering/liveAudioSignal";
 import { liveReadingGuideSignal } from "../../rendering/liveReadingGuideSignal";
 import {
+  formatCaptureDurationLimit,
+  FREE_CAPTURE_MAX_DURATION_MS,
+} from "../../recording/captureLimits";
+import {
   formatDurationSeconds,
   formatMeterScale,
   formatPercent,
@@ -179,7 +183,7 @@ export function KaraokeScreen(input: {
           <p className="karaoke-lyrics">{input.continuousLyricsText}</p>
         </div>
       ) : input.isFreeCapture ? (
-        <FreeCaptureText transcript={input.recognizedTranscript} />
+        <FreeCaptureSurface transcript={input.recognizedTranscript} />
       ) : input.dubbingMedia !== null ? (
         <div className="dubbing-capture-layout">
           <DubbingMediaStage
@@ -213,38 +217,41 @@ export function KaraokeScreen(input: {
   );
 }
 
-function FreeCaptureText(input: { readonly transcript: string }) {
+function FreeCaptureSurface(input: { readonly transcript: string }) {
   const preview = createTranscriptPreview(input.transcript);
   const words = preview.split(/\s+/).filter(Boolean);
 
-  if (words.length === 0) {
-    return (
-      <div
-        className="karaoke-line free-capture-line is-listening"
-        aria-live="polite"
-      >
-        <span className="karaoke-word is-past">À l'écoute.</span>
-      </div>
-    );
-  }
-
   return (
-    <p
-      aria-label={preview}
-      aria-live="polite"
-      className="karaoke-line free-capture-line"
-      data-testid="free-capture-words"
-    >
-      {words.map((word, index) => (
-        <span
-          className={`karaoke-word ${index === words.length - 1 ? "is-current" : "is-past"}`}
-          key={`${word}-${index}`}
-          style={{ "--word-delay": `${index * 18}ms` } as CSSProperties}
-        >
-          {word}
-        </span>
-      ))}
-    </p>
+    <>
+      <p
+        aria-label={
+          preview.length > 0 ? preview : "En attente de mots reconnus"
+        }
+        aria-live="polite"
+        className="karaoke-line free-capture-line"
+        data-testid="free-capture-words"
+      >
+        {words.map((word, index) => (
+          <span
+            className={`karaoke-word ${index === words.length - 1 ? "is-current" : "is-past"}`}
+            key={`${word}-${index}`}
+            style={{ "--word-delay": `${index * 18}ms` } as CSSProperties}
+          >
+            {word}
+          </span>
+        ))}
+      </p>
+      <div className="free-capture-guidance">
+        <p>
+          Parle, chante ou capture l'environnement. Arrête manuellement quand la
+          prise est complète.
+        </p>
+        <small>
+          Limite de {formatCaptureDurationLimit(FREE_CAPTURE_MAX_DURATION_MS)}
+          pour préserver la mémoire de l'appareil.
+        </small>
+      </div>
+    </>
   );
 }
 

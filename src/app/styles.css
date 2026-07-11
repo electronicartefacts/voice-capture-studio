@@ -1780,21 +1780,28 @@ textarea:focus-visible {
   will-change: font-variation-settings, opacity, transform;
 }
 
-.speech-follow-line {
-  color: var(--muted);
-  font-size: 15px;
-  font-weight: 740;
-  line-height: 1.35;
-  margin: -8px 0 0;
-  max-width: min(100%, 640px);
-  min-height: 22px;
-  overflow-wrap: anywhere;
-  text-align: center;
-}
-
 .free-capture-line {
   flex-direction: row;
   flex-wrap: wrap;
+}
+
+.free-capture-guidance {
+  color: var(--muted);
+  display: grid;
+  font-size: 13px;
+  gap: 5px;
+  line-height: 1.35;
+  max-width: min(100%, 520px);
+  text-align: center;
+}
+
+.free-capture-guidance p {
+  margin: 0;
+}
+
+.free-capture-guidance small {
+  font-size: 10px;
+  opacity: 0.64;
 }
 
 @keyframes karaoke-word-enter {
@@ -1828,21 +1835,6 @@ textarea:focus-visible {
   display: block;
   height: 100%;
   transition: width var(--motion-medium) var(--ease-standard);
-}
-
-.speech-follow-line {
-  background: color-mix(in srgb, var(--panel-solid) 8%, transparent);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  color: var(--muted);
-  font-size: 14px;
-  font-weight: 760;
-  line-height: 1.35;
-  margin: -8px 0 0;
-  max-width: min(100%, 640px);
-  overflow-wrap: anywhere;
-  padding: 10px 12px;
-  text-align: center;
 }
 
 .recording-assist {
