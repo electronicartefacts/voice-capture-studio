@@ -61,6 +61,10 @@ import {
 import { measureAcousticField } from "../rendering/acousticField";
 import { FREE_CAPTURE_MAX_DURATION_MS } from "../recording/captureLimits";
 import {
+  createRealtimeSpeechActivityDetector,
+  type RealtimeSpeechActivityDetector,
+} from "../recording/realtimeSpeechActivity";
+import {
   finalizeCaptureSession,
   type FinalizedRecording,
 } from "../recording/finalizeCaptureSession";
@@ -124,15 +128,21 @@ import {
   type CreateSpeakerInput,
 } from "./speakerProfiles";
 import {
-  alignTranscriptToPromptPosition,
+  alignTranscriptToPromptDetailed,
+  commitSpeechRecognitionSession,
+  createSpeechRecognitionBiasPhrases,
+  createSpeechRecognitionSession,
   createFreeCaptureTranscript,
-  extractFinalSpeechRecognitionTranscript,
   estimateSpeechGuideDurationMs,
-  extractSpeechRecognitionTranscript,
   formatSpeechRecognitionLanguage,
+  getSpeechRecognitionDisplayText,
+  getSpeechRecognitionFinalText,
+  isOnDeviceSpeechRecognitionReady,
   mergeSpeechRecognitionHypotheses,
+  updateSpeechRecognitionSession,
   wordPositionFromTimings,
   type SpeechRecognitionLike,
+  type SpeechRecognitionSession,
   type WindowWithSpeechRecognition,
 } from "./speech";
 import type {
@@ -329,6 +339,15 @@ export function App() {
   const pcmRecorderRef = useRef<PcmRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const speechRecognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const speechRecognitionSessionRef = useRef<SpeechRecognitionSession>(
+    createSpeechRecognitionSession(),
+  );
+  const speechRecognitionRestartTimerRef = useRef<number | null>(null);
+  const speechRecognitionRestartEnabledRef = useRef(false);
+  const speechRecognitionBiasEnabledRef = useRef(true);
+  const speechRecognitionLocalReadyRef = useRef(false);
+  const speechRecognitionResultOffsetRef = useRef(0);
+  const speechRecognitionSessionResultCountRef = useRef(0);
   const recognizedFinalTranscriptRef = useRef("");
   const speechRecognitionHypothesesRef = useRef<
     readonly BrowserAsrHypothesis[]
@@ -357,7 +376,10 @@ export function App() {
   const readingGuideLastSpeechAtRef = useRef(0);
   const readingGuideProgressRef = useRef(0);
   const readingGuideAlignmentRef = useRef<PromptPhonemeAlignment | null>(null);
+  const readingGuideFinalAlignmentConfirmedRef = useRef(false);
   const readingGuideFinishTimerRef = useRef<number | null>(null);
+  const realtimeSpeechActivityRef =
+    useRef<RealtimeSpeechActivityDetector | null>(null);
   const freeCaptureLimitTimerRef = useRef<number | null>(null);
   const lastTranscriptAtRef = useRef(0);
   const finishRecordingRef = useRef<() => void>(() => undefined);
@@ -732,6 +754,24 @@ export function App() {
   useEffect(() => {
     activeWordIndexRef.current = activeWordIndex;
   }, [activeWordIndex]);
+
+  useEffect(() => {
+    const SpeechRecognitionConstructor =
+      (window as WindowWithSpeechRecognition).SpeechRecognition ??
+      (window as WindowWithSpeechRecognition).webkitSpeechRecognition;
+    let current = true;
+
+    void isOnDeviceSpeechRecognitionReady(
+      SpeechRecognitionConstructor,
+      formatSpeechRecognitionLanguage(selectedLanguage),
+    ).then((ready) => {
+      if (current) speechRecognitionLocalReadyRef.current = ready;
+    });
+
+    return () => {
+      current = false;
+    };
+  }, [selectedLanguage]);
 
   useEffect(() => {
     finishRecordingRef.current = finishRecording;
@@ -1785,6 +1825,7 @@ export function App() {
     stream: MediaStream,
     recorder: PcmRecorder,
     message = "Enregistrement en cours. Lis naturellement : le texte suit ta voix.",
+    calibratedRoomTone: RoomToneCalibration | null = sessionRoomTone,
   ) {
     clearRoomToneTimers();
     mediaStreamRef.current = stream;
@@ -1793,6 +1834,9 @@ export function App() {
     setActiveWordIndex(0);
     setScreen("karaoke");
     setMessage(message);
+    realtimeSpeechActivityRef.current = createRealtimeSpeechActivityDetector({
+      noiseFloorDbfs: calibratedRoomTone?.noiseFloorDbfs,
+    });
 
     if (!isFreeCapture) {
       startReadingGuide(words, selectedLanguage);
@@ -1829,6 +1873,12 @@ export function App() {
     setRecognizedTranscript("");
     recognizedFinalTranscriptRef.current = "";
     speechRecognitionHypothesesRef.current = [];
+    speechRecognitionSessionRef.current = createSpeechRecognitionSession();
+    speechRecognitionResultOffsetRef.current = 0;
+    speechRecognitionSessionResultCountRef.current = 0;
+    speechRecognitionRestartEnabledRef.current = true;
+    speechRecognitionBiasEnabledRef.current = true;
+    readingGuideFinalAlignmentConfirmedRef.current = false;
     resetLiveReadingGuidePosition();
 
     const speechRecognitionStarted = startSpeechRecognitionGuide(
@@ -1859,37 +1909,96 @@ export function App() {
 
     try {
       const recognition = new SpeechRecognitionConstructor();
+      const speechWindow = window as WindowWithSpeechRecognition;
+      let restartAllowed = true;
 
       recognition.continuous = true;
       recognition.interimResults = true;
       recognition.lang = formatSpeechRecognitionLanguage(language);
-      recognition.maxAlternatives = 1;
+      recognition.maxAlternatives = 3;
+      if (speechRecognitionLocalReadyRef.current) {
+        recognition.processLocally = true;
+      }
+      if (speechRecognitionBiasEnabledRef.current) {
+        const phrases = createSpeechRecognitionBiasPhrases(
+          promptWords,
+          speechWindow.SpeechRecognitionPhrase,
+        );
+
+        if (phrases.length > 0) {
+          try {
+            recognition.phrases = [...phrases];
+          } catch {
+            // Contextual biasing is progressive; recognition itself remains
+            // useful when an implementation exposes only the older surface.
+            speechRecognitionBiasEnabledRef.current = false;
+          }
+        }
+      }
       recognition.onresult = (event) => {
-        const transcript = extractSpeechRecognitionTranscript(event);
-        const finalTranscript = extractFinalSpeechRecognitionTranscript(event);
+        const now = performance.now();
+
+        speechRecognitionSessionRef.current = updateSpeechRecognitionSession(
+          speechRecognitionSessionRef.current,
+          event,
+          { promptWords },
+        );
+        speechRecognitionSessionResultCountRef.current = Math.max(
+          speechRecognitionSessionResultCountRef.current,
+          event.results.length,
+        );
+        const transcript = getSpeechRecognitionDisplayText(
+          speechRecognitionSessionRef.current,
+        );
+        const finalTranscript = getSpeechRecognitionFinalText(
+          speechRecognitionSessionRef.current,
+        );
 
         speechRecognitionHypothesesRef.current =
           mergeSpeechRecognitionHypotheses(
             speechRecognitionHypothesesRef.current,
             event,
-            Math.max(0, performance.now() - readingGuideStartedAtRef.current),
+            Math.max(0, now - readingGuideStartedAtRef.current),
+            speechRecognitionResultOffsetRef.current,
           );
 
         if (finalTranscript.length > 0) {
           recognizedFinalTranscriptRef.current = finalTranscript;
+          const finalAlignment = alignTranscriptToPromptDetailed(
+            promptWords,
+            finalTranscript,
+          );
+          const minimumFinalMatches = Math.max(
+            1,
+            Math.ceil(promptWords.length * 0.72),
+          );
+
+          if (
+            finalAlignment.position.wordIndex === promptWords.length - 1 &&
+            finalAlignment.matchedWordCount >= minimumFinalMatches &&
+            finalAlignment.score >= 0.68
+          ) {
+            readingGuideFinalAlignmentConfirmedRef.current = true;
+          }
         }
 
         if (transcript.length === 0) {
           return;
         }
 
-        lastTranscriptAtRef.current = performance.now();
-        readingGuideLastSpeechAtRef.current = lastTranscriptAtRef.current;
-        setRecognizedTranscript(transcript);
-        const position = alignTranscriptToPromptPosition(
+        const alignment = alignTranscriptToPromptDetailed(
           promptWords,
           transcript,
         );
+
+        if (alignment.matchedWordCount === 0 || alignment.score < 0.42) {
+          return;
+        }
+
+        lastTranscriptAtRef.current = now;
+        readingGuideLastSpeechAtRef.current = lastTranscriptAtRef.current;
+        setRecognizedTranscript(transcript);
+        const position = alignment.position;
         const alignedWord =
           readingGuideAlignmentRef.current?.words[position.wordIndex];
 
@@ -1907,22 +2016,45 @@ export function App() {
         });
         updateReadingGuideIndex(position.wordIndex, promptWords.length);
       };
-      recognition.onerror = () => {
-        if (speechRecognitionRef.current === recognition) {
-          speechRecognitionRef.current = null;
+      recognition.onerror = (event) => {
+        const error = event.error ?? "unknown";
+
+        if (error === "phrases-not-supported") {
+          speechRecognitionBiasEnabledRef.current = false;
+        } else if (
+          error === "not-allowed" ||
+          error === "service-not-allowed" ||
+          error === "audio-capture" ||
+          error === "language-not-supported"
+        ) {
+          restartAllowed = false;
+          speechRecognitionRestartEnabledRef.current = false;
         }
 
-        setReadingGuideMode("voice-activity");
+        if (!restartAllowed) {
+          setReadingGuideMode("voice-activity");
+        }
       };
       recognition.onend = () => {
         if (speechRecognitionRef.current === recognition) {
           speechRecognitionRef.current = null;
         }
 
+        commitCurrentSpeechRecognitionSession();
+
         if (
+          restartAllowed &&
+          speechRecognitionRestartEnabledRef.current &&
           screenRef.current === "karaoke" &&
-          activeWordIndexRef.current < promptWords.length - 1
+          !isPersistingRef.current &&
+          pcmRecorderRef.current !== null
         ) {
+          scheduleSpeechRecognitionRestart(() => {
+            if (startSpeechRecognitionGuide(promptWords, language)) {
+              setReadingGuideMode("speech-recognition");
+            }
+          });
+        } else if (!restartAllowed) {
           setReadingGuideMode("voice-activity");
         }
       };
@@ -1941,26 +2073,54 @@ export function App() {
     setRecognizedTranscript("");
     recognizedFinalTranscriptRef.current = "";
     freeSpeechRecognitionAvailableRef.current = false;
+    speechRecognitionSessionRef.current = createSpeechRecognitionSession();
+    speechRecognitionResultOffsetRef.current = 0;
+    speechRecognitionSessionResultCountRef.current = 0;
+    speechRecognitionRestartEnabledRef.current = true;
 
+    if (startFreeSpeechRecognitionSession(language)) {
+      freeSpeechRecognitionAvailableRef.current = true;
+      setReadingGuideMode("speech-recognition");
+    } else {
+      setReadingGuideMode("voice-activity");
+    }
+  }
+
+  function startFreeSpeechRecognitionSession(language: LanguageCode): boolean {
     const SpeechRecognitionConstructor =
       (window as WindowWithSpeechRecognition).SpeechRecognition ??
       (window as WindowWithSpeechRecognition).webkitSpeechRecognition;
 
     if (SpeechRecognitionConstructor === undefined) {
-      setReadingGuideMode("voice-activity");
-      return;
+      return false;
     }
 
     try {
       const recognition = new SpeechRecognitionConstructor();
+      let restartAllowed = true;
 
       recognition.continuous = true;
       recognition.interimResults = true;
       recognition.lang = formatSpeechRecognitionLanguage(language);
       recognition.maxAlternatives = 1;
+      if (speechRecognitionLocalReadyRef.current) {
+        recognition.processLocally = true;
+      }
       recognition.onresult = (event) => {
-        const displayTranscript = extractSpeechRecognitionTranscript(event);
-        const finalTranscript = extractFinalSpeechRecognitionTranscript(event);
+        speechRecognitionSessionRef.current = updateSpeechRecognitionSession(
+          speechRecognitionSessionRef.current,
+          event,
+        );
+        speechRecognitionSessionResultCountRef.current = Math.max(
+          speechRecognitionSessionResultCountRef.current,
+          event.results.length,
+        );
+        const displayTranscript = getSpeechRecognitionDisplayText(
+          speechRecognitionSessionRef.current,
+        );
+        const finalTranscript = getSpeechRecognitionFinalText(
+          speechRecognitionSessionRef.current,
+        );
 
         if (displayTranscript.length > 0) {
           setRecognizedTranscript(displayTranscript);
@@ -1970,25 +2130,87 @@ export function App() {
           recognizedFinalTranscriptRef.current = finalTranscript;
         }
       };
-      recognition.onerror = () => {
-        if (speechRecognitionRef.current === recognition) {
-          speechRecognitionRef.current = null;
-          setReadingGuideMode("voice-activity");
+      recognition.onerror = (event) => {
+        const error = event.error ?? "unknown";
+
+        if (
+          error === "not-allowed" ||
+          error === "service-not-allowed" ||
+          error === "audio-capture" ||
+          error === "language-not-supported"
+        ) {
+          restartAllowed = false;
+          speechRecognitionRestartEnabledRef.current = false;
         }
       };
       recognition.onend = () => {
         if (speechRecognitionRef.current === recognition) {
           speechRecognitionRef.current = null;
+        }
+
+        commitCurrentSpeechRecognitionSession();
+
+        if (
+          restartAllowed &&
+          speechRecognitionRestartEnabledRef.current &&
+          screenRef.current === "karaoke" &&
+          !isPersistingRef.current &&
+          pcmRecorderRef.current !== null
+        ) {
+          scheduleSpeechRecognitionRestart(() => {
+            if (startFreeSpeechRecognitionSession(language)) {
+              setReadingGuideMode("speech-recognition");
+            }
+          });
+        } else if (!restartAllowed) {
           setReadingGuideMode("voice-activity");
         }
       };
 
       recognition.start();
       speechRecognitionRef.current = recognition;
-      freeSpeechRecognitionAvailableRef.current = true;
-      setReadingGuideMode("speech-recognition");
+      return true;
     } catch {
-      setReadingGuideMode("voice-activity");
+      return false;
+    }
+  }
+
+  function commitCurrentSpeechRecognitionSession() {
+    speechRecognitionSessionRef.current = commitSpeechRecognitionSession(
+      speechRecognitionSessionRef.current,
+    );
+    speechRecognitionResultOffsetRef.current +=
+      speechRecognitionSessionResultCountRef.current;
+    speechRecognitionSessionResultCountRef.current = 0;
+    const finalTranscript = getSpeechRecognitionFinalText(
+      speechRecognitionSessionRef.current,
+    );
+
+    if (finalTranscript.length > 0) {
+      recognizedFinalTranscriptRef.current = finalTranscript;
+    }
+  }
+
+  function scheduleSpeechRecognitionRestart(restart: () => void) {
+    clearSpeechRecognitionRestartTimer();
+    speechRecognitionRestartTimerRef.current = window.setTimeout(() => {
+      speechRecognitionRestartTimerRef.current = null;
+
+      if (
+        speechRecognitionRestartEnabledRef.current &&
+        screenRef.current === "karaoke" &&
+        !isPersistingRef.current &&
+        pcmRecorderRef.current !== null
+      ) {
+        restart();
+      }
+    }, 140);
+  }
+
+  function clearSpeechRecognitionRestartTimer() {
+    if (speechRecognitionRestartTimerRef.current !== null) {
+      window.clearTimeout(speechRecognitionRestartTimerRef.current);
+      speechRecognitionRestartTimerRef.current = null;
     }
   }
 
@@ -2003,17 +2225,23 @@ export function App() {
     readingGuideLastTickAtRef.current = now;
 
     const level = visualAudioLevelRef.current;
-    const isVoiceActive = level >= voiceActivationThreshold(sessionRoomTone);
+    const speechActivity = realtimeSpeechActivityRef.current?.snapshot(now);
+    const isVoiceActive =
+      speechActivity?.active ??
+      level >= voiceActivationThreshold(sessionRoomTone);
     const recognitionIsFresh =
       readingGuideModeRef.current === "speech-recognition" &&
       lastTranscriptAtRef.current > 0 &&
       now - lastTranscriptAtRef.current < 1600;
 
-    if (isVoiceActive) {
+    if (speechActivity?.hasDetectedSpeech === true) {
+      readingGuideLastSpeechAtRef.current = speechActivity.lastSpeechAtMs;
+    } else if (isVoiceActive) {
       readingGuideLastSpeechAtRef.current = now;
     }
 
     if (!isVoiceActive || recognitionIsFresh) {
+      evaluateReadingGuideEndpoint(promptWords.length, now);
       return;
     }
 
@@ -2039,6 +2267,7 @@ export function App() {
       source: "voice-activity",
     });
     updateReadingGuideIndex(position.wordIndex, promptWords.length);
+    evaluateReadingGuideEndpoint(promptWords.length, now);
   }
 
   function updateReadingGuideIndex(nextIndex: number, wordCount: number) {
@@ -2053,28 +2282,15 @@ export function App() {
       setActiveWordIndex(boundedIndex);
     }
 
-    if (boundedIndex >= wordCount - 1) {
-      const now = performance.now();
-      const maximumExpectedMs =
-        estimateSpeechGuideDurationMs(words, activePrompt) * 1.4;
-      const finishedBySilence = now - readingGuideLastSpeechAtRef.current > 650;
-      const finishedByDuration =
-        now - readingGuideStartedAtRef.current > maximumExpectedMs;
+    if (boundedIndex < wordCount - 1) clearReadingGuideFinishTimer();
+  }
 
-      if (
-        readingGuideModeRef.current === "speech-recognition" ||
-        finishedBySilence ||
-        finishedByDuration
-      ) {
-        scheduleReadingGuideFinish();
-      }
+  function evaluateReadingGuideEndpoint(wordCount: number, now: number) {
+    if (!isReadingGuideEndpointReady(wordCount, now)) {
+      clearReadingGuideFinishTimer();
       return;
     }
 
-    clearReadingGuideFinishTimer();
-  }
-
-  function scheduleReadingGuideFinish() {
     if (
       readingGuideFinishTimerRef.current !== null ||
       isPersistingRef.current
@@ -2085,10 +2301,66 @@ export function App() {
     readingGuideFinishTimerRef.current = window.setTimeout(() => {
       readingGuideFinishTimerRef.current = null;
 
-      if (screenRef.current === "karaoke" && !isPersistingRef.current) {
+      if (
+        screenRef.current === "karaoke" &&
+        !isPersistingRef.current &&
+        isReadingGuideEndpointReady(wordCount, performance.now())
+      ) {
         void finishRecordingRef.current();
       }
-    }, 850);
+    }, 90);
+  }
+
+  function isReadingGuideEndpointReady(
+    wordCount: number,
+    now: number,
+  ): boolean {
+    if (
+      wordCount === 0 ||
+      activeWordIndexRef.current < wordCount - 1 ||
+      isPersistingRef.current
+    ) {
+      return false;
+    }
+
+    const speechActivity = realtimeSpeechActivityRef.current?.snapshot(now);
+
+    if (speechActivity !== undefined) {
+      if (!speechActivity.hasDetectedSpeech || speechActivity.active) {
+        return false;
+      }
+    }
+
+    const trailingSilenceMs =
+      speechActivity?.trailingSilenceMs ??
+      Math.max(0, now - readingGuideLastSpeechAtRef.current);
+    const expressiveEnding = /[!?…]\s*$/u.test(activePrompt?.text ?? "");
+    const requiredSilenceMs = readingGuideFinalAlignmentConfirmedRef.current
+      ? expressiveEnding
+        ? 640
+        : 540
+      : 1_050;
+
+    if (trailingSilenceMs < requiredSilenceMs) {
+      return false;
+    }
+
+    if (readingGuideFinalAlignmentConfirmedRef.current) {
+      return true;
+    }
+
+    const alignment = readingGuideAlignmentRef.current;
+    const finalWord = alignment?.words[wordCount - 1];
+    const fallbackReachedFinalWord =
+      finalWord !== undefined &&
+      readingGuideProgressRef.current >= finalWord.startMs;
+    const minimumPlausibleDuration =
+      estimateSpeechGuideDurationMs(words, activePrompt) * 0.55;
+
+    return (
+      fallbackReachedFinalWord &&
+      now - readingGuideStartedAtRef.current >= minimumPlausibleDuration
+    );
   }
 
   function setReadingGuideMode(mode: ReadingGuideMode) {
@@ -2099,6 +2371,8 @@ export function App() {
   function stopReadingGuide() {
     const recognition = speechRecognitionRef.current;
 
+    speechRecognitionRestartEnabledRef.current = false;
+    clearSpeechRecognitionRestartTimer();
     speechRecognitionRef.current = null;
 
     if (recognition !== null) {
@@ -2123,6 +2397,8 @@ export function App() {
   }
 
   async function stopFreeWordDetection() {
+    speechRecognitionRestartEnabledRef.current = false;
+    clearSpeechRecognitionRestartTimer();
     const recognition = speechRecognitionRef.current;
 
     if (recognition === null) {
@@ -2141,6 +2417,7 @@ export function App() {
         if (speechRecognitionRef.current === recognition) {
           speechRecognitionRef.current = null;
         }
+        commitCurrentSpeechRecognitionSession();
         resolve();
       };
       const timeout = window.setTimeout(() => {
@@ -2254,6 +2531,7 @@ export function App() {
         stream,
         nextRecorder,
         `Salle calibrée : bruit de fond ${calibration.noiseFloorDbfs} dBFS. Enregistrement de la phrase.`,
+        calibration,
       );
     } catch {
       if (pcmRecorderRef.current === recorder) {
@@ -2626,6 +2904,7 @@ export function App() {
 
   function stopMediaStream() {
     stopReadingGuide();
+    realtimeSpeechActivityRef.current = null;
     clearRoomToneTimers();
     mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
     mediaStreamRef.current = null;
@@ -2666,7 +2945,12 @@ export function App() {
     storedRecordingUrlsRef.current = [];
   }
 
-  function pushLiveWaveform(samples: Float32Array) {
+  function pushLiveWaveform(samples: Float32Array, sampleRateHz = 48_000) {
+    realtimeSpeechActivityRef.current?.process(
+      samples,
+      sampleRateHz,
+      performance.now(),
+    );
     pushWaveformToRenderer(samples, 1.5 * inputSensitivityRef.current);
   }
 

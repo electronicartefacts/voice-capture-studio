@@ -1,6 +1,6 @@
 # Capture Technology Audit
 
-Last reviewed: 2026-07-10
+Last reviewed: 2026-07-11
 
 ## Current Position
 
@@ -108,6 +108,30 @@ For fine-tuning:
 - Current app now exports a JSONL manifest and per-take phoneme maps.
 - Training ingestion should filter to keeper takes, then replace or confirm estimated browser
   timings with acoustic alignment before final model training.
+
+## Real-time Reading and Endpointing
+
+The live guide is a hybrid, progressive-capability path rather than one ASR
+result directly moving one UI cursor:
+
+- browser recognition requests three alternatives and selects the sequence
+  most coherent with the immutable prompt, not merely the engine's first item;
+- contextual `SpeechRecognitionPhrase` biasing supplies the prompt, useful
+  word pairs, and distinctive long words when the browser implements it;
+- an available on-device language pack enables `processLocally`; otherwise the
+  older browser-managed path remains available without blocking capture;
+- recognition sessions are restarted and stitched after spontaneous `end`
+  events, with overlap removal and unique evidence indexes;
+- dynamic-programming sequence alignment tolerates inserted, missing,
+  repeated, partial, and revised words without shifting the remaining prompt;
+- a PCM endpoint detector uses calibrated noise, attack/release hysteresis, and
+  an acoustic tail. Reaching the last word alone can no longer stop a take;
+- automatic stop requires a credible final-text alignment plus measured
+  silence. The ASR-free fallback uses a longer tail and plausible duration.
+
+Web Speech remains optional guidance. The PCM recorder, manual Stop action,
+post-capture Whisper/Silero analysis, and dataset evidence contracts do not
+depend on it.
 
 ## Next Technical Push
 

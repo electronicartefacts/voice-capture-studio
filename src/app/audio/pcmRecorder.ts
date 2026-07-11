@@ -26,7 +26,7 @@ export type PcmRecorder = {
 };
 export type PcmRecorderOptions = {
   readonly onLevel?: (level: number) => void;
-  readonly onSamples?: (samples: Float32Array) => void;
+  readonly onSamples?: (samples: Float32Array, sampleRateHz: number) => void;
   /** Defaults to a bounded two-minute directed take. */
   readonly maxDurationMs?: number;
 };
@@ -258,7 +258,7 @@ async function createCapturePipeline(
   const appendSamples = (samples: Float32Array) => {
     sampleBuffer.append(samples);
     options.onLevel?.(computeLevel(samples));
-    options.onSamples?.(samples);
+    options.onSamples?.(samples, audioContext.sampleRate);
   };
 
   if (

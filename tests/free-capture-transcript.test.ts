@@ -6,11 +6,19 @@ import {
   setLiveReadingGuidePosition,
 } from "../src/app/rendering/liveReadingGuideSignal";
 import {
+  alignTranscriptToPromptDetailed,
   alignTranscriptToPromptPosition,
+  commitSpeechRecognitionSession,
+  createSpeechRecognitionBiasPhrases,
+  createSpeechRecognitionSession,
   createFreeCaptureTranscript,
   extractFinalSpeechRecognitionTranscript,
   extractSpeechRecognitionTranscript,
+  getSpeechRecognitionDisplayText,
+  getSpeechRecognitionFinalText,
+  isOnDeviceSpeechRecognitionReady,
   mergeSpeechRecognitionHypotheses,
+  updateSpeechRecognitionSession,
   wordPositionFromSpeechProgress,
   wordPositionFromTimings,
   type SpeechRecognitionEventLike,
@@ -94,6 +102,124 @@ test("speech hypotheses retain finality, confidence, and their first final times
       capturedAtMs: 450,
     },
   ]);
+});
+
+test("speech hypothesis indexes remain unique across browser recognition restarts", () => {
+  const first = mergeSpeechRecognitionHypotheses([], recognitionEvent(), 120);
+  const restarted = mergeSpeechRecognitionHypotheses(
+    first,
+    recognitionEvent(),
+    840,
+    2,
+  );
+
+  assert.deepEqual(
+    restarted.map((hypothesis) => hypothesis.resultIndex),
+    [0, 1, 2, 3],
+  );
+});
+
+test("recognition sessions stitch final words without duplicating replayed overlap", () => {
+  const firstSession = updateSpeechRecognitionSession(
+    createSpeechRecognitionSession(),
+    recognitionEvent(),
+  );
+  const committed = commitSpeechRecognitionSession(firstSession);
+  const restarted = updateSpeechRecognitionSession(committed, {
+    results: {
+      0: {
+        0: { transcript: "Bonjour encore", confidence: 0.93 },
+        isFinal: true,
+        length: 1,
+      },
+      length: 1,
+    },
+  });
+
+  assert.equal(getSpeechRecognitionDisplayText(restarted), "Bonjour encore");
+  assert.equal(getSpeechRecognitionFinalText(restarted), "Bonjour encore");
+});
+
+test("prompt-aware recognition chooses the coherent alternative", () => {
+  const event: SpeechRecognitionEventLike = {
+    results: {
+      0: {
+        0: { transcript: "Je prends le pain", confidence: 0.62 },
+        1: { transcript: "Je peins le pin", confidence: 0.58 },
+        isFinal: false,
+        length: 2,
+      },
+      length: 1,
+    },
+  };
+
+  assert.equal(
+    extractSpeechRecognitionTranscript(event, {
+      promptWords: ["Je", "peins", "le", "pin"],
+    }),
+    "Je peins le pin",
+  );
+});
+
+test("context bias includes the prompt and useful local phrases when supported", () => {
+  class Phrase {
+    constructor(
+      readonly phrase: string,
+      readonly boost = 1,
+    ) {}
+  }
+
+  const phrases = createSpeechRecognitionBiasPhrases(
+    ["Montreal", "aligne", "précisément"],
+    Phrase,
+  );
+
+  assert.ok(
+    phrases.some((phrase) => phrase.phrase === "Montreal aligne précisément"),
+  );
+  assert.ok(phrases.some((phrase) => phrase.phrase === "précisément"));
+});
+
+test("on-device recognition is selected only when the language pack is ready", async () => {
+  class Recognition {
+    static async available() {
+      return "available" as const;
+    }
+
+    continuous = false;
+    interimResults = false;
+    lang = "";
+    maxAlternatives = 1;
+    onend = null;
+    onerror = null;
+    onresult = null;
+    abort() {}
+    start() {}
+    stop() {}
+  }
+
+  assert.equal(
+    await isOnDeviceSpeechRecognitionReady(Recognition, "fr-FR"),
+    true,
+  );
+  assert.equal(
+    await isOnDeviceSpeechRecognitionReady(undefined, "fr-FR"),
+    false,
+  );
+});
+
+test("sequence alignment recovers after insertions, omissions, and repeated words", () => {
+  const words = ["Je", "vais", "très", "très", "vite", "maintenant"];
+  const aligned = alignTranscriptToPromptDetailed(
+    words,
+    "Je vais vraiment très très vite maintenant",
+  );
+
+  assert.equal(aligned.position.wordIndex, words.length - 1);
+  assert.equal(aligned.position.wordProgress, 1);
+  assert.equal(aligned.matchedWordCount, words.length);
+  assert.ok(aligned.score > 0.8);
+  assert.equal(aligned.coverage, 1);
 });
 
 test("interim speech recognition exposes a fractional position inside the current word", () => {
