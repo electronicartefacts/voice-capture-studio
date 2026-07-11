@@ -38,6 +38,8 @@ test("studio boots to the home screen with recording available", async ({
 test("a guided take flows from launch to the review screen", async ({
   page,
 }) => {
+  await page.setViewportSize({ height: 998, width: 350 });
+  await page.emulateMedia({ colorScheme: "dark" });
   await enterStudio(page);
 
   await page.locator("button.launch-button").click();
@@ -64,6 +66,49 @@ test("a guided take flows from launch to the review screen", async ({
     timeout: 30_000,
   });
   await expect(page.getByText(/Phrase 1 sur \d+/)).toBeVisible();
+  await expect(
+    page.getByRole("region", { name: "Écoute de la prise" }),
+  ).toBeVisible();
+  await expect(page.getByText("Moniteur de prise")).toBeVisible();
+  await expect(page.getByLabel("Temps de lecture")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Écouter" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Début" })).toBeVisible();
+  await expect(page.locator("label.loop-toggle")).toBeVisible();
+  const loopToggle = page.getByRole("checkbox", { name: "Boucle" });
+
+  await expect(loopToggle).not.toBeChecked();
+  await page.locator("label.loop-toggle").click();
+  await expect(loopToggle).toBeChecked();
+  await expect(page.getByLabel("Section de boucle")).toBeVisible();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth,
+      ),
+    )
+    .toBe(true);
+  await expect
+    .poll(() =>
+      page.locator(".listening-review").evaluate((element) => {
+        const bounds = element.getBoundingClientRect();
+
+        return bounds.left >= 0 && bounds.right <= window.innerWidth;
+      }),
+    )
+    .toBe(true);
+  await expect
+    .poll(() =>
+      page.locator(".file-receipt").evaluate((receipt) => {
+        const footer = document.querySelector(".site-footer");
+
+        return (
+          footer !== null &&
+          footer.getBoundingClientRect().top >=
+            receipt.getBoundingClientRect().bottom - 1
+        );
+      }),
+    )
+    .toBe(true);
 });
 
 test("free capture removes unavailable controls and false reading progress", async ({

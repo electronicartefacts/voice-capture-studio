@@ -137,7 +137,11 @@ export function VoiceWaveformSurface(input: {
       if (state === "home") return width < 720 ? 0.28 : 0.18;
       if (state === "permission") return width < 720 ? 0.18 : 0.14;
       if (state === "technical") return width < 720 ? 0.16 : 0.18;
-      if (state === "done") return width < 720 ? 0.58 : 0.64;
+      // On the review surface the persistent filament must pass through the
+      // decoded take monitor, not through the action stack below it. This
+      // makes the page-wide signal and the precise local waveform read as one
+      // instrument across phone and desktop layouts.
+      if (state === "done") return width < 720 ? 0.47 : 0.5;
       return 0.5;
     }
 

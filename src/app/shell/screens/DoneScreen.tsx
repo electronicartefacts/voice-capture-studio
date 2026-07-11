@@ -16,7 +16,6 @@ import {
   Play,
   RotateCcw,
   StepForward,
-  Volume2,
 } from "lucide-react";
 import type { RecordedTake } from "@domains/sessions";
 import {
@@ -298,6 +297,13 @@ export function ListeningReviewSurface(input: {
     );
   }
 
+  const reviewFileName = input.fileName ?? input.take.fileName;
+  const takeReference = String(input.take.id)
+    .replace(/^take[._-]?/i, "")
+    .slice(0, 8)
+    .toUpperCase();
+  const technicalFormat = input.take.quality.technical;
+
   return (
     <section className="listening-review" aria-label="Écoute de la prise">
       {input.audioUrl !== null && (
@@ -315,14 +321,19 @@ export function ListeningReviewSurface(input: {
         />
       )}
       <div className="listening-header">
-        <div>
-          <p className="soft-label">Écoute</p>
-          <h2>{input.fileName ?? input.take.fileName}</h2>
+        <div className="take-identity">
+          <p className="soft-label">Moniteur de prise</p>
+          <h2>
+            Prise <span>{takeReference}</span>
+          </h2>
+          <p className="take-file-name" title={reviewFileName}>
+            {reviewFileName}
+          </p>
         </div>
-        <span>
-          {formatPlaybackTime(currentTime)} /{" "}
-          {formatPlaybackTime(durationSeconds)}
-        </span>
+        <div className="playback-time" aria-label="Temps de lecture">
+          <strong>{formatPlaybackTime(currentTime)}</strong>
+          <span>/ {formatPlaybackTime(durationSeconds)}</span>
+        </div>
       </div>
       <div
         aria-label="Surface de lecture de la prise"
@@ -335,6 +346,14 @@ export function ListeningReviewSurface(input: {
         role="slider"
         tabIndex={0}
       >
+        <span aria-hidden="true" className="waveform-format">
+          <span>
+            {technicalFormat.sampleRateHz / 1000} kHz ·{" "}
+            {technicalFormat.bitDepth}
+            -bit
+          </span>
+          <span>WAVE / PCM</span>
+        </span>
         <span
           aria-hidden="true"
           className="loop-region"
@@ -363,10 +382,14 @@ export function ListeningReviewSurface(input: {
           className="review-playhead"
           style={{ left: `${playbackProgress * 100}%` }}
         />
+        <span aria-hidden="true" className="waveform-time-scale">
+          <span>0:00</span>
+          <span>{formatPlaybackTime(durationSeconds)}</span>
+        </span>
       </div>
       <div className="playback-controls">
         <button
-          className="launch-button compact"
+          className="transport-button transport-primary"
           disabled={input.audioUrl === null}
           onClick={() => void togglePlayback()}
           type="button"
@@ -376,16 +399,16 @@ export function ListeningReviewSurface(input: {
           ) : (
             <Play aria-hidden="true" size={18} />
           )}
-          <span>{isPlaying ? "Pause" : "Replay"}</span>
+          <span>{isPlaying ? "Pause" : "Écouter"}</span>
         </button>
         <button
-          className="folder-button compact"
+          className="transport-button transport-reset"
           disabled={input.audioUrl === null}
           onClick={replay}
           type="button"
         >
           <RotateCcw aria-hidden="true" size={17} />
-          <span>Reprendre</span>
+          <span>Début</span>
         </button>
         <label className="inline-toggle loop-toggle">
           <input
@@ -393,7 +416,11 @@ export function ListeningReviewSurface(input: {
             onChange={(event) => setLoopEnabled(event.target.checked)}
             type="checkbox"
           />
-          <span>Boucle</span>
+          <span aria-hidden="true" className="loop-switch" />
+          <span className="loop-copy">
+            <strong>Boucle</strong>
+            <small>{loopEnabled ? "Active" : "Inactive"}</small>
+          </span>
         </label>
       </div>
       {loopEnabled && (
@@ -430,23 +457,29 @@ export function ListeningReviewSurface(input: {
           </label>
         </div>
       )}
-      <div className="review-transcript" aria-label="Transcript synchronisé">
-        {wordTimings.map((timing, index) => (
-          <button
-            className={[
-              "review-word",
-              index === activeWordIndex ? "is-active" : "",
-              index < activeWordIndex ? "is-spoken" : "",
-            ]
-              .filter(Boolean)
-              .join(" ")}
-            key={`${timing.word}-${index}`}
-            onClick={() => seekToWord(index)}
-            type="button"
-          >
-            {timing.word}
-          </button>
-        ))}
+      <div className="transcript-panel">
+        <div className="transcript-header">
+          <p className="soft-label">Transcription</p>
+          <span>{wordTimings.length} mots · synchronisée</span>
+        </div>
+        <div className="review-transcript" aria-label="Transcript synchronisé">
+          {wordTimings.map((timing, index) => (
+            <button
+              className={[
+                "review-word",
+                index === activeWordIndex ? "is-active" : "",
+                index < activeWordIndex ? "is-spoken" : "",
+              ]
+                .filter(Boolean)
+                .join(" ")}
+              key={`${timing.word}-${index}`}
+              onClick={() => seekToWord(index)}
+              type="button"
+            >
+              {timing.word}
+            </button>
+          ))}
+        </div>
       </div>
     </section>
   );
@@ -624,21 +657,20 @@ export function DoneScreen(input: {
 
   return (
     <div className="focus-card" aria-live="polite">
-      <div className="result-mark is-listening">
-        <Volume2 aria-hidden="true" size={28} />
+      <div className="result-hero">
+        <div className="result-heading">
+          {input.progressLabel !== null && (
+            <p className="soft-label">{input.progressLabel}</p>
+          )}
+          <h1>Écoute la prise.</h1>
+          {input.take !== null && (
+            <span className={`verdict-chip is-${isKeeper ? "pass" : "retake"}`}>
+              {isKeeper ? "Prise utilisable" : "À reprendre"}
+            </span>
+          )}
+        </div>
+        <p className="result-message">{input.message}</p>
       </div>
-      <div className="result-heading">
-        {input.progressLabel !== null && (
-          <p className="soft-label">{input.progressLabel}</p>
-        )}
-        <h1>Écoute la prise.</h1>
-        {input.take !== null && (
-          <span className={`verdict-chip is-${isKeeper ? "pass" : "retake"}`}>
-            {isKeeper ? "Prise utilisable" : "À reprendre"}
-          </span>
-        )}
-      </div>
-      <p>{input.message}</p>
       <ListeningReviewSurface
         audioUrl={input.downloadUrl}
         fileName={input.fileName}
