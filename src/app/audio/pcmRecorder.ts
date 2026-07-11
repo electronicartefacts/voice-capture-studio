@@ -9,6 +9,7 @@ import {
 import { validatePcmWavBlob } from "./wavValidation";
 import type { AudioCaptureProvenance } from "@domains/sessions";
 import { FREE_CAPTURE_MAX_DURATION_MS } from "../recording/captureLimits";
+import { applyInputGain, planInputGain, type InputGainMode } from "./inputGain";
 
 export type { PcmRecordingMetrics } from "./pcmAudio";
 
@@ -29,6 +30,10 @@ export type PcmRecorderOptions = {
   readonly onSamples?: (samples: Float32Array, sampleRateHz: number) => void;
   /** Defaults to a bounded two-minute directed take. */
   readonly maxDurationMs?: number;
+  readonly inputGain?: {
+    readonly mode: InputGainMode;
+    readonly manualFactor: number;
+  };
 };
 
 type WindowWithAudioContext = Window &
@@ -184,9 +189,23 @@ export async function createPcmRecorder(
                 sourceSampleRate,
                 PCM_TARGET_SAMPLE_RATE,
               );
-        const metrics = analyzePcmSamples(samples, PCM_TARGET_SAMPLE_RATE);
+        const sourceMetrics = analyzePcmSamples(
+          samples,
+          PCM_TARGET_SAMPLE_RATE,
+        );
+        const gainPlan = options.inputGain
+          ? planInputGain({ ...options.inputGain, metrics: sourceMetrics })
+          : null;
+        const outputSamples =
+          gainPlan === null
+            ? samples
+            : applyInputGain(samples, gainPlan.factor);
+        const metrics =
+          outputSamples === samples
+            ? sourceMetrics
+            : analyzePcmSamples(outputSamples, PCM_TARGET_SAMPLE_RATE);
 
-        const blob = encodeWav24(samples, PCM_TARGET_SAMPLE_RATE);
+        const blob = encodeWav24(outputSamples, PCM_TARGET_SAMPLE_RATE);
         await validatePcmWavBlob(blob);
 
         return {
@@ -197,6 +216,20 @@ export async function createPcmRecorder(
           truncated,
           capture: {
             ...captureSettings,
+            processing: {
+              ...captureSettings.processing,
+              ...(gainPlan === null
+                ? {}
+                : {
+                    digitalGain: {
+                      ...gainPlan,
+                      sourceIntegratedLufs: sourceMetrics.integratedLufs,
+                      sourceNoiseFloorDbfs: sourceMetrics.noiseFloorDbfs,
+                      sourcePeakDbfs: sourceMetrics.peakDbfs,
+                      sourceTruePeakDbfs: sourceMetrics.estimatedTruePeakDbfs,
+                    },
+                  }),
+            },
             resampledToTarget: sourceSampleRate !== PCM_TARGET_SAMPLE_RATE,
           },
         };

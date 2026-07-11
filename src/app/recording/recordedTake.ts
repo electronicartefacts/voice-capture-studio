@@ -86,13 +86,15 @@ export function createRecordedTake(input: {
       : input.metrics.peakDbfs < -34 || input.metrics.integratedLufs < -42
         ? "review"
         : "pass";
+  const digitalGain = input.media.capture.processing.digitalGain;
+  const measuredTakeNoiseFloorDbfs =
+    digitalGain?.sourceNoiseFloorDbfs ?? input.metrics.noiseFloorDbfs;
   const roomToneNoiseFloorDbfs =
-    input.profile.roomToneNoiseFloorDbfs ?? input.metrics.noiseFloorDbfs;
+    input.profile.roomToneNoiseFloorDbfs ?? measuredTakeNoiseFloorDbfs;
   const roomToneDriftDb = input.profile.roomToneCaptured
     ? roundDb(
-        input.metrics.noiseFloorDbfs -
-          (input.profile.roomToneNoiseFloorDbfs ??
-            input.metrics.noiseFloorDbfs),
+        measuredTakeNoiseFloorDbfs -
+          (input.profile.roomToneNoiseFloorDbfs ?? measuredTakeNoiseFloorDbfs),
       )
     : null;
   const roomToneDriftStatus =
@@ -285,6 +287,19 @@ export function createRecordedTake(input: {
                 : headroomStatus === "review"
                   ? `Marge réduite : pic estimé ${input.metrics.estimatedTruePeakDbfs} dBFS.`
                   : `Marge saine : pic estimé ${input.metrics.estimatedTruePeakDbfs} dBFS.`,
+          },
+          {
+            id: "input_gain",
+            label: "Sensibilité",
+            status:
+              digitalGain?.limitedBy === "insufficient_signal" ||
+              digitalGain?.limitedBy === "clipping"
+                ? "review"
+                : "pass",
+            message:
+              digitalGain === undefined
+                ? "Signal conservé sans compensation numérique."
+                : createInputGainMessage(digitalGain),
           },
           {
             id: "dc_offset",
@@ -572,6 +587,32 @@ function createTakeCaptureContext(input: {
     },
     roomToneRef: null,
   };
+}
+
+function createInputGainMessage(
+  gain: NonNullable<TakeMedia["capture"]["processing"]["digitalGain"]>,
+): string {
+  if (gain.limitedBy === "clipping") {
+    return "Pic saturé dans la source : aucun gain appliqué. Réduis le niveau matériel ou éloigne légèrement le micro.";
+  }
+
+  if (gain.limitedBy === "insufficient_signal") {
+    return "Voix trop faible pour calibrer le gain avec certitude. Rapproche le micro et refais une prise.";
+  }
+
+  const mode = gain.mode === "auto" ? "Auto" : "Manuel";
+  const constraint =
+    gain.limitedBy === "noise_floor"
+      ? "plafonné pour ne pas remonter le bruit de pièce"
+      : gain.limitedBy === "true_peak"
+        ? "plafonné pour préserver les transitoires"
+        : gain.limitedBy === "maximum"
+          ? "plafonné à +12 dB pour rester prédictible"
+          : gain.limitedBy === "manual"
+            ? "réglage demandé appliqué"
+            : "niveau vocal cible atteint";
+
+  return `${mode} : ${gain.gainDb >= 0 ? "+" : ""}${gain.gainDb.toFixed(1)} dB, ${constraint}.`;
 }
 
 function getTranscriptGateStatus(

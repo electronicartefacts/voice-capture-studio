@@ -6,6 +6,7 @@ import { canonicalCorpus, type PromptDefinition } from "../src/domains/corpus";
 import { initialSpeakers } from "../src/domains/speakers";
 import {
   planSession,
+  type AudioCaptureProvenance,
   type CaptureSession,
   type TakeId,
 } from "../src/domains/sessions";
@@ -253,6 +254,43 @@ test("recorded take reviews noisy calibrated room tone", () => {
   assert.equal(findGateStatus(take, "noise_floor"), "review");
 });
 
+test("recorded take explains automatic gain and compares room tone against the raw source", () => {
+  const { prompt, session } = createPlannedPrompt();
+  const take = createRecordedTake({
+    durationMs: 3200,
+    fileName: "take.wav",
+    media: createMedia({
+      factor: 2,
+      gainDb: 20 * Math.log10(2),
+      limitedBy: "noise_floor",
+      mode: "auto",
+      noiseFloorCeilingDbfs: -42,
+      sourceIntegratedLufs: -30,
+      sourceNoiseFloorDbfs: -48,
+      sourcePeakDbfs: -18,
+      sourceTruePeakDbfs: -17,
+      targetLufs: -20,
+      truePeakCeilingDbfs: -3,
+    }),
+    metrics: createMetrics({ noiseFloorDbfs: -42 }),
+    profile: createCaptureProfile({
+      roomToneCaptured: true,
+      roomToneNoiseFloorDbfs: -50,
+    }),
+    prompt,
+    recordedAt,
+    session,
+    takeId,
+  });
+
+  const gainGate = take.quality.gates.find((gate) => gate.id === "input_gain");
+  const roomGate = take.quality.gates.find((gate) => gate.id === "noise_floor");
+
+  assert.equal(gainGate?.status, "pass");
+  assert.match(gainGate?.message ?? "", /Auto.*bruit de pièce/);
+  assert.match(roomGate?.message ?? "", /Dérive relative : 2 dB/);
+});
+
 test("recorded take reviews room tone drift even when the absolute floor is acceptable", () => {
   const { prompt, session } = createPlannedPrompt();
   const take = createRecordedTake({
@@ -367,7 +405,11 @@ function createMetrics(
   };
 }
 
-function createMedia() {
+function createMedia(
+  digitalGain?: NonNullable<
+    AudioCaptureProvenance["processing"]["digitalGain"]
+  >,
+) {
   return {
     schemaVersion: "voice.media.v1" as const,
     byteLength: 460844,
@@ -392,6 +434,7 @@ function createMedia() {
         autoGainControl: false,
         echoCancellation: false,
         noiseSuppression: false,
+        ...(digitalGain === undefined ? {} : { digitalGain }),
       },
       sourceSampleRateHz: 48000,
       targetSampleRateHz: 48000,

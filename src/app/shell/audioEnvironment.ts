@@ -1,8 +1,11 @@
 export const INPUT_SENSITIVITY_STORAGE_KEY =
   "voice-capture-studio.input-sensitivity";
+export const INPUT_GAIN_MODE_STORAGE_KEY =
+  "voice-capture-studio.input-gain-mode";
 export const INPUT_SENSITIVITY_MIN = 0.5;
 export const INPUT_SENSITIVITY_MAX = 3;
 export const DEFAULT_INPUT_SENSITIVITY = 1.6;
+export const DEFAULT_INPUT_GAIN_MODE = "auto" as const;
 export const REVIEW_WAVEFORM_BAR_COUNT = 92;
 export const AUDIO_UI_UPDATE_INTERVAL_MS = 80;
 export const KARAOKE_STYLE_UPDATE_INTERVAL_MS = 1000 / 30;

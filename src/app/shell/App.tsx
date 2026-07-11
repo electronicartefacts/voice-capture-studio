@@ -42,6 +42,7 @@ import {
 } from "@domains/workspace";
 import { type LanguageCode } from "@shared/index";
 import { createPcmRecorder, type PcmRecorder } from "../audio/pcmRecorder";
+import type { InputGainMode } from "../audio/inputGain";
 import { createBrowserAsrObservation } from "../analysis/browserAsrObservation";
 import type { BrowserAsrHypothesis } from "@domains/observations";
 import {
@@ -97,6 +98,8 @@ import {
   AUDIO_UI_UPDATE_INTERVAL_MS,
   type WindowWithAudioContext,
   DEFAULT_INPUT_SENSITIVITY,
+  DEFAULT_INPUT_GAIN_MODE,
+  INPUT_GAIN_MODE_STORAGE_KEY,
   INPUT_SENSITIVITY_MAX,
   INPUT_SENSITIVITY_MIN,
   INPUT_SENSITIVITY_STORAGE_KEY,
@@ -209,6 +212,16 @@ function readStoredInputSensitivity(): number {
       : DEFAULT_INPUT_SENSITIVITY;
   } catch {
     return DEFAULT_INPUT_SENSITIVITY;
+  }
+}
+
+function readStoredInputGainMode(): InputGainMode {
+  try {
+    return window.localStorage.getItem(INPUT_GAIN_MODE_STORAGE_KEY) === "manual"
+      ? "manual"
+      : DEFAULT_INPUT_GAIN_MODE;
+  } catch {
+    return DEFAULT_INPUT_GAIN_MODE;
   }
 }
 
@@ -330,6 +343,10 @@ export function App() {
     readStoredInputSensitivity,
   );
   const inputSensitivityRef = useRef(inputSensitivity);
+  const [inputGainMode, setInputGainMode] = useState<InputGainMode>(
+    readStoredInputGainMode,
+  );
+  const inputGainModeRef = useRef(inputGainMode);
   const appRootRef = useRef<HTMLElement | null>(null);
   const renderedAudioLevelRef = useRef(0);
   const lastAudioUiUpdateAtRef = useRef(-Infinity);
@@ -1807,8 +1824,13 @@ export function App() {
 
       setMicrophoneLabel(createMicrophoneLabel(stream));
 
+      const needsRoomToneCalibration =
+        !captureIsFree &&
+        !hasCalibratedCurrentSessionRef.current &&
+        currentPromptIndex === 0;
       const recorder = await createPcmRecorder(stream, {
         maxDurationMs: captureIsFree ? FREE_CAPTURE_MAX_DURATION_MS : undefined,
+        ...(needsRoomToneCalibration ? {} : createInputGainOptions()),
         onLevel: updateVisualAudioLevel,
         onSamples: pushLiveWaveform,
       });
@@ -2547,6 +2569,7 @@ export function App() {
       }
 
       const nextRecorder = await createPcmRecorder(stream, {
+        ...createInputGainOptions(),
         onLevel: updateVisualAudioLevel,
         onSamples: pushLiveWaveform,
       });
@@ -3037,6 +3060,26 @@ export function App() {
     }
   }
 
+  function updateInputGainMode(mode: InputGainMode) {
+    inputGainModeRef.current = mode;
+    setInputGainMode(mode);
+
+    try {
+      window.localStorage.setItem(INPUT_GAIN_MODE_STORAGE_KEY, mode);
+    } catch {
+      // The preference remains active for this session when storage is blocked.
+    }
+  }
+
+  function createInputGainOptions() {
+    return {
+      inputGain: {
+        manualFactor: inputSensitivityRef.current,
+        mode: inputGainModeRef.current,
+      },
+    } as const;
+  }
+
   async function requestRecordingWakeLock() {
     const wakeLock = (navigator as NavigatorWithWakeLock).wakeLock;
 
@@ -3177,6 +3220,7 @@ export function App() {
               datasetExportState={datasetExportState}
               diagnostics={diagnostics}
               folderName={folderName}
+              inputGainMode={inputGainMode}
               inputSensitivity={inputSensitivity}
               microphoneActive={studioAwake}
               microphoneLabel={microphoneLabel}
@@ -3185,6 +3229,7 @@ export function App() {
               onDownloadWorkspaceArchive={downloadWorkspaceArchive}
               onImportForcedAlignment={loadForcedAlignmentFile}
               onImportWorkspaceArchive={importWorkspaceArchive}
+              onInputGainModeChange={updateInputGainMode}
               onInputSensitivityChange={updateInputSensitivity}
               onClearCachedModels={() => void clearCachedModels()}
               onWriteDatasetToFolder={writeDatasetPackageToFolder}

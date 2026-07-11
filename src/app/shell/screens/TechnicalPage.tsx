@@ -10,6 +10,7 @@ import {
 import type { CorpusManifest } from "@domains/corpus";
 import type { CoverageSummary } from "@domains/coverage";
 import type { RuntimeDiagnostics } from "../../system/runtimeDiagnostics";
+import type { InputGainMode } from "../../audio/inputGain";
 import {
   INPUT_SENSITIVITY_MAX,
   INPUT_SENSITIVITY_MIN,
@@ -46,6 +47,8 @@ export function MicrophoneControlPanel(input: {
   readonly active: boolean;
   readonly audioLevel: number;
   readonly label: string | null;
+  readonly mode: InputGainMode;
+  readonly onModeChange: (mode: InputGainMode) => void;
   readonly onSensitivityChange: (value: number) => void;
   readonly sensitivity: number;
 }) {
@@ -74,11 +77,36 @@ export function MicrophoneControlPanel(input: {
           {input.active ? "Actif" : "En veille"}
         </span>
       </div>
+      <div className="mode-dial" role="group" aria-label="Mode de sensibilité">
+        <button
+          aria-pressed={input.mode === "auto"}
+          className={`capture-mode-option${input.mode === "auto" ? " is-active" : ""}`}
+          onClick={() => input.onModeChange("auto")}
+          style={{ padding: "0 14px", width: "auto" }}
+          type="button"
+        >
+          Auto
+        </button>
+        <button
+          aria-pressed={input.mode === "manual"}
+          className={`capture-mode-option${input.mode === "manual" ? " is-active" : ""}`}
+          onClick={() => input.onModeChange("manual")}
+          style={{ padding: "0 14px", width: "auto" }}
+          type="button"
+        >
+          Manuel
+        </button>
+      </div>
       <label className="microphone-sensitivity studio-range-control">
-        <span>Sensibilité</span>
+        <span>
+          {input.mode === "auto"
+            ? "Réglage manuel de secours"
+            : "Gain constant"}
+        </span>
         <input
           aria-label="Sensibilité logicielle du micro"
           className="studio-range"
+          disabled={input.mode === "auto"}
           max={INPUT_SENSITIVITY_MAX}
           min={INPUT_SENSITIVITY_MIN}
           onChange={(event) =>
@@ -96,7 +124,9 @@ export function MicrophoneControlPanel(input: {
         <strong>{Math.round(input.sensitivity * 100)}%</strong>
       </label>
       <p className="microphone-hint" aria-live="polite">
-        {levelHint}
+        {input.mode === "auto"
+          ? "Auto mesure la voix brute, protège les pics et refuse d’amplifier le bruit de la pièce. Le WAV conserve un gain constant, sans compression."
+          : levelHint}
       </p>
     </section>
   );
@@ -113,6 +143,7 @@ export function TechnicalPage(input: {
   readonly diagnostics: RuntimeDiagnostics;
   readonly folderName: string | null;
   readonly inputSensitivity: number;
+  readonly inputGainMode: InputGainMode;
   readonly microphoneActive: boolean;
   readonly microphoneLabel: string | null;
   readonly onBack: () => void;
@@ -122,6 +153,7 @@ export function TechnicalPage(input: {
   readonly onImportForcedAlignment: (file: File) => void;
   readonly onImportWorkspaceArchive: (file: File) => Promise<number>;
   readonly onInputSensitivityChange: (value: number) => void;
+  readonly onInputGainModeChange: (mode: InputGainMode) => void;
   readonly onWriteDatasetToFolder: () => void;
   readonly recordings: readonly DownloadableRecording[];
   readonly savedSessions: number;
@@ -147,6 +179,8 @@ export function TechnicalPage(input: {
         active={input.microphoneActive}
         audioLevel={input.audioLevel}
         label={input.microphoneLabel}
+        mode={input.inputGainMode}
+        onModeChange={input.onInputGainModeChange}
         onSensitivityChange={input.onInputSensitivityChange}
         sensitivity={input.inputSensitivity}
       />

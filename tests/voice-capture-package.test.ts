@@ -72,6 +72,10 @@ test("voice capture package v1 exports a self-validating Forge contract with exp
     "voice.take_observation.v1",
   );
   assert.match(plan.samples[0].audio.path, /^audio\/audio_[a-f0-9]{64}\.wav$/);
+  assert.equal(plan.samples[0].audio.raw_immutable, true);
+  assert.equal(plan.samples[0].audio.source_signal_retained, false);
+  assert.equal(plan.samples[0].audio.digital_gain?.mode, "auto");
+  assert.equal(plan.samples[0].audio.digital_gain?.factor, 2);
   assert.equal(plan.samples[0].alignment.status, "estimated_g2p");
   assert.equal(plan.samples[0].lifecycle.status, "training_candidate");
   assert.ok(plan.samples[0].lifecycle.review_required);
@@ -404,6 +408,19 @@ async function createTake(input: {
           autoGainControl: false,
           echoCancellation: false,
           noiseSuppression: false,
+          digitalGain: {
+            mode: "auto",
+            factor: 2,
+            gainDb: 6.0206,
+            targetLufs: -20,
+            truePeakCeilingDbfs: -3,
+            noiseFloorCeilingDbfs: -42,
+            limitedBy: "target",
+            sourcePeakDbfs: -18,
+            sourceTruePeakDbfs: -17,
+            sourceIntegratedLufs: -26,
+            sourceNoiseFloorDbfs: -60,
+          },
         },
         sourceSampleRateHz: 48000,
         targetSampleRateHz: 48000,

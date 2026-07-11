@@ -99,6 +99,27 @@ export type AudioCaptureProvenance = {
     readonly autoGainControl: boolean | null;
     readonly echoCancellation: boolean | null;
     readonly noiseSuppression: boolean | null;
+    /** Deterministic constant gain applied before 24-bit WAV quantization. */
+    readonly digitalGain?: {
+      readonly mode: "auto" | "manual";
+      readonly factor: number;
+      readonly gainDb: number;
+      readonly targetLufs: number;
+      readonly truePeakCeilingDbfs: number;
+      readonly noiseFloorCeilingDbfs: number;
+      readonly limitedBy:
+        | "target"
+        | "true_peak"
+        | "noise_floor"
+        | "maximum"
+        | "manual"
+        | "clipping"
+        | "insufficient_signal";
+      readonly sourcePeakDbfs: number;
+      readonly sourceTruePeakDbfs: number;
+      readonly sourceIntegratedLufs: number;
+      readonly sourceNoiseFloorDbfs: number;
+    };
   };
   readonly sourceSampleRateHz: number;
   readonly targetSampleRateHz: number;
@@ -241,6 +262,7 @@ export type TakeQualityGateResult = {
     | "clipping"
     | "noise_floor"
     | "signal_level"
+    | "input_gain"
     | "snr"
     | "duration"
     | "audio_persistence"

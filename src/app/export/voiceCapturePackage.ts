@@ -1,5 +1,6 @@
 import type { CorpusManifest } from "@domains/corpus";
 import type {
+  AudioCaptureProvenance,
   CaptureSession,
   RecordedTake,
   TakeQuality,
@@ -114,6 +115,10 @@ export type VoiceCapturePackageSample = {
     readonly declared_duration_ms: number;
     readonly byte_size: number;
     readonly resampled: boolean | null;
+    readonly digital_gain:
+      AudioCaptureProvenance["processing"]["digitalGain"] | null;
+    readonly source_signal_retained: false;
+    /** Legacy field: the delivered WAV is immutable, but may carry declared constant gain. */
     readonly raw_immutable: true;
   };
   readonly text: {
@@ -540,6 +545,8 @@ export async function createVoiceCapturePackagePlan(input: {
         declared_duration_ms: take.durationMs,
         byte_size: audioBlob.size,
         resampled: legacyMedia?.capture.resampledToTarget ?? null,
+        digital_gain: legacyMedia?.capture.processing.digitalGain ?? null,
+        source_signal_retained: false,
         raw_immutable: true,
       },
       text: {

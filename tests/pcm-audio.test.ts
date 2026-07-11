@@ -8,6 +8,33 @@ import {
   resampleBandLimited,
   resampleLinear,
 } from "../src/app/audio/pcmAudio";
+import { computeReviewPlaybackGain } from "../src/app/audio/reviewPlaybackGain";
+
+test("review playback lifts quiet takes without exceeding peak headroom", () => {
+  assert.ok(
+    Math.abs(
+      computeReviewPlaybackGain({
+        integratedLufs: -30,
+        estimatedTruePeakDbfs: -12,
+      }) -
+        10 ** (11 / 20),
+    ) < 0.000001,
+  );
+  assert.equal(
+    computeReviewPlaybackGain({
+      integratedLufs: -32,
+      estimatedTruePeakDbfs: -20,
+    }),
+    4,
+  );
+  assert.equal(
+    computeReviewPlaybackGain({
+      integratedLufs: -16,
+      estimatedTruePeakDbfs: -2,
+    }),
+    1,
+  );
+});
 
 test("PCM sample buffer copies chunks and enforces the configured sample limit", () => {
   const buffer = new PcmSampleBuffer({ maxSamples: 3 });

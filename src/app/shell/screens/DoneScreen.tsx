@@ -32,6 +32,7 @@ import {
   type WindowWithAudioContext,
 } from "../audioEnvironment";
 import { createTakeCoachNote, formatPercent } from "../helpers";
+import { computeReviewPlaybackGain } from "../../audio/reviewPlaybackGain";
 
 export function ListeningReviewSurface(input: {
   readonly audioUrl: string | null;
@@ -41,6 +42,9 @@ export function ListeningReviewSurface(input: {
   readonly take: RecordedTake | null;
 }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const playbackContextRef = useRef<AudioContext | null>(null);
+  const playbackSourceRef = useRef<MediaElementAudioSourceNode | null>(null);
+  const playbackGainRef = useRef<GainNode | null>(null);
   const onEnergyChangeRef = useRef(input.onEnergyChange);
   const onProgressChangeRef = useRef(input.onProgressChange);
   const smoothedPlaybackEnergyRef = useRef(0);
@@ -63,6 +67,26 @@ export function ListeningReviewSurface(input: {
     () => decodedBars ?? createPlaceholderWaveformBars(),
     [decodedBars],
   );
+  const reviewPlaybackGain = computeReviewPlaybackGain({
+    estimatedTruePeakDbfs:
+      input.take?.quality.technical.estimatedTruePeakDbfs ?? 0,
+    integratedLufs: input.take?.quality.technical.integratedLufs ?? 0,
+  });
+
+  useEffect(() => {
+    return () => {
+      playbackSourceRef.current?.disconnect();
+      playbackGainRef.current?.disconnect();
+      playbackSourceRef.current = null;
+      playbackGainRef.current = null;
+
+      const context = playbackContextRef.current;
+      playbackContextRef.current = null;
+      if (context !== null) {
+        void closeAmbientAudioContext(context);
+      }
+    };
+  }, [input.audioUrl]);
 
   useEffect(() => {
     setDecodedBars(null);
@@ -267,6 +291,8 @@ export function ListeningReviewSurface(input: {
       return;
     }
 
+    await prepareReviewPlayback();
+
     if (loopEnabled && currentTime >= loopEndTime) {
       audio.currentTime = loopStartTime;
     }
@@ -280,10 +306,58 @@ export function ListeningReviewSurface(input: {
 
     if (audio !== null) {
       audio.currentTime = startTime;
-      void audio.play().catch(() => undefined);
+      void prepareReviewPlayback().then(() =>
+        audio.play().catch(() => undefined),
+      );
     }
 
     updateTime(startTime);
+  }
+
+  async function prepareReviewPlayback() {
+    const audio = audioRef.current;
+
+    if (audio === null) {
+      return;
+    }
+
+    if (playbackContextRef.current === null) {
+      const AudioContextConstructor =
+        window.AudioContext ??
+        (window as WindowWithAudioContext).webkitAudioContext;
+
+      if (AudioContextConstructor === undefined) {
+        return;
+      }
+
+      const context = new AudioContextConstructor();
+
+      try {
+        const source = context.createMediaElementSource(audio);
+        const gain = context.createGain();
+
+        gain.gain.value = reviewPlaybackGain;
+        source.connect(gain);
+        gain.connect(context.destination);
+        playbackContextRef.current = context;
+        playbackSourceRef.current = source;
+        playbackGainRef.current = gain;
+      } catch {
+        // Native playback remains usable on browsers that expose Web Audio but
+        // refuse to route a media element through it.
+        await closeAmbientAudioContext(context);
+        return;
+      }
+    } else {
+      playbackGainRef.current?.gain.setValueAtTime(
+        reviewPlaybackGain,
+        playbackContextRef.current.currentTime,
+      );
+    }
+
+    if (playbackContextRef.current.state === "suspended") {
+      await playbackContextRef.current.resume();
+    }
   }
 
   if (input.take === null) {
