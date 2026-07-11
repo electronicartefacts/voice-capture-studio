@@ -312,8 +312,8 @@ Keeper takes: ${input.keeperCount} / ${input.takeCount} recorded takes
 - \`session.json\` - Session history summary across the whole workspace.
 
 Only keeper-rated takes are included. Every audio object is SHA-256 linked to its manifest row.
-Word and phoneme timing is browser-estimated from prompt text
-and take duration; run acoustic forced alignment before final model training acceptance. This
+Word and phoneme timing is browser-estimated from prompt text and constrained to measured PCM
+speech activity when available; run acoustic forced alignment before final model training acceptance. This
 dataset was produced entirely client-side by Voice Capture Studio; no audio was uploaded to a
 remote service.
 `;

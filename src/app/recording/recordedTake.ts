@@ -41,6 +41,7 @@ export function createRecordedTake(input: {
   const modePolicy = getAudioModePolicy(captureMode);
   const spokenText = input.prompt.spokenText ?? input.prompt.text;
   const phonemeAlignment = alignPromptToPhonemes({
+    activitySegments: input.metrics.speechSegments,
     durationMs: input.durationMs,
     language: input.session.language,
     text: spokenText,

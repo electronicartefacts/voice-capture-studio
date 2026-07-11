@@ -15,6 +15,10 @@ const EN_VOWEL_PATTERN =
   /(?:ough|igh|air|ear|ee|ea|oo|ou|ow|oy|oi|ay|ai|a_e|e_e|i_e|o_e|u_e|[aeiouy])/g;
 
 export function alignPromptToPhonemes(input: {
+  readonly activitySegments?: readonly {
+    readonly startMs: number;
+    readonly endMs: number;
+  }[];
   readonly durationMs: number;
   readonly language: LanguageCode;
   readonly text: string;
@@ -42,6 +46,17 @@ export function alignPromptToPhonemes(input: {
       item.pauseWeight,
     0,
   );
+  const activityTimeline = createActivityTimeline(
+    input.activitySegments,
+    input.durationMs,
+  );
+  const alignmentDurationMs =
+    activityTimeline.length === 0
+      ? input.durationMs
+      : activityTimeline.reduce(
+          (total, segment) => total + segment.endMs - segment.startMs,
+          0,
+        );
   let cursorMs = 0;
   const words: WordPhonemeAlignment[] = [];
   const allPhonemes: PhonemeInterval[] = [];
@@ -51,9 +66,18 @@ export function alignPromptToPhonemes(input: {
       Math.max(1, item.phonemes.length) +
       item.syllableCount * 0.45 +
       item.pauseWeight;
-    const startMs = Math.round(cursorMs);
-    const endMs = Math.round(
-      cursorMs + (input.durationMs * wordWeight) / Math.max(totalWeight, 1),
+    const virtualStartMs = cursorMs;
+    const virtualEndMs =
+      cursorMs + (alignmentDurationMs * wordWeight) / Math.max(totalWeight, 1);
+    const startMs = mapActivityTimeToCaptureTime(
+      virtualStartMs,
+      activityTimeline,
+      input.durationMs,
+    );
+    const endMs = mapActivityTimeToCaptureTime(
+      virtualEndMs,
+      activityTimeline,
+      input.durationMs,
     );
     const phonemeIntervals = createPhonemeIntervals({
       confidence: item.confidence,
@@ -77,10 +101,11 @@ export function alignPromptToPhonemes(input: {
       syllableCount: item.syllableCount,
       phonemes: phonemeIntervals,
     });
-    cursorMs = endMs;
+    cursorMs = virtualEndMs;
   }
 
-  const boundedWords = closeFinalBoundary(words, input.durationMs);
+  const finalBoundaryMs = activityTimeline.at(-1)?.endMs ?? input.durationMs;
+  const boundedWords = closeFinalBoundary(words, finalBoundaryMs);
   const boundedPhonemes = boundedWords.flatMap((word) => word.phonemes);
 
   return {
@@ -99,8 +124,67 @@ export function alignPromptToPhonemes(input: {
     inventory: Array.from(
       new Set(boundedPhonemes.map((phoneme) => phoneme.phoneme)),
     ).sort(),
-    warnings: createAlignmentWarnings(input.text, tokens, boundedWords),
+    warnings: [
+      ...createAlignmentWarnings(input.text, tokens, boundedWords),
+      ...(activityTimeline.length > 0
+        ? ["timing_constrained_to_recorded_speech_activity"]
+        : []),
+    ],
   };
+}
+
+function createActivityTimeline(
+  segments:
+    readonly { readonly startMs: number; readonly endMs: number }[] | undefined,
+  durationMs: number,
+): readonly { readonly startMs: number; readonly endMs: number }[] {
+  const normalized = (segments ?? [])
+    .map((segment) => ({
+      startMs: Math.max(0, Math.min(durationMs, Math.round(segment.startMs))),
+      endMs: Math.max(0, Math.min(durationMs, Math.round(segment.endMs))),
+    }))
+    .filter((segment) => segment.endMs > segment.startMs)
+    .sort((left, right) => left.startMs - right.startMs);
+  const merged: { startMs: number; endMs: number }[] = [];
+
+  for (const segment of normalized) {
+    const previous = merged.at(-1);
+
+    // Energy VAD commonly opens tiny gaps inside a syllable. Joining those
+    // gaps avoids forcing word boundaries into plosives while preserving real
+    // pauses between phrases.
+    if (previous !== undefined && segment.startMs - previous.endMs <= 120) {
+      previous.endMs = Math.max(previous.endMs, segment.endMs);
+    } else {
+      merged.push({ ...segment });
+    }
+  }
+
+  return merged;
+}
+
+function mapActivityTimeToCaptureTime(
+  activityTimeMs: number,
+  timeline: readonly { readonly startMs: number; readonly endMs: number }[],
+  durationMs: number,
+): number {
+  if (timeline.length === 0) {
+    return Math.round(Math.max(0, Math.min(durationMs, activityTimeMs)));
+  }
+
+  let remainingMs = Math.max(0, activityTimeMs);
+
+  for (const segment of timeline) {
+    const segmentDurationMs = segment.endMs - segment.startMs;
+
+    if (remainingMs <= segmentDurationMs) {
+      return Math.round(segment.startMs + remainingMs);
+    }
+
+    remainingMs -= segmentDurationMs;
+  }
+
+  return timeline.at(-1)?.endMs ?? durationMs;
 }
 
 export function tokenizeTranscript(text: string): readonly TranscriptToken[] {

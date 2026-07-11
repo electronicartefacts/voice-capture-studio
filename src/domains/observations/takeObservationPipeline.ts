@@ -217,38 +217,43 @@ function observeEstimatedAlignment(
   const firstSpeech = signal.speechSegments[0];
   const lastSpeech = signal.speechSegments.at(-1);
   const hasVadWindow = firstSpeech !== undefined && lastSpeech !== undefined;
-  const wordAlignment = hasVadWindow
-    ? alignment.words.map((word) => ({
-        ...word,
-        startMs: scaleBoundary(
-          word.startMs,
-          alignment.durationMs,
-          firstSpeech.startMs,
-          lastSpeech.endMs,
-        ),
-        endMs: scaleBoundary(
-          word.endMs,
-          alignment.durationMs,
-          firstSpeech.startMs,
-          lastSpeech.endMs,
-        ),
-        phonemes: word.phonemes.map((phoneme) => ({
-          ...phoneme,
+  const alignmentAlreadyUsesVad = alignment.warnings.includes(
+    "timing_constrained_to_recorded_speech_activity",
+  );
+  const wordAlignment = alignmentAlreadyUsesVad
+    ? alignment.words
+    : hasVadWindow
+      ? alignment.words.map((word) => ({
+          ...word,
           startMs: scaleBoundary(
-            phoneme.startMs,
+            word.startMs,
             alignment.durationMs,
             firstSpeech.startMs,
             lastSpeech.endMs,
           ),
           endMs: scaleBoundary(
-            phoneme.endMs,
+            word.endMs,
             alignment.durationMs,
             firstSpeech.startMs,
             lastSpeech.endMs,
           ),
-        })),
-      }))
-    : alignment.words;
+          phonemes: word.phonemes.map((phoneme) => ({
+            ...phoneme,
+            startMs: scaleBoundary(
+              phoneme.startMs,
+              alignment.durationMs,
+              firstSpeech.startMs,
+              lastSpeech.endMs,
+            ),
+            endMs: scaleBoundary(
+              phoneme.endMs,
+              alignment.durationMs,
+              firstSpeech.startMs,
+              lastSpeech.endMs,
+            ),
+          })),
+        }))
+      : alignment.words;
   const phonemeAlignment = wordAlignment.flatMap((word) => word.phonemes);
   const hasAsr = speechRecognition.availability === "available";
   return {

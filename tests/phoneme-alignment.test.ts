@@ -52,6 +52,28 @@ test("english alignment emits ascii phone labels and bounded intervals", () => {
   );
 });
 
+test("alignment follows recorded speech instead of stretching over room silence", () => {
+  const alignment = alignPromptToPhonemes({
+    activitySegments: [
+      { startMs: 420, endMs: 1_100 },
+      { startMs: 1_360, endMs: 2_240 },
+    ],
+    durationMs: 2_800,
+    language: "fr" as LanguageCode,
+    text: "La voix reste claire.",
+  });
+
+  assert.equal(alignment.words[0].startMs, 420);
+  assert.equal(alignment.words.at(-1)?.endMs, 2_240);
+  assert.ok(alignment.words.every((word) => word.startMs >= 420));
+  assert.ok(alignment.words.every((word) => word.endMs <= 2_240));
+  assert.ok(
+    alignment.warnings.includes(
+      "timing_constrained_to_recorded_speech_activity",
+    ),
+  );
+});
+
 test("transcript token matching distinguishes prompt-only and observed speech", () => {
   const promptOnly = estimateTranscriptMatch({
     expectedText: "La voix reste claire.",

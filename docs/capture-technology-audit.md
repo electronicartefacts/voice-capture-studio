@@ -1,6 +1,6 @@
 # Capture Technology Audit
 
-Last reviewed: 2026-07-11
+Last reviewed: 2026-07-12
 
 ## Current Position
 
@@ -12,7 +12,8 @@ guarantee acoustic word/phoneme boundaries with research-grade precision across 
 The observation-pipeline pass moves the app to a better intermediate contract:
 
 1. Every new take stores transcript tokens.
-2. Every word in `timing.json` is linked to estimated phoneme intervals.
+2. Every word in `timing.json` is linked to estimated phoneme intervals constrained to the
+   speech-active PCM timeline, excluding measured leading and trailing room silence.
 3. Every take stores alignment confidence, phone inventory count, and word/phoneme link rate.
 4. Dataset exports include `phonemes/<take_id>.json` and `manifests/training_manifest.jsonl`.
 5. Reports explicitly separate browser-estimated alignment from required acoustic forced alignment.
@@ -64,7 +65,8 @@ Practical decision:
 
 - Use Web Speech only as a live guide and optional transcript mismatch signal.
 - Never treat Web Speech as the final dataset oracle.
-- Store prompt-derived alignment with explicit `forcedAlignmentRequired: true`.
+- Store prompt-derived alignment constrained by measured PCM speech activity, with explicit
+  `forcedAlignmentRequired: true`.
 
 ## Forced Alignment Ceiling
 

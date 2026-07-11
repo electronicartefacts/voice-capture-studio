@@ -46,7 +46,7 @@ test("recorded take becomes keeper when technical gates and room tone pass", () 
   assert.equal(take.transcript.originalText, prompt.text);
   assert.equal(take.intent.intent.id, prompt.intention.id);
   assert.equal(take.timing.phrases[0].endMs, 3200);
-  assert.equal(take.timing.words.at(-1)?.endMs, 3200);
+  assert.equal(take.timing.words.at(-1)?.endMs, 2950);
   assert.ok((take.timing.phonemes?.length ?? 0) > take.timing.words.length);
   assert.equal(take.timing.alignment?.forcedAlignmentRequired, true);
   assert.equal(take.quality.performance.wordPhonemeLinkRate, null);

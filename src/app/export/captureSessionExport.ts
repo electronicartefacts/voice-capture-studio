@@ -292,7 +292,7 @@ export function createVoiceCaptureReports(input: {
         )
         .map((summary) => summary.takeId),
       browserLimitations: [
-        "Word and phoneme timing is derived from prompt text and capture duration.",
+        "Word and phoneme timing is derived from prompt text and constrained to measured PCM speech activity when available.",
         "Web Speech API transcripts are opportunistic and not available in every browser.",
         "Final dataset acceptance still needs acoustic forced alignment against WAV audio.",
       ],
