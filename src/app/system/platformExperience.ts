@@ -43,6 +43,25 @@ export function isStandaloneDisplayMode(input: {
   return input.displayModeMatches || input.navigatorStandalone === true;
 }
 
+export function getViewportEdgePull(input: {
+  readonly scrollTop: number;
+  readonly scrollHeight: number;
+  readonly viewportHeight: number;
+  readonly touchStartY: number;
+  readonly touchY: number;
+}): { readonly top: number; readonly bottom: number } {
+  const travel = input.touchY - input.touchStartY;
+  const maxScrollTop = Math.max(0, input.scrollHeight - input.viewportHeight);
+  const top = input.scrollTop <= 1 && travel > 0 ? travel : 0;
+  const bottom =
+    input.scrollTop >= maxScrollTop - 1 && travel < 0 ? -travel : 0;
+
+  return {
+    top: Math.min(1, Math.max(0, top / 96)),
+    bottom: Math.min(1, Math.max(0, bottom / 96)),
+  };
+}
+
 function installCustomCursor(root: HTMLElement): () => void {
   const finePointer = window.matchMedia("(hover: hover) and (pointer: fine)");
   let cursor: HTMLDivElement | null = null;
@@ -191,9 +210,21 @@ export function installPlatformExperience(): () => void {
   const viewport = browserWindow.visualViewport;
   const standaloneQuery = window.matchMedia("(display-mode: standalone)");
   const removeCustomCursor = installCustomCursor(root);
+  const edgeEffects = ["top", "bottom"].map((edge) => {
+    const effect = document.createElement("div");
+    const direction = edge === "top" ? "bottom" : "top";
+    effect.setAttribute("aria-hidden", "true");
+    effect.style.cssText = `-webkit-backdrop-filter:blur(6px) brightness(1.16);backdrop-filter:blur(6px) brightness(1.16);${edge}:0;left:0;right:0;height:120px;opacity:0;pointer-events:none;position:fixed;z-index:20;-webkit-mask-image:linear-gradient(to ${direction},black,transparent);mask-image:linear-gradient(to ${direction},black,transparent)`;
+    document.body.append(effect);
+    return effect;
+  });
   let animationFrame: number | null = null;
   let committedHeight = -1;
   let committedOffsetTop = -1;
+  let touchStartY: number | null = null;
+  let edgeFrame: number | null = null;
+  let edgeTop = 0;
+  let edgeBottom = 0;
 
   function updateViewport() {
     animationFrame = null;
@@ -233,6 +264,46 @@ export function installPlatformExperience(): () => void {
       : "browser";
   }
 
+  function commitEdgePull() {
+    edgeFrame = null;
+    edgeEffects[0]!.style.opacity = edgeTop.toFixed(3);
+    edgeEffects[1]!.style.opacity = edgeBottom.toFixed(3);
+  }
+
+  function scheduleEdgePull(top: number, bottom: number) {
+    edgeTop = top;
+    edgeBottom = bottom;
+
+    if (edgeFrame === null) {
+      edgeFrame = window.requestAnimationFrame(commitEdgePull);
+    }
+  }
+
+  function beginEdgePull(event: TouchEvent) {
+    touchStartY = event.touches[0]?.clientY ?? null;
+  }
+
+  function updateEdgePull(event: TouchEvent) {
+    const touchY = event.touches[0]?.clientY;
+
+    if (touchStartY === null || touchY === undefined) return;
+
+    const scrollingElement = document.scrollingElement ?? root;
+    const pull = getViewportEdgePull({
+      scrollTop: scrollingElement.scrollTop,
+      scrollHeight: scrollingElement.scrollHeight,
+      viewportHeight: viewport?.height ?? window.innerHeight,
+      touchStartY,
+      touchY,
+    });
+    scheduleEdgePull(pull.top, pull.bottom);
+  }
+
+  function endEdgePull() {
+    touchStartY = null;
+    scheduleEdgePull(0, 0);
+  }
+
   updateViewport();
   updateDisplayMode();
   window.addEventListener("resize", scheduleViewportUpdate, { passive: true });
@@ -242,10 +313,17 @@ export function installPlatformExperience(): () => void {
   viewport?.addEventListener("resize", scheduleViewportUpdate);
   viewport?.addEventListener("scroll", scheduleViewportUpdate);
   standaloneQuery.addEventListener("change", updateDisplayMode);
+  window.addEventListener("touchstart", beginEdgePull, { passive: true });
+  window.addEventListener("touchmove", updateEdgePull, { passive: true });
+  window.addEventListener("touchend", endEdgePull, { passive: true });
+  window.addEventListener("touchcancel", endEdgePull, { passive: true });
 
   return () => {
     if (animationFrame !== null) {
       window.cancelAnimationFrame(animationFrame);
+    }
+    if (edgeFrame !== null) {
+      window.cancelAnimationFrame(edgeFrame);
     }
 
     window.removeEventListener("resize", scheduleViewportUpdate);
@@ -253,6 +331,11 @@ export function installPlatformExperience(): () => void {
     viewport?.removeEventListener("resize", scheduleViewportUpdate);
     viewport?.removeEventListener("scroll", scheduleViewportUpdate);
     standaloneQuery.removeEventListener("change", updateDisplayMode);
+    window.removeEventListener("touchstart", beginEdgePull);
+    window.removeEventListener("touchmove", updateEdgePull);
+    window.removeEventListener("touchend", endEdgePull);
+    window.removeEventListener("touchcancel", endEdgePull);
     removeCustomCursor();
+    edgeEffects.forEach((effect) => effect.remove());
   };
 }
