@@ -18,10 +18,6 @@ import type { LanguageCode } from "@shared/index";
 import { getLiveAudioLevel } from "../../rendering/liveAudioSignal";
 import { liveReadingGuideSignal } from "../../rendering/liveReadingGuideSignal";
 import {
-  formatCaptureDurationLimit,
-  FREE_CAPTURE_MAX_DURATION_MS,
-} from "../../recording/captureLimits";
-import {
   formatDurationSeconds,
   formatMeterScale,
   formatPercent,
@@ -183,15 +179,7 @@ export function KaraokeScreen(input: {
           <p className="karaoke-lyrics">{input.continuousLyricsText}</p>
         </div>
       ) : input.isFreeCapture ? (
-        <div className="room-tone-copy">
-          <p className="soft-label">Prise continue</p>
-          <h1>Le studio enregistre.</h1>
-          <p>
-            Parle, chante ou capture l'environnement. Arrête manuellement quand
-            la prise est complète, dans la limite de{" "}
-            {formatCaptureDurationLimit(FREE_CAPTURE_MAX_DURATION_MS)}.
-          </p>
-        </div>
+        <FreeCaptureText transcript={input.recognizedTranscript} />
       ) : input.dubbingMedia !== null ? (
         <div className="dubbing-capture-layout">
           <DubbingMediaStage
@@ -216,28 +204,47 @@ export function KaraokeScreen(input: {
           words={input.words}
         />
       )}
-      {(input.isFreeCapture || input.isFinalizing) && (
+      {input.isFinalizing && (
         <p className="recording-assist" aria-live="polite">
-          {input.isFinalizing
-            ? "Ne ferme pas l'onglet. Le WAV et les métadonnées sont en préparation."
-            : input.readingGuideMode === "speech-recognition"
-              ? `Les mots finalisés sont ajoutés au manifeste de cette prise. La capture reste limitée à ${formatCaptureDurationLimit(FREE_CAPTURE_MAX_DURATION_MS)}.`
-              : `La capture est limitée à ${formatCaptureDurationLimit(FREE_CAPTURE_MAX_DURATION_MS)} pour préserver la mémoire de l'appareil.`}
+          Ne ferme pas l'onglet. Le WAV et les métadonnées sont en préparation.
         </p>
       )}
-      {input.isFreeCapture && input.recognizedTranscript.trim().length > 0 && (
-        <div
-          aria-live="polite"
-          className="speech-follow-line"
-          data-testid="free-capture-words"
-        >
-          <span className="soft-label">
-            Mots détectés · {detectedWordCount}
-          </span>
-          <span>{createTranscriptPreview(input.recognizedTranscript)}</span>
-        </div>
-      )}
     </div>
+  );
+}
+
+function FreeCaptureText(input: { readonly transcript: string }) {
+  const preview = createTranscriptPreview(input.transcript);
+  const words = preview.split(/\s+/).filter(Boolean);
+
+  if (words.length === 0) {
+    return (
+      <div
+        className="karaoke-line free-capture-line is-listening"
+        aria-live="polite"
+      >
+        <span className="karaoke-word is-past">À l'écoute.</span>
+      </div>
+    );
+  }
+
+  return (
+    <p
+      aria-label={preview}
+      aria-live="polite"
+      className="karaoke-line free-capture-line"
+      data-testid="free-capture-words"
+    >
+      {words.map((word, index) => (
+        <span
+          className={`karaoke-word ${index === words.length - 1 ? "is-current" : "is-past"}`}
+          key={`${word}-${index}`}
+          style={{ "--word-delay": `${index * 18}ms` } as CSSProperties}
+        >
+          {word}
+        </span>
+      ))}
+    </p>
   );
 }
 

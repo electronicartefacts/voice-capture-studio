@@ -143,6 +143,10 @@ test("free capture removes unavailable controls and false reading progress", asy
     timeout: 30_000,
   });
   await expect(page.locator(".read-progress")).toHaveCount(0);
+  await expect(page.locator(".free-capture-line")).toBeVisible();
+  await expect(page.getByText("À l'écoute.", { exact: true })).toBeVisible();
+  await expect(page.locator(".speech-follow-line")).toHaveCount(0);
+  await expect(page.locator(".recording-assist")).toHaveCount(0);
 });
 
 test("dubbing connects a YouTube scene to the scripted recording surface", async ({

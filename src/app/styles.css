@@ -1792,6 +1792,11 @@ textarea:focus-visible {
   text-align: center;
 }
 
+.free-capture-line {
+  flex-direction: row;
+  flex-wrap: wrap;
+}
+
 @keyframes karaoke-word-enter {
   0% {
     opacity: 0;
