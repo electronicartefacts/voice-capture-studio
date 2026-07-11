@@ -329,6 +329,7 @@ export const captureModeOptions: readonly {
   readonly title: string;
   readonly pill: string;
   readonly kicker: string;
+  readonly cta: string;
   readonly headline: string;
   readonly workbenchTitle: string;
   readonly summary: string;
@@ -339,7 +340,9 @@ export const captureModeOptions: readonly {
     title: "Capture libre",
     pill: "Sans corpus",
     kicker: "Prise continue locale",
-    headline: "Une prise continue, sans texte imposé.",
+    cta: "Démarrer la capture",
+    headline:
+      "Parle librement, sans texte imposé. La prise reste locale et conserve le son, les mesures et les repères utiles jusqu'à ton arrêt.",
     workbenchTitle: "Console de capture libre",
     summary:
       "WAV PCM, mesures acoustiques et métadonnées de provenance à l'arrêt manuel.",
@@ -350,7 +353,9 @@ export const captureModeOptions: readonly {
     title: "Dataset ML",
     pill: "Corpus intégré",
     kicker: "Laboratoire dataset",
-    headline: "Une voix stable, captée comme une matière vivante.",
+    cta: "Créer le dataset",
+    headline:
+      "Construis une voix stable, phrase après phrase. Le corpus guide la couverture phonétique et prépare des prises propres pour l'entraînement.",
     workbenchTitle: "Console dataset",
     summary:
       "Phrases calibrées, progression phonétique et exports d'entraînement.",
@@ -361,7 +366,9 @@ export const captureModeOptions: readonly {
     title: "Doublage",
     pill: "Script local",
     kicker: "Laboratoire doublage",
-    headline: "Une surface d'écoute pour habiter chaque réplique.",
+    cta: "Démarrer le doublage",
+    headline:
+      "Habite chaque réplique au rythme de l'image. Ajoute ton script, cale la scène et enregistre les passages dans leur ordre naturel.",
     workbenchTitle: "Console doublage",
     summary: "Texte collé ou fichier découpé en répliques enregistrables.",
   },
@@ -371,7 +378,9 @@ export const captureModeOptions: readonly {
     title: "Interprétation",
     pill: "Retour casque",
     kicker: "Studio d'interprétation",
-    headline: "Une performance guidée par le texte et le son.",
+    cta: "Lancer l'interprétation",
+    headline:
+      "Interprète le texte avec ton propre rythme. Le support audio reste au casque tandis que la voix est captée séparément, prête à travailler.",
     workbenchTitle: "Console d'interprétation",
     summary: "Texte local, support audio et capture voix séparée.",
   },

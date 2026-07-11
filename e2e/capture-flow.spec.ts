@@ -32,7 +32,7 @@ test("studio boots to the home screen with recording available", async ({
   const launchButton = page.locator("button.launch-button");
 
   await expect(launchButton).toBeEnabled();
-  await expect(launchButton).toContainText(/Lancer/);
+  await expect(launchButton).toContainText("Créer le dataset");
 });
 
 test("a guided take flows from launch to the review screen", async ({

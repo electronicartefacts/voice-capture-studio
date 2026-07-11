@@ -17,7 +17,7 @@ import {
   FolderOpen,
   HardDrive,
   Music,
-  Play,
+  Save,
   SlidersHorizontal,
   Timer,
   Trash2,
@@ -169,9 +169,9 @@ export function HomeScreen(input: {
           mode={input.captureMode}
           onChange={input.onCaptureModeChange}
         />
-        <span className="instrument-mode-label">
-          <ModeIcon aria-hidden="true" size={14} />
-          {modeContent.title} · {modeContent.pill}
+        <span className="setup-pill is-ready">
+          <Save aria-hidden="true" size={14} />
+          Sauvegarde locale
         </span>
 
         <div className="instrument-trigger">
@@ -181,15 +181,13 @@ export function HomeScreen(input: {
             onClick={input.onStart}
             type="button"
           >
-            <Play aria-hidden="true" size={22} />
+            <span className="launch-record-dot" aria-hidden="true" />
             <span>
               {!input.diagnostics.canRecord
                 ? "Enregistrement indisponible"
                 : !localCorpusReady
                   ? "Ajouter un texte"
-                  : folderSelected
-                    ? "Lancer la session"
-                    : "Lancer avec téléchargement"}
+                  : modeContent.cta}
             </span>
           </button>
         </div>

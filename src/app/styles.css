@@ -341,18 +341,8 @@ textarea:focus-visible {
      the viewport instead of balancing on its center of gravity). */
   min-height: max(74vh, 460px);
   padding-block: clamp(16px, 4vw, 32px);
+  position: relative;
   text-align: center;
-}
-
-.instrument-mode-label {
-  align-items: center;
-  color: var(--soft);
-  display: inline-flex;
-  font-size: 12px;
-  font-weight: 840;
-  gap: 6px;
-  letter-spacing: 0;
-  text-transform: uppercase;
 }
 
 .instrument-trigger {
@@ -372,12 +362,20 @@ textarea:focus-visible {
 }
 
 .instrument-face .instrument-line {
-  font-size: clamp(19px, 2.8vw, 26px);
-  max-width: 30ch;
-  /* Combined with the 10px base gap: 34px above the line -- a clear pause
-     separating the quiet caption from the control cluster above it. Needs
-     .instrument-face's specificity to win over .home-card h1's margin: 0. */
-  margin-top: 24px;
+  bottom: clamp(16px, 3vw, 28px);
+  font-size: clamp(16px, 2.2vw, 21px);
+  left: 0;
+  line-height: 1.45;
+  max-width: 43ch;
+  position: absolute;
+  text-align: left;
+}
+
+.launch-record-dot {
+  background: #ff3b30;
+  border-radius: 50%;
+  height: 11px;
+  width: 11px;
 }
 
 .home-workbench {
@@ -4572,7 +4570,7 @@ body,
 }
 
 .launch-button.is-hero {
-  border-radius: 22px;
+  border-radius: 999px;
   min-width: min(100%, 310px);
 }
 
