@@ -296,6 +296,8 @@ export function App() {
     null,
   );
   const [isFreeCapture, setIsFreeCapture] = useState(false);
+  const isFreeCaptureRef = useRef(false);
+  const [isDirectCaptureStarting, setIsDirectCaptureStarting] = useState(false);
   const [continuousLyricsEnabled, setContinuousLyricsEnabled] = useState(true);
   const [isContinuousLyricsCapture, setIsContinuousLyricsCapture] =
     useState(false);
@@ -1607,18 +1609,21 @@ export function App() {
     const captureBlocker = getCaptureBlocker(diagnostics);
 
     if (captureBlocker !== null) {
+      setIsDirectCaptureStarting(false);
       setMessage(captureBlocker);
       return;
     }
 
     if (captureMode === "free") {
       setSession(null);
+      isFreeCaptureRef.current = true;
       setIsFreeCapture(true);
       setIsContinuousLyricsCapture(false);
       setSessionRoomTone(null);
       resetTakeOutputState();
-      setScreen("permission");
-      setMessage(createSessionPreparationMessage(captureMode));
+      setIsDirectCaptureStarting(true);
+      setMessage("La capture démarre…");
+      await allowMicrophoneAndStart(true);
       return;
     }
 
@@ -1636,6 +1641,7 @@ export function App() {
       }
 
       setSession(null);
+      isFreeCaptureRef.current = true;
       setIsFreeCapture(true);
       setIsContinuousLyricsCapture(true);
       setSessionRoomTone(null);
@@ -1669,6 +1675,7 @@ export function App() {
     }
 
     setSession(nextSession);
+    isFreeCaptureRef.current = false;
     setIsFreeCapture(false);
     setIsContinuousLyricsCapture(false);
     setCurrentPromptIndex(0);
@@ -1739,24 +1746,29 @@ export function App() {
     setIsSpeakingReference(false);
   }
 
-  async function allowMicrophoneAndStart() {
-    if (session === null && !isFreeCapture) {
+  async function allowMicrophoneAndStart(forceFreeCapture = false) {
+    const captureIsFree = forceFreeCapture || isFreeCaptureRef.current;
+
+    if (session === null && !captureIsFree) {
       return;
     }
 
     const captureBlocker = getCaptureBlocker(diagnostics);
 
     if (captureBlocker !== null) {
+      setIsDirectCaptureStarting(false);
       setMessage(captureBlocker);
       return;
     }
 
     if (pcmRecorderRef.current !== null || isPersistingRef.current) {
+      setIsDirectCaptureStarting(false);
       setMessage("Une prise est déjà en cours de finalisation.");
       return;
     }
 
     if (!navigator.mediaDevices?.getUserMedia) {
+      setIsDirectCaptureStarting(false);
       setMessage(
         "Micro indisponible ici. Ouvre le site en HTTPS et autorise le micro.",
       );
@@ -1767,6 +1779,7 @@ export function App() {
       !window.AudioContext &&
       !(window as WindowWithAudioContext).webkitAudioContext
     ) {
+      setIsDirectCaptureStarting(false);
       setMessage(
         "Capture WAV non supportée par ce navigateur. Essaie Chrome récent.",
       );
@@ -1795,7 +1808,7 @@ export function App() {
       setMicrophoneLabel(createMicrophoneLabel(stream));
 
       const recorder = await createPcmRecorder(stream, {
-        maxDurationMs: isFreeCapture ? FREE_CAPTURE_MAX_DURATION_MS : undefined,
+        maxDurationMs: captureIsFree ? FREE_CAPTURE_MAX_DURATION_MS : undefined,
         onLevel: updateVisualAudioLevel,
         onSamples: pushLiveWaveform,
       });
@@ -1807,7 +1820,7 @@ export function App() {
 
       await requestRecordingWakeLock();
       if (
-        !isFreeCapture &&
+        !captureIsFree &&
         !hasCalibratedCurrentSessionRef.current &&
         currentPromptIndex === 0
       ) {
@@ -1815,9 +1828,16 @@ export function App() {
         return;
       }
 
-      startPromptRecording(stream, recorder);
+      startPromptRecording(
+        stream,
+        recorder,
+        undefined,
+        undefined,
+        captureIsFree,
+      );
     } catch (error) {
       stream?.getTracks().forEach((track) => track.stop());
+      setIsDirectCaptureStarting(false);
       setMessage(createMicrophoneErrorMessage(error));
       void refreshDiagnostics(false);
     }
@@ -1828,6 +1848,7 @@ export function App() {
     recorder: PcmRecorder,
     message = "Enregistrement en cours. Lis naturellement : le texte suit ta voix.",
     calibratedRoomTone: RoomToneCalibration | null = sessionRoomTone,
+    freeCapture = isFreeCaptureRef.current,
   ) {
     clearRoomToneTimers();
     mediaStreamRef.current = stream;
@@ -1835,12 +1856,13 @@ export function App() {
     resetVisualAudioLevel();
     setActiveWordIndex(0);
     setScreen("karaoke");
+    setIsDirectCaptureStarting(false);
     setMessage(message);
     realtimeSpeechActivityRef.current = createRealtimeSpeechActivityDetector({
       noiseFloorDbfs: calibratedRoomTone?.noiseFloorDbfs,
     });
 
-    if (!isFreeCapture) {
+    if (!freeCapture) {
       startReadingGuide(words, selectedLanguage);
     } else {
       startFreeWordDetection(selectedLanguage);
@@ -3218,6 +3240,7 @@ export function App() {
                   onRefreshDiagnostics={() => void refreshDiagnostics()}
                   onSpeakerChange={selectSpeaker}
                   onSpeakerCreate={createSpeaker}
+                  isDirectCaptureStarting={isDirectCaptureStarting}
                   onStart={prepareSession}
                   savedSessions={workspace?.sessions.length ?? 0}
                   speakers={speakerProfiles}
@@ -3241,7 +3264,7 @@ export function App() {
                   isSpeakingReference={isSpeakingReference}
                   message={message}
                   prompt={activePrompt}
-                  onAllow={allowMicrophoneAndStart}
+                  onAllow={() => void allowMicrophoneAndStart()}
                   onBack={() => setScreen("home")}
                   onReference={
                     isSpeakingReference

@@ -175,12 +175,11 @@ test("free capture removes unavailable controls and false reading progress", asy
 
   await page.getByRole("button", { name: /Capture libre/ }).click();
   await page.locator("button.launch-button").click();
-  await expect(page.locator("main.screen-permission")).toBeVisible();
+  await expect(page.locator("main.screen-permission")).toHaveCount(0);
   await expect(
     page.getByRole("button", { name: "Écouter la référence" }),
   ).toHaveCount(0);
 
-  await page.getByRole("button", { name: "Démarrer la prise" }).click();
   await expect(page.locator("main.screen-karaoke")).toBeVisible({
     timeout: 30_000,
   });

@@ -81,6 +81,7 @@ export function HomeScreen(input: {
   readonly language: LanguageCode;
   readonly localCorpusSummary: LocalTextCorpusSummary | null;
   readonly message: string;
+  readonly isDirectCaptureStarting: boolean;
   readonly onBackingTrackChange: (file: File) => void;
   readonly onBackingTrackClear: () => void;
   readonly onBackingTrackLoopChange: (loop: boolean) => void;
@@ -198,17 +199,23 @@ export function HomeScreen(input: {
         <div className="instrument-trigger">
           <button
             className="launch-button is-hero"
-            disabled={!input.diagnostics.canRecord || !localCorpusReady}
+            disabled={
+              !input.diagnostics.canRecord ||
+              !localCorpusReady ||
+              input.isDirectCaptureStarting
+            }
             onClick={input.onStart}
             type="button"
           >
             <span className="launch-record-dot" aria-hidden="true" />
             <span>
-              {!input.diagnostics.canRecord
-                ? "Enregistrement indisponible"
-                : !localCorpusReady
-                  ? "Ajouter un texte"
-                  : modeContent.cta}
+              {input.isDirectCaptureStarting
+                ? "La capture démarre…"
+                : !input.diagnostics.canRecord
+                  ? "Enregistrement indisponible"
+                  : !localCorpusReady
+                    ? "Ajouter un texte"
+                    : modeContent.cta}
             </span>
           </button>
         </div>
