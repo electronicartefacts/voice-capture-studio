@@ -330,7 +330,8 @@ export const captureModeOptions: readonly {
   readonly pill: string;
   readonly kicker: string;
   readonly cta: string;
-  readonly headline: string;
+  readonly headlineLead: string;
+  readonly headlineDetail: string;
   readonly workbenchTitle: string;
   readonly summary: string;
 }[] = [
@@ -341,8 +342,9 @@ export const captureModeOptions: readonly {
     pill: "Sans corpus",
     kicker: "Prise continue locale",
     cta: "Démarrer la capture",
-    headline:
-      "Parle librement, sans texte imposé. La prise reste locale et conserve le son, les mesures et les repères utiles jusqu'à ton arrêt.",
+    headlineLead: "Parle librement, sans texte imposé.",
+    headlineDetail:
+      "La prise reste locale et conserve le son, les mesures et les repères utiles jusqu'à ton arrêt.",
     workbenchTitle: "Console de capture libre",
     summary:
       "WAV PCM, mesures acoustiques et métadonnées de provenance à l'arrêt manuel.",
@@ -354,8 +356,9 @@ export const captureModeOptions: readonly {
     pill: "Corpus intégré",
     kicker: "Laboratoire dataset",
     cta: "Créer le dataset",
-    headline:
-      "Construis une voix stable, phrase après phrase. Le corpus guide la couverture phonétique et prépare des prises propres pour l'entraînement.",
+    headlineLead: "Construis une voix stable, phrase après phrase.",
+    headlineDetail:
+      "Le corpus guide la couverture phonétique et prépare des prises propres pour l'entraînement.",
     workbenchTitle: "Console dataset",
     summary:
       "Phrases calibrées, progression phonétique et exports d'entraînement.",
@@ -367,8 +370,9 @@ export const captureModeOptions: readonly {
     pill: "Script local",
     kicker: "Laboratoire doublage",
     cta: "Démarrer le doublage",
-    headline:
-      "Habite chaque réplique au rythme de l'image. Ajoute ton script, cale la scène et enregistre les passages dans leur ordre naturel.",
+    headlineLead: "Habite chaque réplique au rythme de l'image.",
+    headlineDetail:
+      "Ajoute ton script, cale la scène et enregistre les passages dans leur ordre naturel.",
     workbenchTitle: "Console doublage",
     summary: "Texte collé ou fichier découpé en répliques enregistrables.",
   },
@@ -379,8 +383,9 @@ export const captureModeOptions: readonly {
     pill: "Retour casque",
     kicker: "Studio d'interprétation",
     cta: "Lancer l'interprétation",
-    headline:
-      "Interprète le texte avec ton propre rythme. Le support audio reste au casque tandis que la voix est captée séparément, prête à travailler.",
+    headlineLead: "Interprète le texte avec ton propre rythme.",
+    headlineDetail:
+      "Le support audio reste au casque tandis que la voix est captée séparément, prête à travailler.",
     workbenchTitle: "Console d'interprétation",
     summary: "Texte local, support audio et capture voix séparée.",
   },

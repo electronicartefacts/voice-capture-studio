@@ -342,40 +342,45 @@ textarea:focus-visible {
   min-height: max(74vh, 460px);
   padding-block: clamp(16px, 4vw, 32px);
   position: relative;
-  text-align: center;
+}
+
+.instrument-face > .setup-pill {
+  position: absolute;
+  top: 16px;
 }
 
 .instrument-trigger {
-  display: grid;
-  justify-items: center;
   /* Combined with the 10px base gap: 18px between the label and the
      button -- enough for the button to still read as its own object, not
      so much that it stops reading as one dial-and-trigger complex. */
-  margin-top: 8px;
+  margin-top: 20px;
 }
 
 .instrument-line {
-  color: var(--muted);
-  font-weight: 480;
+  color: #fff;
+  font-weight: 300;
   line-height: 1.3;
-  margin: 0;
 }
 
 .instrument-face .instrument-line {
-  bottom: clamp(16px, 3vw, 28px);
+  bottom: 16px;
   font-size: clamp(16px, 2.2vw, 21px);
   left: 0;
-  line-height: 1.45;
   max-width: 43ch;
   position: absolute;
   text-align: left;
 }
 
 .launch-record-dot {
-  background: #ff3b30;
+  background: #f33;
   border-radius: 50%;
   height: 11px;
   width: 11px;
+  transition: scale 0.18s;
+}
+
+.launch-button.is-hero:hover .launch-record-dot {
+  scale: 2;
 }
 
 .home-workbench {
@@ -1224,8 +1229,7 @@ textarea:focus-visible {
 .launch-button.is-hero {
   box-shadow: 0 22px 70px color-mix(in srgb, var(--brand) 26%, transparent);
   font-size: 17px;
-  min-height: 72px;
-  padding: 18px 34px;
+  padding: 24px;
   width: auto;
 }
 
@@ -4655,10 +4659,8 @@ body,
     font-size: clamp(13px, 4vw, 16px);
     gap: 8px;
     overflow: hidden;
-    width: 100%;
     max-width: 100%;
     min-width: 0;
-    padding-inline: 14px;
   }
 
   .launch-button.is-hero span {

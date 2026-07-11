@@ -193,7 +193,9 @@ export function HomeScreen(input: {
         </div>
 
         <h1 id="home-title" className="instrument-line">
-          {modeContent.headline}
+          <strong>{modeContent.headlineLead}</strong>
+          <br />
+          <span>{modeContent.headlineDetail}</span>
         </h1>
       </section>
 
