@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, type CSSProperties } from "react";
+import { memo, useMemo, type CSSProperties } from "react";
 import {
   Mic,
   ShieldCheck,
@@ -7,14 +7,11 @@ import {
   Volume2,
 } from "lucide-react";
 import type { PromptDefinition } from "@domains/corpus";
-import { alignPromptToPhonemes } from "@domains/phonetics";
 import type { LanguageCode } from "@shared/index";
-import { getLiveAudioLevel } from "../../rendering/liveAudioSignal";
 import {
   formatCaptureDurationLimit,
   FREE_CAPTURE_MAX_DURATION_MS,
 } from "../../recording/captureLimits";
-import { KARAOKE_STYLE_UPDATE_INTERVAL_MS } from "../audioEnvironment";
 import {
   formatDurationSeconds,
   formatMeterScale,
@@ -114,23 +111,6 @@ export function KaraokeScreen(input: {
       : input.readingGuideMode === "speech-recognition"
         ? "Suivi des mots"
         : "Suivi vocal";
-  const alignmentPreview = useMemo(
-    () =>
-      input.prompt === undefined
-        ? null
-        : alignPromptToPhonemes({
-            durationMs: Math.round(
-              (input.prompt.qa.minDurationMs + input.prompt.qa.maxDurationMs) /
-                2,
-            ),
-            language: input.language,
-            text: input.prompt.spokenText ?? input.prompt.text,
-          }),
-    [input.language, input.prompt],
-  );
-  const activeWordAlignment =
-    alignmentPreview?.words[input.activeWordIndex] ?? null;
-
   return (
     <div className="karaoke-screen" aria-busy={input.isFinalizing}>
       <div className="recording-topbar">
@@ -203,13 +183,6 @@ export function KaraokeScreen(input: {
           words={input.words}
         />
       )}
-      {activeWordAlignment !== null && (
-        <div className="phoneme-ribbon" aria-label="Phonèmes du mot actif">
-          {activeWordAlignment.phonemes.map((phoneme, index) => (
-            <span key={`${phoneme.phoneme}-${index}`}>{phoneme.phoneme}</span>
-          ))}
-        </div>
-      )}
       <p className="recording-assist" aria-live="polite">
         {input.isFinalizing
           ? "Ne ferme pas l'onglet. Le WAV et les métadonnées sont en préparation."
@@ -258,136 +231,29 @@ export const KaraokeText = memo(function KaraokeText(input: {
   readonly activeWordIndex: number;
   readonly words: readonly string[];
 }) {
-  const lineRef = useRef<HTMLParagraphElement | null>(null);
-  const charRefs = useRef<readonly HTMLElement[]>([]);
-  const charStyleValuesRef = useRef<
-    readonly { readonly detail: string; readonly motion: string }[]
-  >([]);
-  const waveCenterRef = useRef(0);
-  const waveTargetRef = useRef(0);
   const visualLines = useMemo(
     () => createKaraokeVisualLines(input.words),
     [input.words],
   );
-  const wordStartIndexes = useMemo(() => {
-    let nextIndex = 0;
-
-    return input.words.map((word) => {
-      const startIndex = nextIndex;
-      nextIndex += word.length + 1;
-
-      return startIndex;
-    });
-  }, [input.words]);
-
-  useEffect(() => {
-    const activeStart = wordStartIndexes[input.activeWordIndex] ?? 0;
-    const activeWordLength = Math.max(
-      1,
-      input.words[input.activeWordIndex]?.length ?? 1,
-    );
-
-    waveTargetRef.current = activeStart + activeWordLength * 0.5;
-  }, [input.activeWordIndex, input.words, wordStartIndexes]);
-
-  useEffect(() => {
-    const line = lineRef.current;
-
-    if (line === null || input.words.length === 0) {
-      return;
-    }
-
-    const currentLine = line;
-    const chars = Array.from(
-      currentLine.querySelectorAll<HTMLElement>(".karaoke-char"),
-    );
-    const initialStart = wordStartIndexes[input.activeWordIndex] ?? 0;
-    const initialWordLength = Math.max(
-      1,
-      input.words[input.activeWordIndex]?.length ?? 1,
-    );
-    const initialCenter = initialStart + initialWordLength * 0.5;
-
-    charRefs.current = chars;
-    charStyleValuesRef.current = [];
-    waveCenterRef.current = initialCenter;
-    waveTargetRef.current = initialCenter;
-
-    let frameId = 0;
-
-    let lastStyleUpdateAt = -Infinity;
-
-    function animate(now: number) {
-      if (now - lastStyleUpdateAt < KARAOKE_STYLE_UPDATE_INTERVAL_MS) {
-        frameId = window.requestAnimationFrame(animate);
-        return;
-      }
-
-      lastStyleUpdateAt = now;
-      const energy = getLiveAudioLevel();
-      const target = waveTargetRef.current;
-      const current =
-        waveCenterRef.current + (target - waveCenterRef.current) * 0.14;
-      const sigma = 5.8 + energy * 1.1;
-
-      waveCenterRef.current = current;
-
-      const nextStyleValues: { detail: string; motion: string }[] = [];
-
-      for (const [charIndex, char] of charRefs.current.entries()) {
-        const index = Number(char.dataset.charIndex ?? 0);
-        const distance = Math.abs(index - current);
-        const wave = Math.exp(-(distance * distance) / (2 * sigma * sigma));
-        const trail =
-          index < current ? Math.max(0, 1 - distance / 26) * 0.14 : 0;
-        const motion = Math.min(1, 0.38 + wave * 0.28 + trail);
-        const detail = Math.min(
-          1,
-          0.34 + wave * 0.24 + trail * 0.24 + energy * 0.06,
-        );
-
-        const nextValues = {
-          motion: motion.toFixed(3),
-          detail: detail.toFixed(3),
-        };
-        const previousValues = charStyleValuesRef.current[charIndex];
-
-        if (previousValues?.motion !== nextValues.motion) {
-          char.style.setProperty("--motion-wave", nextValues.motion);
-        }
-
-        if (previousValues?.detail !== nextValues.detail) {
-          char.style.setProperty("--detail-wave", nextValues.detail);
-        }
-
-        nextStyleValues.push(nextValues);
-      }
-
-      charStyleValuesRef.current = nextStyleValues;
-
-      frameId = window.requestAnimationFrame(animate);
-    }
-
-    frameId = window.requestAnimationFrame(animate);
-
-    return () => {
-      window.cancelAnimationFrame(frameId);
-      charRefs.current = [];
-      charStyleValuesRef.current = [];
-    };
-  }, [input.words, wordStartIndexes]);
 
   return (
-    <p
-      className="karaoke-line"
-      aria-label={input.words.join(" ")}
-      ref={lineRef}
-    >
+    <p className="karaoke-line" aria-label={input.words.join(" ")}>
       {visualLines.map((line, lineIndex) => (
-        <span className="karaoke-visual-line" key={`line-${lineIndex}`}>
+        <span
+          aria-hidden="true"
+          className="karaoke-visual-line"
+          key={`line-${lineIndex}`}
+        >
           {line.map(({ word, wordIndex }) => (
             <span
-              className="karaoke-word"
+              className={[
+                "karaoke-word",
+                wordIndex < input.activeWordIndex ? "is-past" : "",
+                wordIndex === input.activeWordIndex ? "is-current" : "",
+                wordIndex === input.activeWordIndex + 1 ? "is-next" : "",
+              ]
+                .filter(Boolean)
+                .join(" ")}
               key={`${word}-${wordIndex}`}
               style={
                 {
@@ -395,21 +261,7 @@ export const KaraokeText = memo(function KaraokeText(input: {
                 } as CSSProperties
               }
             >
-              {Array.from(word).map((character, letterIndex) => {
-                const currentCharacterIndex =
-                  (wordStartIndexes[wordIndex] ?? 0) + letterIndex;
-
-                return (
-                  <span
-                    aria-hidden="true"
-                    className="karaoke-char"
-                    data-char-index={currentCharacterIndex}
-                    key={`${character}-${letterIndex}`}
-                  >
-                    {character}
-                  </span>
-                );
-              })}
+              {word}
             </span>
           ))}
         </span>

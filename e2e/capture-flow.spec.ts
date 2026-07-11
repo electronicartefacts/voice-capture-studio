@@ -52,6 +52,9 @@ test("a guided take flows from launch to the review screen", async ({
   await expect(page.locator("main.screen-karaoke")).toBeVisible({
     timeout: 30_000,
   });
+  await expect(page.getByLabel("Phonèmes du mot actif")).toHaveCount(0);
+  await expect(page.locator(".karaoke-word.is-current")).toHaveCount(1);
+  await expect(page.locator(".karaoke-word.is-next")).toHaveCount(1);
 
   // Let the fake microphone feed a couple of seconds of signal.
   await page.waitForTimeout(2_500);

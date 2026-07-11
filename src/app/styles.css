@@ -1730,41 +1730,43 @@ textarea:focus-visible {
   --word-delay: 0ms;
   animation: karaoke-word-enter 180ms cubic-bezier(0.16, 1, 0.3, 1)
     var(--word-delay) both;
+  color: color-mix(in srgb, var(--text) 54%, transparent);
   display: inline-flex;
   flex: 0 0 auto;
+  font-variation-settings: "wght" 360;
+  font-weight: 360;
   margin-right: 0.2em;
+  opacity: 0.72;
   padding-block: 0.08em;
-  transform-origin: center 68%;
-  white-space: nowrap;
-  will-change: opacity, transform;
-}
-
-.karaoke-char {
-  --motion-wave: 0;
-  --detail-wave: 0;
-  color: color-mix(
-    in srgb,
-    var(--text) calc(66% + (var(--motion-wave) * 34%)),
-    var(--accent-a) calc(var(--detail-wave) * 9%)
-  );
-  display: inline-block;
-  font-weight: 520;
-  opacity: calc(0.84 + (var(--motion-wave) * 0.16));
-  padding-block: 0.02em;
-  text-shadow: 0 0 calc(var(--detail-wave) * 10px)
-    color-mix(
-      in srgb,
-      var(--accent-a) calc(var(--detail-wave) * 20%),
-      transparent
-    );
-  transform: translate3d(0, calc((1 - var(--motion-wave)) * 0.035em), 0)
-    scale(calc(0.998 + (var(--motion-wave) * 0.008)));
   transform-origin: center 68%;
   transition:
     color var(--motion-fast) var(--ease-standard),
-    text-shadow var(--motion-fast) var(--ease-standard);
+    font-variation-settings var(--motion-medium) var(--ease-emphasized),
+    opacity var(--motion-fast) var(--ease-standard),
+    text-shadow var(--motion-fast) var(--ease-standard),
+    transform var(--motion-medium) var(--ease-emphasized);
   white-space: nowrap;
-  will-change: opacity, transform;
+}
+
+.karaoke-word.is-past {
+  color: color-mix(in srgb, var(--text) 38%, transparent);
+  opacity: 0.56;
+}
+
+.karaoke-word.is-current {
+  color: var(--text);
+  font-variation-settings: "wght" 760;
+  font-weight: 760;
+  opacity: 1;
+  text-shadow: 0 0 24px color-mix(in srgb, var(--accent-a) 22%, transparent);
+  transform: translateY(-0.025em);
+}
+
+.karaoke-word.is-next {
+  color: color-mix(in srgb, var(--text) 88%, var(--accent-a));
+  font-variation-settings: "wght" 610;
+  font-weight: 610;
+  opacity: 0.94;
 }
 
 .speech-follow-line {
@@ -1776,31 +1778,6 @@ textarea:focus-visible {
   max-width: min(100%, 640px);
   min-height: 22px;
   overflow-wrap: anywhere;
-  text-align: center;
-}
-
-.phoneme-ribbon {
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  justify-content: center;
-  margin-top: -10px;
-  min-height: 32px;
-  max-width: min(100%, 720px);
-}
-
-.phoneme-ribbon span {
-  background: color-mix(in srgb, var(--accent-b) 12%, transparent);
-  border: 1px solid color-mix(in srgb, var(--accent-b) 28%, transparent);
-  border-radius: 999px;
-  color: var(--text);
-  font-size: 12px;
-  font-weight: 820;
-  letter-spacing: 0;
-  line-height: 1;
-  min-width: 28px;
-  padding: 7px 9px;
   text-align: center;
 }
 
@@ -2822,8 +2799,7 @@ textarea:focus-visible {
     transition-duration: 1ms !important;
   }
 
-  .ambient-backdrop::after,
-  .karaoke-char {
+  .ambient-backdrop::after {
     transform: none;
   }
 }
@@ -3541,14 +3517,6 @@ body,
   font-weight: 420;
 }
 
-.karaoke-char {
-  color: color-mix(
-    in srgb,
-    var(--text) calc(76% + (var(--motion-wave) * 22%)),
-    var(--accent-a) calc(var(--detail-wave) * 10%)
-  );
-}
-
 .read-progress {
   background: color-mix(in srgb, var(--wave-color) 12%, transparent);
 }
@@ -3792,19 +3760,12 @@ body,
     color: #111416;
   }
 
-  .simple-app.screen-karaoke .karaoke-char {
-    color: color-mix(
-      in srgb,
-      #111416 calc(84% + (var(--motion-wave) * 12%)),
-      var(--accent-a) calc(var(--detail-wave) * 8%)
-    );
-    opacity: calc(0.9 + (var(--motion-wave) * 0.1));
-    text-shadow: 0 0 calc(var(--detail-wave) * 7px)
-      color-mix(
-        in srgb,
-        var(--accent-a) calc(var(--detail-wave) * 12%),
-        transparent
-      );
+  .simple-app.screen-karaoke .karaoke-word.is-current {
+    color: #111416;
+  }
+
+  .simple-app.screen-karaoke .karaoke-word.is-next {
+    color: color-mix(in srgb, #111416 86%, var(--accent-a));
   }
 
   .simple-app.screen-done {
