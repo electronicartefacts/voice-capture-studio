@@ -35,6 +35,48 @@ test("studio boots to the home screen with recording available", async ({
   await expect(launchButton).toContainText("Créer le dataset");
 });
 
+test("ML session tracking and export storage have distinct home regions", async ({
+  page,
+}) => {
+  await page.setViewportSize({ height: 939, width: 428 });
+  await enterStudio(page);
+
+  const workbench = page.getByRole("region", {
+    name: "Réglages de la session",
+  });
+  const dashboard = page.getByLabel("Suivi de session ML");
+  const storage = page.getByRole("region", { name: "Export et stockage" });
+
+  await expect(dashboard).toBeVisible();
+  await expect(storage).toBeVisible();
+  await expect(page.getByText("Calibration requise")).toBeVisible();
+  await expect(storage.getByText(/Sans dossier local/)).toBeVisible();
+  await expect
+    .poll(() =>
+      workbench.evaluate((element) => {
+        const dashboardElement = element.querySelector(".ml-session-dashboard");
+        const statusElement = element.querySelector(".status-strip");
+
+        return (
+          dashboardElement !== null &&
+          statusElement !== null &&
+          Boolean(
+            dashboardElement.compareDocumentPosition(statusElement) &
+            Node.DOCUMENT_POSITION_FOLLOWING,
+          )
+        );
+      }),
+    )
+    .toBe(true);
+
+  await page.getByRole("button", { name: "Sauvegarde locale" }).click();
+  await expect(storage).toBeFocused();
+
+  await page.getByRole("button", { name: /Capture libre/ }).click();
+  await expect(page.getByLabel("Suivi de session ML")).toHaveCount(0);
+  await expect(storage).toBeVisible();
+});
+
 test("a guided take flows from launch to the review screen", async ({
   page,
 }) => {

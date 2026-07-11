@@ -110,7 +110,7 @@ export function HomeScreen(input: {
   readonly workspaceDurability: WorkspaceDurability | null;
 }) {
   const modeContent = getCaptureModeContent(input.captureMode);
-  const ModeIcon = modeContent.icon;
+  const exportStorageRef = useRef<HTMLElement>(null);
   const localCorpusReady =
     input.captureMode === "free" ||
     input.captureMode === "training" ||
@@ -162,6 +162,22 @@ export function HomeScreen(input: {
                   : ` · retour ${input.backingTrack.name}`
               }.`;
 
+  function revealExportStorage() {
+    const section = exportStorageRef.current;
+
+    if (section === null) {
+      return;
+    }
+
+    section.scrollIntoView({
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        ? "auto"
+        : "smooth",
+      block: "start",
+    });
+    section.focus({ preventScroll: true });
+  }
+
   return (
     <div className="home-card">
       <section className="instrument-face" aria-labelledby="home-title">
@@ -169,10 +185,15 @@ export function HomeScreen(input: {
           mode={input.captureMode}
           onChange={input.onCaptureModeChange}
         />
-        <span className="setup-pill is-ready">
+        <button
+          aria-controls="export-storage"
+          className="setup-pill is-ready storage-jump"
+          onClick={revealExportStorage}
+          type="button"
+        >
           <Save aria-hidden="true" size={14} />
           Sauvegarde locale
-        </span>
+        </button>
 
         <div className="instrument-trigger">
           <button
@@ -193,9 +214,17 @@ export function HomeScreen(input: {
         </div>
 
         <h1 id="home-title" className="instrument-line">
-          <strong>{modeContent.headlineLead}</strong>
+          <strong
+            style={{
+              display: "inline-block",
+              fontWeight: 600,
+              marginBottom: 10,
+            }}
+          >
+            {modeContent.headlineLead}
+          </strong>
           <br />
-          <span>{modeContent.headlineDetail}</span>
+          <span style={{ fontWeight: 300 }}>{modeContent.headlineDetail}</span>
         </h1>
       </section>
 
@@ -214,6 +243,29 @@ export function HomeScreen(input: {
         <p className="plain-text" aria-live="polite">
           {input.message}
         </p>
+
+        {input.captureMode === "training" && (
+          <div
+            aria-label="Suivi de session ML"
+            className="coverage-console ml-session-dashboard"
+          >
+            <div
+              aria-label={`Couverture ${formatPercent(coveragePercent)}`}
+              className="coverage-ring"
+              style={
+                {
+                  "--coverage": `${Math.max(0, Math.min(100, coveragePercent))}%`,
+                } as CSSProperties
+              }
+            >
+              <span>{formatPercent(coveragePercent)}</span>
+            </div>
+            <div>
+              <strong>{corpusStatus}</strong>
+              <p>{corpusRecommendation}</p>
+            </div>
+          </div>
+        )}
 
         <div className="status-strip" aria-label="État de la session">
           <div>
@@ -292,53 +344,6 @@ export function HomeScreen(input: {
           </>
         )}
 
-        <div className="primary-actions">
-          <button
-            className="folder-button"
-            onClick={input.onChooseFolder}
-            type="button"
-          >
-            <FolderOpen aria-hidden="true" size={19} />
-            <span>{input.folderName ?? "Choisir un dossier d'export"}</span>
-          </button>
-        </div>
-
-        <p className={`action-hint${folderSelected ? " is-ready" : ""}`}>
-          {folderSelected
-            ? `Les WAV et JSON seront enregistrés dans ${input.folderName}.`
-            : "Sans dossier local, garde les boutons WAV et JSON après chaque prise."}
-        </p>
-
-        {input.captureMode === "training" ? (
-          <div className="coverage-console">
-            <div
-              aria-label={`Couverture ${formatPercent(coveragePercent)}`}
-              className="coverage-ring"
-              style={
-                {
-                  "--coverage": `${Math.max(0, Math.min(100, coveragePercent))}%`,
-                } as CSSProperties
-              }
-            >
-              <span>{formatPercent(coveragePercent)}</span>
-            </div>
-            <div>
-              <strong>{corpusStatus}</strong>
-              <p>{corpusRecommendation}</p>
-            </div>
-          </div>
-        ) : (
-          <div
-            className={`coverage-console mode-readiness is-${input.captureMode}`}
-          >
-            <ModeIcon aria-hidden="true" size={21} />
-            <div>
-              <strong>{corpusStatus}</strong>
-              <p>{corpusRecommendation}</p>
-            </div>
-          </div>
-        )}
-
         <VoiceManager
           language={input.language}
           onLanguageChange={input.onLanguageChange}
@@ -390,6 +395,31 @@ export function HomeScreen(input: {
             />
           </details>
         )}
+
+        <section
+          aria-labelledby="export-storage-title"
+          className="voice-manager"
+          id="export-storage"
+          ref={exportStorageRef}
+          tabIndex={-1}
+        >
+          <h2 id="export-storage-title">Export et stockage</h2>
+          <div className="primary-actions">
+            <button
+              className="folder-button"
+              onClick={input.onChooseFolder}
+              type="button"
+            >
+              <FolderOpen aria-hidden="true" size={19} />
+              <span>{input.folderName ?? "Choisir un dossier d'export"}</span>
+            </button>
+          </div>
+          <p className={`action-hint${folderSelected ? " is-ready" : ""}`}>
+            {folderSelected
+              ? `Les WAV et JSON seront enregistrés dans ${input.folderName}.`
+              : "Sans dossier local, garde les boutons WAV et JSON après chaque prise."}
+          </p>
+        </section>
       </section>
     </div>
   );

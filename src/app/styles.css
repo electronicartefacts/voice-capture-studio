@@ -4574,7 +4574,7 @@ body,
 }
 
 .launch-button.is-hero {
-  border-radius: 999px;
+  gap: 16px;
   min-width: min(100%, 310px);
 }
 
@@ -4657,7 +4657,7 @@ body,
   .launch-button.is-hero {
     box-sizing: border-box;
     font-size: clamp(13px, 4vw, 16px);
-    gap: 8px;
+    gap: 12px;
     overflow: hidden;
     max-width: 100%;
     min-width: 0;
