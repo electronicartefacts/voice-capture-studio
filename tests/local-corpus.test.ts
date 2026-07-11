@@ -5,6 +5,9 @@ import {
   createPromptSegments,
 } from "../src/domains/corpus";
 import type { LanguageCode } from "../src/shared";
+import { planSession } from "../src/domains/sessions";
+import { createEmptyWorkspace } from "../src/domains/workspace";
+import { initialSpeakers } from "../src/domains/speakers";
 
 const fr = "fr" as LanguageCode;
 
@@ -96,6 +99,11 @@ test("local text corpus parses SRT and VTT cues without recording timecodes", ()
     srt.corpus.scenarios[0]?.prompts.map((prompt) => prompt.text),
     ["Bonjour, comment ça va ?", "Très bien, merci."],
   );
+  assert.equal(srt.summary.timedPromptCount, 2);
+  assert.deepEqual(srt.corpus.scenarios[0]?.prompts[0]?.sourceTiming, {
+    startMs: 1_000,
+    endMs: 3_000,
+  });
 
   const vtt = createPromptSegments(
     ["WEBVTT", "", "00:00:01.000 --> 00:00:02.000", "<v Alice>Oui."].join("\n"),
@@ -103,6 +111,48 @@ test("local text corpus parses SRT and VTT cues without recording timecodes", ()
   );
 
   assert.deepEqual(vtt, ["Oui."]);
+});
+
+test("local script sessions preserve scene order instead of ML coverage priority", () => {
+  const corpus = createLocalTextCorpus({
+    mode: "dubbing",
+    language: fr,
+    sourceName: "scene.srt",
+    text: [
+      "1",
+      "00:00:01,000 --> 00:00:02,000",
+      "Première réplique.",
+      "",
+      "2",
+      "00:00:03,000 --> 00:00:04,000",
+      "Deuxième réplique.",
+      "",
+      "3",
+      "00:00:05,000 --> 00:00:06,000",
+      "Troisième réplique.",
+    ].join("\n"),
+  });
+
+  assert.ok(corpus);
+  const workspace = createEmptyWorkspace({
+    corpus: corpus.corpus,
+    speakers: initialSpeakers,
+    now: new Date("2026-07-11T09:00:00.000Z"),
+  });
+  const session = planSession({
+    workspace,
+    corpus: corpus.corpus,
+    speakerId: initialSpeakers[0].id,
+    language: fr,
+    targetMinutes: 5,
+    now: new Date("2026-07-11T09:01:00.000Z"),
+    strategy: "sequential",
+  });
+
+  assert.deepEqual(
+    session.plannedPromptIds,
+    corpus.corpus.scenarios[0]?.prompts.map((prompt) => prompt.id),
+  );
 });
 
 test("local corpus keeps one-word lines and does not silently truncate scripts", () => {

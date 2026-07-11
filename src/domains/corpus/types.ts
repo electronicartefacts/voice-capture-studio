@@ -24,6 +24,7 @@ export type PromptDefinition = {
   readonly id: PromptId;
   readonly text: string;
   readonly spokenText?: string;
+  readonly sourceTiming?: PromptSourceTiming;
   readonly intention: PromptIntention;
   readonly delivery: PromptDelivery;
   readonly direction: PromptDirection;
@@ -31,6 +32,11 @@ export type PromptDefinition = {
   readonly phonetics: PromptPhonetics;
   readonly qa: PromptQualityGate;
   readonly tags: readonly string[];
+};
+
+export type PromptSourceTiming = {
+  readonly startMs: number;
+  readonly endMs: number;
 };
 
 export type PromptIntention = {

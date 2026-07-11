@@ -20,6 +20,7 @@ export type LocalTextCorpusInput = {
 export type LocalTextCorpusSummary = {
   readonly promptCount: number;
   readonly sourceName: string | null;
+  readonly timedPromptCount: number;
   readonly wordCount: number;
 };
 
@@ -36,10 +37,18 @@ export type LocalCorpusSnapshot = {
   readonly text: string;
 };
 
+type PromptSegment = {
+  readonly text: string;
+  readonly sourceTiming?: {
+    readonly startMs: number;
+    readonly endMs: number;
+  };
+};
+
 export function createLocalTextCorpus(
   input: LocalTextCorpusInput,
 ): LocalTextCorpus | null {
-  const segments = createPromptSegments(input.text, input.sourceName);
+  const segments = createPromptSegmentsWithTiming(input.text, input.sourceName);
 
   if (segments.length === 0) {
     return null;
@@ -58,7 +67,8 @@ export function createLocalTextCorpus(
       index,
       language: input.language,
       mode: input.mode,
-      text: segment,
+      text: segment.text,
+      sourceTiming: segment.sourceTiming,
     }),
   );
 
@@ -72,7 +82,9 @@ export function createLocalTextCorpus(
           id: scenarioId,
           language: input.language,
           title:
-            input.mode === "dubbing" ? "Script de doublage" : "Master voix",
+            input.mode === "dubbing"
+              ? "Script de doublage"
+              : "Interprétation voix",
           description: sourceName ?? "Corpus local",
           prompts,
         },
@@ -81,8 +93,11 @@ export function createLocalTextCorpus(
     summary: {
       promptCount: prompts.length,
       sourceName,
+      timedPromptCount: prompts.filter(
+        (prompt) => prompt.sourceTiming !== undefined,
+      ).length,
       wordCount: segments.reduce(
-        (total, segment) => total + countWords(segment),
+        (total, segment) => total + countWords(segment.text),
         0,
       ),
     },
@@ -93,6 +108,15 @@ export function createPromptSegments(
   text: string,
   sourceName?: string | null,
 ): readonly string[] {
+  return createPromptSegmentsWithTiming(text, sourceName).map(
+    (segment) => segment.text,
+  );
+}
+
+function createPromptSegmentsWithTiming(
+  text: string,
+  sourceName?: string | null,
+): readonly PromptSegment[] {
   const normalizedText = normalizeCorpusText(text);
 
   if (normalizedText.length === 0) {
@@ -103,17 +127,31 @@ export function createPromptSegments(
     ? parseSubtitleSegments(normalizedText)
     : [];
   const lineSegments = (
-    subtitleSegments.length > 0 ? subtitleSegments : normalizedText.split("\n")
+    subtitleSegments.length > 0
+      ? subtitleSegments
+      : normalizedText.split("\n").map((segment) => ({ text: segment }))
   )
-    .map(cleanSegment)
-    .filter(isUsableSegment);
+    .map((segment) => ({ ...segment, text: cleanSegment(segment.text) }))
+    .filter((segment) => isUsableSegment(segment.text));
   const hasScriptLikeLineBreaks = lineSegments.length >= 3;
-  const rawSegments =
+  const rawSegments: readonly PromptSegment[] =
     subtitleSegments.length > 0 || hasScriptLikeLineBreaks
       ? lineSegments
-      : splitProseIntoSentences(normalizedText.replace(/\n+/g, " "));
+      : splitProseIntoSentences(normalizedText.replace(/\n+/g, " ")).map(
+          (segment) => ({ text: segment }),
+        );
+  const strippedText = stripSpeakerLabels(
+    rawSegments.map((segment) => segment.text),
+  );
 
-  return stripSpeakerLabels(rawSegments).flatMap(splitLongSegment);
+  return rawSegments.flatMap((segment, index) =>
+    splitLongSegment(strippedText[index] ?? segment.text).map((text) => ({
+      text,
+      ...(segment.sourceTiming === undefined
+        ? {}
+        : { sourceTiming: segment.sourceTiming }),
+    })),
+  );
 }
 
 function createPrompt(input: {
@@ -121,10 +159,12 @@ function createPrompt(input: {
   readonly index: number;
   readonly language: LanguageCode;
   readonly mode: LocalCorpusMode;
+  readonly sourceTiming?: PromptSegment["sourceTiming"];
   readonly text: string;
 }): PromptDefinition {
   const words = countWords(input.text);
-  const modeLabel = input.mode === "dubbing" ? "Doublage" : "Master voix";
+  const modeLabel =
+    input.mode === "dubbing" ? "Doublage" : "Interprétation voix";
   const promptId =
     `prompt.${input.language}.${input.mode}.${input.hash}.${String(input.index + 1).padStart(3, "0")}` as PromptId;
   const minDurationMs = Math.max(900, Math.round(words * 260));
@@ -133,6 +173,9 @@ function createPrompt(input: {
   return {
     id: promptId,
     text: input.text,
+    ...(input.sourceTiming === undefined
+      ? {}
+      : { sourceTiming: input.sourceTiming }),
     intention: {
       id: `intent.${input.mode}.local_text` as IntentionId,
       primary:
@@ -306,10 +349,11 @@ function isSubtitleTimingLine(line: string): boolean {
   );
 }
 
-function parseSubtitleSegments(text: string): readonly string[] {
+function parseSubtitleSegments(text: string): readonly PromptSegment[] {
   const lines = text.replace(/^\uFEFF/u, "").split("\n");
-  const segments: string[] = [];
+  const segments: PromptSegment[] = [];
   let current: string[] = [];
+  let currentTiming: PromptSegment["sourceTiming"];
   let inCue = false;
   let skipBlock = false;
 
@@ -317,10 +361,14 @@ function parseSubtitleSegments(text: string): readonly string[] {
     const segment = cleanSubtitleText(current.join(" "));
 
     if (segment.length > 0) {
-      segments.push(segment);
+      segments.push({
+        text: segment,
+        ...(currentTiming === undefined ? {} : { sourceTiming: currentTiming }),
+      });
     }
 
     current = [];
+    currentTiming = undefined;
   };
 
   for (const rawLine of lines) {
@@ -346,6 +394,7 @@ function parseSubtitleSegments(text: string): readonly string[] {
       flush();
       inCue = true;
       skipBlock = false;
+      currentTiming = parseSubtitleTiming(line) ?? undefined;
       continue;
     }
 
@@ -361,6 +410,36 @@ function parseSubtitleSegments(text: string): readonly string[] {
   }
 
   return segments;
+}
+
+function parseSubtitleTiming(
+  line: string,
+): PromptSegment["sourceTiming"] | null {
+  const [rawStart, rawEnd] = line.split("-->").map((part) => part.trim());
+  const startMs = parseSubtitleTimestamp(rawStart ?? "");
+  const endMs = parseSubtitleTimestamp((rawEnd ?? "").split(/\s+/u)[0] ?? "");
+
+  return startMs === null || endMs === null || endMs <= startMs
+    ? null
+    : { startMs, endMs };
+}
+
+function parseSubtitleTimestamp(value: string): number | null {
+  const match = value.match(/^(?:(\d{1,2}):)?(\d{2}):(\d{2})[,.](\d{3})$/u);
+
+  if (match === null) {
+    return null;
+  }
+
+  const [, hours = "0", minutes = "0", seconds = "0", milliseconds = "0"] =
+    match;
+
+  return (
+    Number(hours) * 3_600_000 +
+    Number(minutes) * 60_000 +
+    Number(seconds) * 1_000 +
+    Number(milliseconds)
+  );
 }
 
 function cleanSubtitleText(text: string): string {

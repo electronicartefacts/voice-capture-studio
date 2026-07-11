@@ -145,6 +145,57 @@ test("free capture removes unavailable controls and false reading progress", asy
   await expect(page.locator(".read-progress")).toHaveCount(0);
 });
 
+test("dubbing connects a YouTube scene to the scripted recording surface", async ({
+  page,
+}) => {
+  await page.route("https://www.youtube-nocookie.com/**", (route) =>
+    route.abort(),
+  );
+  await enterStudio(page);
+
+  await page.getByRole("button", { name: "Doublage" }).click();
+  await page
+    .getByLabel("Texte du corpus local")
+    .fill(
+      [
+        "00:00:42,000 --> 00:00:46,000",
+        "On y va maintenant.",
+        "",
+        "00:00:48,000 --> 00:00:51,000",
+        "Je te suis.",
+      ].join("\n"),
+    );
+  await page
+    .getByPlaceholder("Coller un lien YouTube")
+    .fill("https://youtu.be/dQw4w9WgXcQ");
+  await page.getByRole("button", { name: "Relier" }).click();
+
+  const homeFrame = page.locator(
+    '.dubbing-media-stage[data-media-kind="youtube"] iframe',
+  );
+
+  await expect(homeFrame).toHaveAttribute("src", /youtube-nocookie\.com/);
+  await expect(homeFrame).toHaveAttribute("src", /autoplay=0/);
+  await page.locator("button.launch-button").click();
+  await expect(page.locator("main.screen-permission")).toBeVisible();
+  await expect(
+    page.getByText("On y va maintenant.", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText("0:42 → 0:46")).toBeVisible();
+
+  await page.getByRole("button", { name: "Démarrer la prise" }).click();
+  await expect(page.locator("main.screen-karaoke")).toBeVisible({
+    timeout: 30_000,
+  });
+  const captureFrame = page.locator(
+    "main.screen-karaoke .dubbing-media-stage iframe",
+  );
+
+  await expect(captureFrame).toHaveAttribute("src", /autoplay=1/);
+  await expect(captureFrame).toHaveAttribute("src", /start=42/);
+  await expect(page.getByText("REC · Doublage image")).toBeVisible();
+});
+
 test("workspace progress survives a reload through IndexedDB", async ({
   page,
 }) => {

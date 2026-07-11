@@ -111,7 +111,9 @@ import {
   isDefaultHomeMessage,
   isSupportedAudioFile,
   isSupportedTextFile,
+  isSupportedVideoFile,
 } from "./helpers";
+import { createYouTubeDubbingSource } from "./dubbingMedia";
 import {
   DEFAULT_SPEAKER_LANGUAGE,
   createSpeakerId,
@@ -138,6 +140,7 @@ import type {
   CaptureMode,
   DatasetExportState,
   DownloadableRecording,
+  DubbingMediaSource,
   ReadingGuideMode,
   RitualStatus,
   RoomToneCalibration,
@@ -258,6 +261,11 @@ export function App() {
   const [backingTrack, setBackingTrack] = useState<BackingTrack | null>(null);
   const [backingTrackVolume, setBackingTrackVolume] = useState(0.28);
   const [backingTrackLoop, setBackingTrackLoop] = useState(true);
+  const [dubbingMedia, setDubbingMedia] = useState<DubbingMediaSource | null>(
+    null,
+  );
+  const [dubbingCueSeconds, setDubbingCueSeconds] = useState(0);
+  const [dubbingMediaMuted, setDubbingMediaMuted] = useState(true);
   const [selectedSpeakerId, setSelectedSpeakerId] = useState<SpeakerId>(
     initialSpeakers[0].id,
   );
@@ -333,6 +341,7 @@ export function App() {
   const workspaceBackupUrlRef = useRef<string | null>(null);
   const localCorpusPersistTimerRef = useRef<number | null>(null);
   const backingTrackUrlRef = useRef<string | null>(null);
+  const dubbingMediaUrlRef = useRef<string | null>(null);
   const storedRecordingUrlsRef = useRef<readonly string[]>([]);
   const datasetZipUrlRef = useRef<string | null>(null);
   const workspaceArchiveUrlRef = useRef<string | null>(null);
@@ -451,6 +460,14 @@ export function App() {
     activePromptId && activeCorpus !== null
       ? findPrompt(activeCorpus, activePromptId)
       : undefined;
+  const dubbingStartSeconds =
+    activePrompt?.sourceTiming === undefined
+      ? dubbingCueSeconds
+      : activePrompt.sourceTiming.startMs / 1000;
+  const dubbingEndSeconds =
+    activePrompt?.sourceTiming === undefined
+      ? null
+      : activePrompt.sourceTiming.endMs / 1000;
   const words = useMemo(
     () => promptText.split(/\s+/).filter(Boolean),
     [promptText],
@@ -467,6 +484,21 @@ export function App() {
   useEffect(() => {
     window.scrollTo(0, 0);
   }, [screen]);
+
+  useEffect(() => {
+    const loadDubbingSurface = () => {
+      void import("../dubbing.css");
+    };
+
+    if (captureMode === "dubbing") {
+      loadDubbingSurface();
+      return;
+    }
+
+    const preloadTimer = window.setTimeout(loadDubbingSurface, 800);
+
+    return () => window.clearTimeout(preloadTimer);
+  }, [captureMode]);
 
   const coverage =
     workspace && activeCorpus !== null
@@ -618,6 +650,7 @@ export function App() {
       revokeObjectUrl(metadataDownloadUrlRef.current);
       revokeObjectUrl(workspaceBackupUrlRef.current);
       revokeObjectUrl(backingTrackUrlRef.current);
+      revokeObjectUrl(dubbingMediaUrlRef.current);
       revokeObjectUrl(datasetZipUrlRef.current);
       revokeObjectUrl(workspaceArchiveUrlRef.current);
       revokeStoredRecordingUrls();
@@ -1363,12 +1396,12 @@ export function App() {
       name: file.name,
       url: URL.createObjectURL(file),
     });
-    setMessage(`Retour casque chargé : ${file.name}.`);
+    setMessage(`Support audio chargé : ${file.name}.`);
   }
 
   function clearBackingTrack() {
     replaceBackingTrack(null);
-    setMessage("Retour casque retiré.");
+    setMessage("Support audio retiré.");
   }
 
   function replaceBackingTrack(track: BackingTrack | null) {
@@ -1376,6 +1409,50 @@ export function App() {
     revokeObjectUrl(backingTrackUrlRef.current);
     backingTrackUrlRef.current = track?.url ?? null;
     setBackingTrack(track);
+  }
+
+  function loadDubbingVideoFile(file: File) {
+    if (!isSupportedVideoFile(file)) {
+      setMessage("Charge une vidéo MP4, MOV, WebM ou OGV lisible ici.");
+      return;
+    }
+
+    replaceDubbingMedia({
+      kind: "local-video",
+      name: file.name,
+      url: URL.createObjectURL(file),
+    });
+    setMessage(
+      `Scène locale chargée : ${file.name}. Elle reste sur cet appareil.`,
+    );
+  }
+
+  function loadDubbingYouTubeUrl(url: string) {
+    const source = createYouTubeDubbingSource(url);
+
+    if (source === null) {
+      setMessage(
+        "Lien YouTube non reconnu. Colle l'adresse complète de la vidéo.",
+      );
+      return;
+    }
+
+    replaceDubbingMedia(source);
+    setMessage(
+      "Scène YouTube reliée. La vidéo reste distante et nécessite une connexion.",
+    );
+  }
+
+  function clearDubbingMedia() {
+    replaceDubbingMedia(null);
+    setMessage("Image de référence retirée. Le script reste disponible.");
+  }
+
+  function replaceDubbingMedia(source: DubbingMediaSource | null) {
+    revokeObjectUrl(dubbingMediaUrlRef.current);
+    dubbingMediaUrlRef.current =
+      source?.kind === "local-video" ? source.url : null;
+    setDubbingMedia(source);
   }
 
   async function startBackingTrackPlayback() {
@@ -1397,7 +1474,7 @@ export function App() {
       await audio.play();
     } catch {
       setMessage(
-        "Prise lancée. Le navigateur demande de démarrer le retour casque manuellement.",
+        "Prise lancée. Le navigateur demande de démarrer le support audio manuellement.",
       );
     }
   }
@@ -1541,6 +1618,7 @@ export function App() {
       language: selectedLanguage,
       targetMinutes: currentWorkspace.settings.preferredSessionMinutes,
       now: new Date(),
+      strategy: captureMode === "training" ? "coverage" : "sequential",
     });
 
     if (nextSession.plannedPromptIds.length === 0) {
@@ -2822,6 +2900,9 @@ export function App() {
                   customCorpusSourceName={customCorpusSourceName}
                   customCorpusText={customCorpusText}
                   diagnostics={diagnostics}
+                  dubbingCueSeconds={dubbingCueSeconds}
+                  dubbingMedia={dubbingMedia}
+                  dubbingMediaMuted={dubbingMediaMuted}
                   folderName={folderName}
                   language={selectedLanguage}
                   localCorpusSummary={localCorpus?.summary ?? null}
@@ -2841,6 +2922,11 @@ export function App() {
                       customCorpusSourceName ?? "Texte libre",
                     )
                   }
+                  onDubbingCueSecondsChange={setDubbingCueSeconds}
+                  onDubbingMediaClear={clearDubbingMedia}
+                  onDubbingMediaMutedChange={setDubbingMediaMuted}
+                  onDubbingVideoChange={loadDubbingVideoFile}
+                  onDubbingYouTubeUrl={loadDubbingYouTubeUrl}
                   onLanguageChange={selectLanguage}
                   onProfileChange={updateCaptureProfile}
                   onRefreshDiagnostics={() => void refreshDiagnostics()}
@@ -2859,6 +2945,11 @@ export function App() {
 
               {screen === "permission" && (
                 <PermissionScreen
+                  calibratesRoomTone={!isFreeCapture}
+                  dubbingEndSeconds={dubbingEndSeconds}
+                  dubbingMedia={captureMode === "dubbing" ? dubbingMedia : null}
+                  dubbingMediaMuted={dubbingMediaMuted}
+                  dubbingStartSeconds={dubbingStartSeconds}
                   insight={activePromptInsight}
                   diagnostics={diagnostics}
                   isSpeakingReference={isSpeakingReference}
@@ -2887,6 +2978,10 @@ export function App() {
                   activeWordIndex={activeWordIndex}
                   audioLevel={audioLevel}
                   currentPromptIndex={currentPromptIndex}
+                  dubbingEndSeconds={dubbingEndSeconds}
+                  dubbingMedia={captureMode === "dubbing" ? dubbingMedia : null}
+                  dubbingMediaMuted={dubbingMediaMuted}
+                  dubbingStartSeconds={dubbingStartSeconds}
                   isFreeCapture={isFreeCapture}
                   continuousLyricsText={
                     isContinuousLyricsCapture ? continuousLyricsText : null

@@ -1,4 +1,11 @@
-import { memo, useEffect, useMemo, useRef, type CSSProperties } from "react";
+import {
+  memo,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import {
   Mic,
   ShieldCheck,
@@ -22,6 +29,8 @@ import {
 import { KARAOKE_STYLE_UPDATE_INTERVAL_MS } from "../audioEnvironment";
 import { createTranscriptPreview } from "../speech";
 import type { ReadingGuideMode, RoomToneCalibration } from "../types";
+import type { DubbingMediaSource } from "../types";
+import { DubbingMediaStage } from "./DubbingMediaStage";
 
 export function RoomToneCalibrationScreen(input: {
   readonly audioLevel: number;
@@ -88,6 +97,10 @@ export function KaraokeScreen(input: {
   readonly activeWordIndex: number;
   readonly audioLevel: number;
   readonly currentPromptIndex: number;
+  readonly dubbingEndSeconds: number | null;
+  readonly dubbingMedia: DubbingMediaSource | null;
+  readonly dubbingMediaMuted: boolean;
+  readonly dubbingStartSeconds: number;
   readonly continuousLyricsText: string | null;
   readonly isFreeCapture: boolean;
   readonly isFinalizing: boolean;
@@ -120,8 +133,11 @@ export function KaraokeScreen(input: {
               ? "REC · Paroles complètes"
               : input.isFreeCapture
                 ? "REC · Capture libre"
-                : `REC · Phrase ${input.currentPromptIndex + 1}/${Math.max(input.totalPrompts, 1)}`}
+                : input.dubbingMedia !== null
+                  ? "REC · Doublage image"
+                  : `REC · Phrase ${input.currentPromptIndex + 1}/${Math.max(input.totalPrompts, 1)}`}
         </div>
+        <RecordingElapsedTime running={!input.isFinalizing} />
         <div className="recording-meter" aria-label="Niveau micro">
           <Volume2 aria-hidden="true" size={18} />
           <span>
@@ -176,6 +192,24 @@ export function KaraokeScreen(input: {
             {formatCaptureDurationLimit(FREE_CAPTURE_MAX_DURATION_MS)}.
           </p>
         </div>
+      ) : input.dubbingMedia !== null ? (
+        <div className="dubbing-capture-layout">
+          <DubbingMediaStage
+            autoplay={!input.isFinalizing}
+            className="is-capturing"
+            endSeconds={input.dubbingEndSeconds}
+            muted={input.dubbingMediaMuted}
+            source={input.dubbingMedia}
+            startSeconds={input.dubbingStartSeconds}
+          />
+          <div className="dubbing-capture-prompt">
+            <p className="soft-label">Réplique en cours</p>
+            <KaraokeText
+              activeWordIndex={input.activeWordIndex}
+              words={input.words}
+            />
+          </div>
+        </div>
       ) : (
         <KaraokeText
           activeWordIndex={input.activeWordIndex}
@@ -204,6 +238,36 @@ export function KaraokeScreen(input: {
         </div>
       )}
     </div>
+  );
+}
+
+function RecordingElapsedTime(input: { readonly running: boolean }) {
+  const startedAtRef = useRef(performance.now());
+  const [elapsedMs, setElapsedMs] = useState(0);
+
+  useEffect(() => {
+    if (!input.running) {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      setElapsedMs(performance.now() - startedAtRef.current);
+    }, 250);
+
+    return () => window.clearInterval(timer);
+  }, [input.running]);
+
+  const totalSeconds = Math.floor(elapsedMs / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+
+  return (
+    <time
+      className="recording-cue recording-elapsed"
+      dateTime={`PT${totalSeconds}S`}
+    >
+      {String(minutes).padStart(2, "0")}:{String(seconds).padStart(2, "0")}
+    </time>
   );
 }
 

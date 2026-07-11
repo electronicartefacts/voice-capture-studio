@@ -17,10 +17,27 @@ test("offline service worker restarts the app without masking missing modules", 
   await page.reload();
   await expect(page.locator("main.screen-home")).toBeVisible();
 
+  await page.getByRole("button", { name: "Doublage" }).click();
+  await expect
+    .poll(() =>
+      page
+        .locator(".youtube-source-form")
+        .evaluate((element) => getComputedStyle(element).display),
+    )
+    .toBe("grid");
+
   await context.setOffline(true);
 
   await page.reload();
   await expect(page.locator("main.screen-home")).toBeVisible();
+  await page.getByRole("button", { name: "Doublage" }).click();
+  await expect
+    .poll(() =>
+      page
+        .locator(".youtube-source-form")
+        .evaluate((element) => getComputedStyle(element).display),
+    )
+    .toBe("grid");
 
   const assetResult = await page.evaluate(async () => {
     try {

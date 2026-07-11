@@ -35,7 +35,7 @@ export function SiteFooter() {
         </a>
       </nav>
       <p className="site-footer-note">
-        100 % local — aucune donnée n'est envoyée en ligne. ©{" "}
+        Voix et analyses locales — les médias en ligne restent optionnels. ©{" "}
         {new Date().getFullYear()} electronicArtefacts.
       </p>
     </footer>

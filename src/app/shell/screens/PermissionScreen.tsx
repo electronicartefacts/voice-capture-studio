@@ -2,9 +2,16 @@ import { ArrowLeft, Download, Mic, ShieldCheck, Volume2 } from "lucide-react";
 import type { PromptDefinition } from "@domains/corpus";
 import type { RuntimeDiagnostics } from "../../system/runtimeDiagnostics";
 import { formatEnergy, formatPace } from "../helpers";
+import type { DubbingMediaSource } from "../types";
+import { DubbingMediaStage } from "./DubbingMediaStage";
 
 export function PermissionScreen(input: {
+  readonly calibratesRoomTone: boolean;
   readonly diagnostics: RuntimeDiagnostics;
+  readonly dubbingEndSeconds: number | null;
+  readonly dubbingMedia: DubbingMediaSource | null;
+  readonly dubbingMediaMuted: boolean;
+  readonly dubbingStartSeconds: number;
   readonly insight: string | null;
   readonly isSpeakingReference: boolean;
   readonly message: string;
@@ -65,11 +72,28 @@ export function PermissionScreen(input: {
           </dl>
         </article>
       )}
+      {input.dubbingMedia !== null && (
+        <DubbingMediaStage
+          autoplay={false}
+          className="is-preparation"
+          endSeconds={input.dubbingEndSeconds}
+          muted={input.dubbingMediaMuted}
+          source={input.dubbingMedia}
+          startSeconds={input.dubbingStartSeconds}
+        />
+      )}
       <ul className="prep-checklist" aria-label="Avant de lancer">
-        <li>
-          <ShieldCheck aria-hidden="true" size={17} />
-          <span>Garde trois secondes de silence pour mesurer la pièce.</span>
-        </li>
+        {input.calibratesRoomTone ? (
+          <li>
+            <ShieldCheck aria-hidden="true" size={17} />
+            <span>Garde trois secondes de silence pour mesurer la pièce.</span>
+          </li>
+        ) : (
+          <li>
+            <ShieldCheck aria-hidden="true" size={17} />
+            <span>La prise démarre immédiatement après validation.</span>
+          </li>
+        )}
         <li>
           <Mic aria-hidden="true" size={17} />
           <span>

@@ -13,6 +13,10 @@ open-source foundation for privacy-preserving voice capture workflows.
 ## Features
 
 - Guided prompt sessions for French and English starter corpora.
+- Four outcome-specific capture modes: free capture, ML dataset, video dubbing, and interpreted
+  performance with optional headphone return.
+- Local-video or privacy-enhanced YouTube reference for dubbing, with SRT/VTT cue timing preserved
+  for scene playback.
 - Local microphone capture through Web Audio.
 - WAV PCM mono export at 48 kHz / 24-bit where browser support allows it.
 - Room-tone calibration and first-pass technical quality checks.
@@ -124,6 +128,7 @@ Important documents:
 - [Capture technology audit](docs/capture-technology-audit.md)
 - [Production engineering audit](docs/production-engineering-audit.md)
 - [Repository maturity scorecard](docs/repository-scorecard.md)
+- [Mode experience grid](docs/mode-experience-grid.md)
 - [Android and GitHub Pages](docs/android-github-pages.md)
 
 ## GitHub Pages

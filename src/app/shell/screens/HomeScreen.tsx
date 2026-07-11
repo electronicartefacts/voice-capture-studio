@@ -55,10 +55,12 @@ import {
   type CreateSpeakerInput,
 } from "../speakerProfiles";
 import type { BackingTrack, CaptureMode } from "../types";
+import type { DubbingMediaSource } from "../types";
 import {
   formatCaptureDurationLimit,
   FREE_CAPTURE_MAX_DURATION_MS,
 } from "../../recording/captureLimits";
+import { DubbingMediaPanel } from "./DubbingMediaPanel";
 
 export function HomeScreen(input: {
   readonly backingAudioRef: RefObject<HTMLAudioElement | null>;
@@ -72,6 +74,9 @@ export function HomeScreen(input: {
   readonly customCorpusSourceName: string | null;
   readonly customCorpusText: string;
   readonly diagnostics: RuntimeDiagnostics;
+  readonly dubbingCueSeconds: number;
+  readonly dubbingMedia: DubbingMediaSource | null;
+  readonly dubbingMediaMuted: boolean;
   readonly folderName: string | null;
   readonly language: LanguageCode;
   readonly localCorpusSummary: LocalTextCorpusSummary | null;
@@ -85,6 +90,11 @@ export function HomeScreen(input: {
   readonly onChooseFolder: () => void;
   readonly onCustomCorpusFile: (file: File) => void;
   readonly onCustomCorpusTextChange: (text: string) => void;
+  readonly onDubbingCueSecondsChange: (seconds: number) => void;
+  readonly onDubbingMediaClear: () => void;
+  readonly onDubbingMediaMutedChange: (muted: boolean) => void;
+  readonly onDubbingVideoChange: (file: File) => void;
+  readonly onDubbingYouTubeUrl: (url: string) => void;
   readonly onLanguageChange: (language: LanguageCode) => void;
   readonly onProfileChange: (profile: CaptureProfile) => void;
   readonly onRefreshDiagnostics: () => void;
@@ -140,11 +150,17 @@ export function HomeScreen(input: {
           "Commence par un silence de pièce, puis deux prises neutres.")
         : input.localCorpusSummary === null
           ? "Colle un script ou charge un fichier texte."
-          : `${input.localCorpusSummary.wordCount} mots chargés${
-              input.localCorpusSummary.sourceName === null
-                ? ""
-                : ` depuis ${input.localCorpusSummary.sourceName}`
-            }.`;
+          : input.captureMode === "dubbing"
+            ? `${input.localCorpusSummary.wordCount} mots · ${
+                input.localCorpusSummary.timedPromptCount > 0
+                  ? `${input.localCorpusSummary.timedPromptCount} repère${input.localCorpusSummary.timedPromptCount > 1 ? "s" : ""} synchronisé${input.localCorpusSummary.timedPromptCount > 1 ? "s" : ""}`
+                  : "départ manuel ou repère global"
+              }.`
+            : `${input.localCorpusSummary.wordCount} mots${
+                input.backingTrack === null
+                  ? " · support audio optionnel"
+                  : ` · retour ${input.backingTrack.name}`
+              }.`;
 
   return (
     <div className="home-card">
@@ -155,7 +171,7 @@ export function HomeScreen(input: {
         />
         <span className="instrument-mode-label">
           <ModeIcon aria-hidden="true" size={14} />
-          {modeContent.pill}
+          {modeContent.title} · {modeContent.pill}
         </span>
 
         <div className="instrument-trigger">
@@ -233,6 +249,19 @@ export function HomeScreen(input: {
           />
         )}
 
+        {input.captureMode === "dubbing" && (
+          <DubbingMediaPanel
+            cueSeconds={input.dubbingCueSeconds}
+            muted={input.dubbingMediaMuted}
+            onClear={input.onDubbingMediaClear}
+            onCueSecondsChange={input.onDubbingCueSecondsChange}
+            onLocalVideo={input.onDubbingVideoChange}
+            onMutedChange={input.onDubbingMediaMutedChange}
+            onYouTubeUrl={input.onDubbingYouTubeUrl}
+            source={input.dubbingMedia}
+          />
+        )}
+
         {input.captureMode === "mastering" && (
           <>
             <BackingTrackPanel
@@ -280,23 +309,35 @@ export function HomeScreen(input: {
             : "Sans dossier local, garde les boutons WAV et JSON après chaque prise."}
         </p>
 
-        <div className="coverage-console">
+        {input.captureMode === "training" ? (
+          <div className="coverage-console">
+            <div
+              aria-label={`Couverture ${formatPercent(coveragePercent)}`}
+              className="coverage-ring"
+              style={
+                {
+                  "--coverage": `${Math.max(0, Math.min(100, coveragePercent))}%`,
+                } as CSSProperties
+              }
+            >
+              <span>{formatPercent(coveragePercent)}</span>
+            </div>
+            <div>
+              <strong>{corpusStatus}</strong>
+              <p>{corpusRecommendation}</p>
+            </div>
+          </div>
+        ) : (
           <div
-            aria-label={`Couverture ${formatPercent(coveragePercent)}`}
-            className="coverage-ring"
-            style={
-              {
-                "--coverage": `${Math.max(0, Math.min(100, coveragePercent))}%`,
-              } as CSSProperties
-            }
+            className={`coverage-console mode-readiness is-${input.captureMode}`}
           >
-            <span>{formatPercent(coveragePercent)}</span>
+            <ModeIcon aria-hidden="true" size={21} />
+            <div>
+              <strong>{corpusStatus}</strong>
+              <p>{corpusRecommendation}</p>
+            </div>
           </div>
-          <div>
-            <strong>{corpusStatus}</strong>
-            <p>{corpusRecommendation}</p>
-          </div>
-        </div>
+        )}
 
         <VoiceManager
           language={input.language}
@@ -527,7 +568,8 @@ export function LocalCorpusEditor(input: {
   readonly text: string;
 }) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const modeLabel = input.mode === "dubbing" ? "Script" : "Texte master";
+  const modeLabel =
+    input.mode === "dubbing" ? "Script" : "Texte d'interprétation";
 
   function handleFileSelection(event: ChangeEvent<HTMLInputElement>) {
     const file = event.currentTarget.files?.[0];
@@ -637,7 +679,7 @@ export function BackingTrackPanel(input: {
     <section className="backing-track-panel">
       <div className="backing-track-header">
         <div>
-          <p className="soft-label">Retour casque</p>
+          <p className="soft-label">Support audio</p>
           <strong>{input.track?.name ?? "Aucune piste"}</strong>
         </div>
         <div className="backing-track-actions">
@@ -678,9 +720,9 @@ export function BackingTrackPanel(input: {
       )}
       <div className="backing-track-controls">
         <label className="backing-track-volume studio-range-control">
-          <span>Volume casque</span>
+          <span>Volume du support</span>
           <input
-            aria-label="Volume du retour casque"
+            aria-label="Volume du support audio"
             className="studio-range"
             max={1}
             min={0}
@@ -708,8 +750,8 @@ export function BackingTrackPanel(input: {
         </label>
       </div>
       <p className="coach-note">
-        Utilise un casque fermé. La piste sert de retour, le WAV exporté reste
-        une prise voix.
+        Utilise un casque fermé. Le support guide l'interprétation, le WAV
+        exporté reste une prise voix séparée.
       </p>
     </section>
   );

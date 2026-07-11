@@ -19,6 +19,7 @@ export function planSession(input: {
   readonly language: LanguageCode;
   readonly targetMinutes: number;
   readonly now: Date;
+  readonly strategy?: "coverage" | "sequential";
 }): CaptureSession {
   const progress = findProgress(
     input.workspace,
@@ -38,23 +39,21 @@ export function planSession(input: {
   const completedPrompts = prompts.filter((prompt) =>
     completedPromptIds.includes(prompt.id),
   );
-  const plannedPromptIds = prompts
-    .filter((prompt) => !completedPromptIds.includes(prompt.id))
-    .sort((left, right) => {
-      const leftScore = scorePromptPriority(left, completedPrompts);
-      const rightScore = scorePromptPriority(right, completedPrompts);
+  const prioritizePrompts = (candidates: readonly PromptDefinition[]) =>
+    input.strategy === "sequential"
+      ? [...candidates]
+      : [...candidates].sort((left, right) => {
+          const leftScore = scorePromptPriority(left, completedPrompts);
+          const rightScore = scorePromptPriority(right, completedPrompts);
 
-      return rightScore - leftScore;
-    })
+          return rightScore - leftScore;
+        });
+  const plannedPromptIds = prioritizePrompts(
+    prompts.filter((prompt) => !completedPromptIds.includes(prompt.id)),
+  )
     .map((prompt) => prompt.id)
     .slice(0, promptBudget);
-  const fallbackPromptIds = prompts
-    .sort((left, right) => {
-      const leftScore = scorePromptPriority(left, completedPrompts);
-      const rightScore = scorePromptPriority(right, completedPrompts);
-
-      return rightScore - leftScore;
-    })
+  const fallbackPromptIds = prioritizePrompts(prompts)
     .map((prompt) => prompt.id)
     .slice(0, promptBudget);
   const selectedPromptIds =

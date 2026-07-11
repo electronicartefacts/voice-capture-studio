@@ -4,6 +4,10 @@ import type { CoverageSummary } from "@domains/coverage";
 import type { RecordedTake } from "@domains/sessions";
 import type { WorkspaceOpenError } from "@domains/workspace";
 import type { PcmRecordingMetrics } from "../audio/pcmRecorder";
+import {
+  formatCaptureDurationLimit,
+  FREE_CAPTURE_MAX_DURATION_MS,
+} from "../recording/captureLimits";
 import type {
   RuntimeCheck,
   RuntimeDiagnostics,
@@ -23,17 +27,17 @@ export function formatMeterScale(value: number): string {
 }
 export function createModeMessage(mode: CaptureMode): string {
   if (mode === "free") {
-    return "Capture libre : enregistre sans corpus ni durée imposée, avec WAV et métadonnées locales complètes.";
+    return `Capture libre : enregistre sans corpus jusqu'à ${formatCaptureDurationLimit(FREE_CAPTURE_MAX_DURATION_MS)}, avec WAV et métadonnées locales complètes.`;
   }
   if (mode === "training") {
     return "Mode dataset : le corpus intégré reste actif pour entraîner et comparer les prises.";
   }
 
   if (mode === "dubbing") {
-    return "Mode doublage : ajoute un script local, puis enregistre les répliques une par une.";
+    return "Mode doublage : relie une scène, ajoute son script et enregistre les répliques dans l'ordre de l'image.";
   }
 
-  return "Mode master : ajoute un texte local et, si besoin, une piste de retour au casque.";
+  return "Mode interprétation : ajoute un texte et, si besoin, un support audio au casque.";
 }
 
 export function createSessionPreparationMessage(mode: CaptureMode): string {
@@ -41,11 +45,11 @@ export function createSessionPreparationMessage(mode: CaptureMode): string {
     return "Capture libre prête. Le WAV et ses mesures locales seront conservés jusqu'à l'arrêt manuel.";
   }
   if (mode === "mastering") {
-    return "Lis la consigne. Au lancement, reste silencieux pendant la calibration, puis le retour casque démarre avec la prise.";
+    return "Lis la consigne. Au lancement, reste silencieux pendant la calibration, puis le support audio démarre avec la prise.";
   }
 
   if (mode === "dubbing") {
-    return "Lis la réplique. Au lancement, reste silencieux pendant la calibration de salle.";
+    return "Repère l'image et lis la réplique. Après la calibration, la scène démarre avec la prise.";
   }
 
   return "Lis la consigne. Au lancement, reste silencieux pendant la calibration de salle.";
@@ -80,6 +84,15 @@ export function isSupportedAudioFile(file: File): boolean {
   return (
     file.type.startsWith("audio/") ||
     ["wav", "mp3", "m4a", "aac", "ogg", "flac"].includes(extension)
+  );
+}
+
+export function isSupportedVideoFile(file: File): boolean {
+  const extension = file.name.toLowerCase().split(".").at(-1) ?? "";
+
+  return (
+    file.type.startsWith("video/") ||
+    ["mp4", "m4v", "mov", "webm", "ogv"].includes(extension)
   );
 }
 
@@ -326,7 +339,7 @@ export const captureModeOptions: readonly {
     title: "Capture libre",
     pill: "Sans corpus",
     kicker: "Prise continue locale",
-    headline: "Une prise complète, sans minuterie ni texte imposé.",
+    headline: "Une prise continue, sans texte imposé.",
     workbenchTitle: "Console de capture libre",
     summary:
       "WAV PCM, mesures acoustiques et métadonnées de provenance à l'arrêt manuel.",
@@ -355,12 +368,12 @@ export const captureModeOptions: readonly {
   {
     mode: "mastering",
     icon: Headphones,
-    title: "Master audio",
+    title: "Interprétation",
     pill: "Retour casque",
-    kicker: "Laboratoire master",
-    headline: "Une prise voix centrée dans son environnement sonore.",
-    workbenchTitle: "Console master",
-    summary: "Texte local, piste de référence et capture voix séparée.",
+    kicker: "Studio d'interprétation",
+    headline: "Une performance guidée par le texte et le son.",
+    workbenchTitle: "Console d'interprétation",
+    summary: "Texte local, support audio et capture voix séparée.",
   },
 ];
 

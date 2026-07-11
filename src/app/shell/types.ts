@@ -11,6 +11,18 @@ export type BackingTrack = {
   readonly name: string;
   readonly url: string;
 };
+export type DubbingMediaSource =
+  | {
+      readonly kind: "local-video";
+      readonly name: string;
+      readonly url: string;
+    }
+  | {
+      readonly kind: "youtube";
+      readonly name: string;
+      readonly url: string;
+      readonly videoId: string;
+    };
 export type DatasetExportState =
   | { readonly status: "idle" }
   | { readonly status: "preparing" }

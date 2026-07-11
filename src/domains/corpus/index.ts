@@ -11,6 +11,7 @@ export type {
   PromptIntention,
   PromptProsody,
   PromptQualityGate,
+  PromptSourceTiming,
   QualityRejectionReason,
   ScenarioDefinition,
   ScenarioId,
