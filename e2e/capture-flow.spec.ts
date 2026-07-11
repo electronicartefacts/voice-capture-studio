@@ -53,8 +53,20 @@ test("a guided take flows from launch to the review screen", async ({
     timeout: 30_000,
   });
   await expect(page.getByLabel("Phonèmes du mot actif")).toHaveCount(0);
+  await expect(page.locator(".karaoke-char")).not.toHaveCount(0);
   await expect(page.locator(".karaoke-word.is-current")).toHaveCount(1);
   await expect(page.locator(".karaoke-word.is-next")).toHaveCount(1);
+  await expect(
+    page.locator("main.screen-karaoke .speech-follow-line"),
+  ).toHaveCount(0);
+  await expect(page.locator("main.screen-karaoke .read-progress")).toHaveCount(
+    0,
+  );
+
+  const firstCharacter = page.locator(".karaoke-char").first();
+  await expect
+    .poll(() => firstCharacter.evaluate((node) => node.style.length))
+    .toBeGreaterThan(0);
 
   // Let the fake microphone feed a couple of seconds of signal.
   await page.waitForTimeout(2_500);

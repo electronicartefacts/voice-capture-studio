@@ -1,10 +1,18 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  liveReadingGuideSignal,
+  resetLiveReadingGuidePosition,
+  setLiveReadingGuidePosition,
+} from "../src/app/rendering/liveReadingGuideSignal";
+import {
+  alignTranscriptToPromptPosition,
   createFreeCaptureTranscript,
   extractFinalSpeechRecognitionTranscript,
   extractSpeechRecognitionTranscript,
   mergeSpeechRecognitionHypotheses,
+  wordPositionFromSpeechProgress,
+  wordPositionFromTimings,
   type SpeechRecognitionEventLike,
 } from "../src/app/shell/speech";
 
@@ -86,4 +94,58 @@ test("speech hypotheses retain finality, confidence, and their first final times
       capturedAtMs: 450,
     },
   ]);
+});
+
+test("interim speech recognition exposes a fractional position inside the current word", () => {
+  const partialPosition = alignTranscriptToPromptPosition(
+    ["Je", "comprends", "maintenant"],
+    "Je compr",
+  );
+
+  assert.equal(partialPosition.wordIndex, 1);
+  assert.ok(Math.abs(partialPosition.wordProgress - 5 / 9) < 0.0001);
+  assert.deepEqual(
+    alignTranscriptToPromptPosition(
+      ["Je", "comprends", "maintenant"],
+      "Je comprends",
+    ),
+    { wordIndex: 1, wordProgress: 1 },
+  );
+});
+
+test("voice activity and phonetic timings retain sub-word progress", () => {
+  const activityPosition = wordPositionFromSpeechProgress(
+    ["un", "fragment"],
+    1.12,
+  );
+
+  assert.equal(activityPosition.wordIndex, 1);
+  assert.ok(Math.abs(activityPosition.wordProgress - 0.25) < 0.0001);
+  assert.deepEqual(
+    wordPositionFromTimings(
+      [
+        { startMs: 0, endMs: 400 },
+        { startMs: 400, endMs: 1200 },
+      ],
+      800,
+    ),
+    { wordIndex: 1, wordProgress: 0.5 },
+  );
+});
+
+test("the live reading clock clamps browser and audio positions", () => {
+  setLiveReadingGuidePosition({
+    source: "speech-recognition",
+    wordIndex: 2.8,
+    wordProgress: 1.4,
+  });
+
+  assert.equal(liveReadingGuideSignal.source, "speech-recognition");
+  assert.equal(liveReadingGuideSignal.wordIndex, 2);
+  assert.equal(liveReadingGuideSignal.wordProgress, 1);
+
+  resetLiveReadingGuidePosition();
+  assert.equal(liveReadingGuideSignal.source, "idle");
+  assert.equal(liveReadingGuideSignal.wordIndex, 0);
+  assert.equal(liveReadingGuideSignal.wordProgress, 0);
 });

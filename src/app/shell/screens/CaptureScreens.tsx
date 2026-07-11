@@ -1,4 +1,4 @@
-import { memo, useMemo, type CSSProperties } from "react";
+import { memo, useEffect, useMemo, useRef, type CSSProperties } from "react";
 import {
   Mic,
   ShieldCheck,
@@ -8,6 +8,8 @@ import {
 } from "lucide-react";
 import type { PromptDefinition } from "@domains/corpus";
 import type { LanguageCode } from "@shared/index";
+import { getLiveAudioLevel } from "../../rendering/liveAudioSignal";
+import { liveReadingGuideSignal } from "../../rendering/liveReadingGuideSignal";
 import {
   formatCaptureDurationLimit,
   FREE_CAPTURE_MAX_DURATION_MS,
@@ -17,6 +19,7 @@ import {
   formatMeterScale,
   formatPercent,
 } from "../helpers";
+import { KARAOKE_STYLE_UPDATE_INTERVAL_MS } from "../audioEnvironment";
 import { createTranscriptPreview } from "../speech";
 import type { ReadingGuideMode, RoomToneCalibration } from "../types";
 
@@ -97,10 +100,6 @@ export function KaraokeScreen(input: {
   readonly totalPrompts: number;
   readonly words: readonly string[];
 }) {
-  const progress =
-    input.words.length === 0
-      ? 0
-      : ((input.activeWordIndex + 1) / input.words.length) * 100;
   const detectedWordCount = input.recognizedTranscript
     .trim()
     .split(/\s+/)
@@ -183,15 +182,15 @@ export function KaraokeScreen(input: {
           words={input.words}
         />
       )}
-      <p className="recording-assist" aria-live="polite">
-        {input.isFinalizing
-          ? "Ne ferme pas l'onglet. Le WAV et les métadonnées sont en préparation."
-          : input.isFreeCapture
-            ? input.readingGuideMode === "speech-recognition"
+      {(input.isFreeCapture || input.isFinalizing) && (
+        <p className="recording-assist" aria-live="polite">
+          {input.isFinalizing
+            ? "Ne ferme pas l'onglet. Le WAV et les métadonnées sont en préparation."
+            : input.readingGuideMode === "speech-recognition"
               ? `Les mots finalisés sont ajoutés au manifeste de cette prise. La capture reste limitée à ${formatCaptureDurationLimit(FREE_CAPTURE_MAX_DURATION_MS)}.`
-              : `La capture est limitée à ${formatCaptureDurationLimit(FREE_CAPTURE_MAX_DURATION_MS)} pour préserver la mémoire de l'appareil.`
-            : "Lis naturellement. La prise se ferme automatiquement à la fin de la phrase."}
-      </p>
+              : `La capture est limitée à ${formatCaptureDurationLimit(FREE_CAPTURE_MAX_DURATION_MS)} pour préserver la mémoire de l'appareil.`}
+        </p>
+      )}
       {input.isFreeCapture && input.recognizedTranscript.trim().length > 0 && (
         <div
           aria-live="polite"
@@ -204,25 +203,6 @@ export function KaraokeScreen(input: {
           <span>{createTranscriptPreview(input.recognizedTranscript)}</span>
         </div>
       )}
-      {!input.isFreeCapture &&
-        input.readingGuideMode === "speech-recognition" &&
-        input.recognizedTranscript.trim().length > 0 && (
-          <p className="speech-follow-line">
-            {createTranscriptPreview(input.recognizedTranscript)}
-          </p>
-        )}
-      {!input.isFreeCapture && (
-        <div
-          className="read-progress"
-          aria-label="Progression de lecture"
-          aria-valuemax={100}
-          aria-valuemin={0}
-          aria-valuenow={Math.round(progress)}
-          role="progressbar"
-        >
-          <span style={{ width: formatPercent(progress) }} />
-        </div>
-      )}
     </div>
   );
 }
@@ -231,13 +211,159 @@ export const KaraokeText = memo(function KaraokeText(input: {
   readonly activeWordIndex: number;
   readonly words: readonly string[];
 }) {
+  const lineRef = useRef<HTMLParagraphElement | null>(null);
+  const activeWordIndexRef = useRef(input.activeWordIndex);
+  const characterStyleValuesRef = useRef<
+    readonly { readonly detail: string; readonly motion: string }[]
+  >([]);
+  const renderedPositionRef = useRef({
+    progress: 0,
+    wordIndex: input.activeWordIndex,
+  });
   const visualLines = useMemo(
     () => createKaraokeVisualLines(input.words),
     [input.words],
   );
+  const wordStartIndexes = useMemo(() => {
+    let nextIndex = 0;
+
+    return input.words.map((word) => {
+      const startIndex = nextIndex;
+
+      nextIndex += Array.from(word).length;
+      return startIndex;
+    });
+  }, [input.words]);
+
+  useEffect(() => {
+    activeWordIndexRef.current = input.activeWordIndex;
+  }, [input.activeWordIndex]);
+
+  useEffect(() => {
+    const line = lineRef.current;
+
+    if (line === null || input.words.length === 0) {
+      return;
+    }
+
+    const characters = Array.from(
+      line.querySelectorAll<HTMLElement>(".karaoke-char"),
+    );
+
+    characterStyleValuesRef.current = [];
+    renderedPositionRef.current = {
+      progress: liveReadingGuideSignal.wordProgress,
+      wordIndex: liveReadingGuideSignal.wordIndex,
+    };
+
+    let frameId = 0;
+    let lastStyleUpdateAt = -Infinity;
+
+    function animate(now: number) {
+      if (now - lastStyleUpdateAt < KARAOKE_STYLE_UPDATE_INTERVAL_MS) {
+        frameId = window.requestAnimationFrame(animate);
+        return;
+      }
+
+      lastStyleUpdateAt = now;
+      const energy = getLiveAudioLevel();
+      const signalWordIndex = Math.max(
+        activeWordIndexRef.current,
+        Math.min(input.words.length - 1, liveReadingGuideSignal.wordIndex),
+      );
+      const targetProgress =
+        signalWordIndex === liveReadingGuideSignal.wordIndex
+          ? liveReadingGuideSignal.wordProgress
+          : 0;
+      const renderedPosition = renderedPositionRef.current;
+
+      if (renderedPosition.wordIndex !== signalWordIndex) {
+        renderedPosition.wordIndex = signalWordIndex;
+        renderedPosition.progress = Math.min(0.22, targetProgress);
+      } else {
+        const smoothing =
+          liveReadingGuideSignal.source === "voice-activity" ? 0.34 : 0.22;
+
+        renderedPosition.progress +=
+          (targetProgress - renderedPosition.progress) * smoothing;
+      }
+
+      const activeWord = input.words[signalWordIndex] ?? "";
+      const activeWordLength = Math.max(1, Array.from(activeWord).length);
+      const activeWordStart = wordStartIndexes[signalWordIndex] ?? 0;
+      const characterFront =
+        activeWordStart +
+        renderedPosition.progress * Math.max(0, activeWordLength - 1);
+      const sigma = 1.18 + energy * 0.5;
+      const nextStyleValues: {
+        readonly detail: string;
+        readonly motion: string;
+      }[] = [];
+
+      characters.forEach((character, characterIndex) => {
+        const index = Number(character.dataset.charIndex ?? 0);
+        const wordIndex = Number(character.dataset.wordIndex ?? 0);
+        const distance = Math.abs(index - characterFront);
+        const focus = Math.exp(-(distance * distance) / (2 * sigma * sigma));
+        const trail =
+          wordIndex === signalWordIndex && index < characterFront
+            ? Math.max(0, 1 - distance / 5.5) * 0.12
+            : 0;
+        const base =
+          wordIndex < signalWordIndex
+            ? 0.42
+            : wordIndex === signalWordIndex
+              ? 0.28
+              : wordIndex === signalWordIndex + 1
+                ? 0.2
+                : 0.12;
+        const breath =
+          wordIndex === signalWordIndex || wordIndex === signalWordIndex + 1
+            ? Math.sin(now * 0.0014 - index * 0.17) * (0.012 + energy * 0.025)
+            : 0;
+        const motion = Math.max(
+          0,
+          Math.min(1, base + focus * (0.98 - base) + trail + breath),
+        );
+        const detail = Math.max(
+          0,
+          Math.min(1, base * 0.62 + focus * 0.78 + trail + energy * 0.04),
+        );
+        const nextValues = {
+          detail: detail.toFixed(3),
+          motion: motion.toFixed(3),
+        };
+        const previousValues = characterStyleValuesRef.current[characterIndex];
+
+        if (previousValues?.motion !== nextValues.motion) {
+          character.style.setProperty("--motion-wave", nextValues.motion);
+        }
+
+        if (previousValues?.detail !== nextValues.detail) {
+          character.style.setProperty("--detail-wave", nextValues.detail);
+        }
+
+        nextStyleValues.push(nextValues);
+      });
+
+      characterStyleValuesRef.current = nextStyleValues;
+      frameId = window.requestAnimationFrame(animate);
+    }
+
+    frameId = window.requestAnimationFrame(animate);
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      characterStyleValuesRef.current = [];
+    };
+  }, [input.words, wordStartIndexes]);
 
   return (
-    <p className="karaoke-line" aria-label={input.words.join(" ")}>
+    <p
+      className="karaoke-line"
+      aria-label={input.words.join(" ")}
+      ref={lineRef}
+    >
       {visualLines.map((line, lineIndex) => (
         <span
           aria-hidden="true"
@@ -261,7 +387,21 @@ export const KaraokeText = memo(function KaraokeText(input: {
                 } as CSSProperties
               }
             >
-              {word}
+              {Array.from(word).map((character, letterIndex) => {
+                const characterIndex =
+                  (wordStartIndexes[wordIndex] ?? 0) + letterIndex;
+
+                return (
+                  <span
+                    className="karaoke-char"
+                    data-char-index={characterIndex}
+                    data-word-index={wordIndex}
+                    key={`${character}-${letterIndex}`}
+                  >
+                    {character}
+                  </span>
+                );
+              })}
             </span>
           ))}
         </span>

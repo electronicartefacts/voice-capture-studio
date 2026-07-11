@@ -16,7 +16,11 @@ import {
   type LocalTextCorpus,
 } from "@domains/corpus";
 import { summarizeCoverage } from "@domains/coverage";
-import { importForcedAlignment } from "@domains/phonetics";
+import {
+  alignPromptToPhonemes,
+  importForcedAlignment,
+  type PromptPhonemeAlignment,
+} from "@domains/phonetics";
 import {
   applyForcedAlignment,
   findPrompt,
@@ -50,6 +54,10 @@ import {
   pushLiveWaveformFromSource,
   setLiveAudioLevel,
 } from "../rendering/liveAudioSignal";
+import {
+  resetLiveReadingGuidePosition,
+  setLiveReadingGuidePosition,
+} from "../rendering/liveReadingGuideSignal";
 import { measureAcousticField } from "../rendering/acousticField";
 import { FREE_CAPTURE_MAX_DURATION_MS } from "../recording/captureLimits";
 import {
@@ -114,15 +122,14 @@ import {
   type CreateSpeakerInput,
 } from "./speakerProfiles";
 import {
-  alignTranscriptToPrompt,
+  alignTranscriptToPromptPosition,
   createFreeCaptureTranscript,
   extractFinalSpeechRecognitionTranscript,
   estimateSpeechGuideDurationMs,
   extractSpeechRecognitionTranscript,
   formatSpeechRecognitionLanguage,
   mergeSpeechRecognitionHypotheses,
-  sumWordWeights,
-  wordIndexFromSpeechProgress,
+  wordPositionFromTimings,
   type SpeechRecognitionLike,
   type WindowWithSpeechRecognition,
 } from "./speech";
@@ -340,6 +347,7 @@ export function App() {
   const readingGuideLastTickAtRef = useRef(0);
   const readingGuideLastSpeechAtRef = useRef(0);
   const readingGuideProgressRef = useRef(0);
+  const readingGuideAlignmentRef = useRef<PromptPhonemeAlignment | null>(null);
   const readingGuideFinishTimerRef = useRef<number | null>(null);
   const freeCaptureLimitTimerRef = useRef<number | null>(null);
   const lastTranscriptAtRef = useRef(0);
@@ -1730,12 +1738,20 @@ export function App() {
     readingGuideLastTickAtRef.current = readingGuideStartedAtRef.current;
     readingGuideLastSpeechAtRef.current = readingGuideStartedAtRef.current;
     readingGuideProgressRef.current = 0;
+    readingGuideAlignmentRef.current = alignPromptToPhonemes({
+      durationMs: Math.round(
+        estimateSpeechGuideDurationMs(promptWords, activePrompt),
+      ),
+      language,
+      text: promptWords.join(" "),
+    });
     lastTranscriptAtRef.current = 0;
     activeWordIndexRef.current = 0;
     setActiveWordIndex(0);
     setRecognizedTranscript("");
     recognizedFinalTranscriptRef.current = "";
     speechRecognitionHypothesesRef.current = [];
+    resetLiveReadingGuidePosition();
 
     const speechRecognitionStarted = startSpeechRecognitionGuide(
       promptWords,
@@ -1792,10 +1808,26 @@ export function App() {
         lastTranscriptAtRef.current = performance.now();
         readingGuideLastSpeechAtRef.current = lastTranscriptAtRef.current;
         setRecognizedTranscript(transcript);
-        updateReadingGuideIndex(
-          alignTranscriptToPrompt(promptWords, transcript),
-          promptWords.length,
+        const position = alignTranscriptToPromptPosition(
+          promptWords,
+          transcript,
         );
+        const alignedWord =
+          readingGuideAlignmentRef.current?.words[position.wordIndex];
+
+        if (alignedWord !== undefined) {
+          readingGuideProgressRef.current = Math.max(
+            readingGuideProgressRef.current,
+            alignedWord.startMs +
+              (alignedWord.endMs - alignedWord.startMs) * position.wordProgress,
+          );
+        }
+
+        setLiveReadingGuidePosition({
+          ...position,
+          source: "speech-recognition",
+        });
+        updateReadingGuideIndex(position.wordIndex, promptWords.length);
       };
       recognition.onerror = () => {
         if (speechRecognitionRef.current === recognition) {
@@ -1907,23 +1939,28 @@ export function App() {
       return;
     }
 
-    const expectedSpeechMs = estimateSpeechGuideDurationMs(
-      promptWords,
-      activePrompt,
-    );
-    const totalWeight = sumWordWeights(promptWords);
-    const speechWeightPerMs = totalWeight / expectedSpeechMs;
+    const alignment = readingGuideAlignmentRef.current;
+
+    if (alignment === null) {
+      return;
+    }
+
     const energyFactor = 0.72 + Math.min(0.55, level * 0.7);
 
     readingGuideProgressRef.current = Math.min(
-      totalWeight,
-      readingGuideProgressRef.current +
-        deltaMs * speechWeightPerMs * energyFactor,
+      alignment.durationMs,
+      readingGuideProgressRef.current + deltaMs * energyFactor,
     );
-    updateReadingGuideIndex(
-      wordIndexFromSpeechProgress(promptWords, readingGuideProgressRef.current),
-      promptWords.length,
+    const position = wordPositionFromTimings(
+      alignment.words,
+      readingGuideProgressRef.current,
     );
+
+    setLiveReadingGuidePosition({
+      ...position,
+      source: "voice-activity",
+    });
+    updateReadingGuideIndex(position.wordIndex, promptWords.length);
   }
 
   function updateReadingGuideIndex(nextIndex: number, wordCount: number) {
@@ -2002,6 +2039,8 @@ export function App() {
       readingGuideIntervalRef.current = null;
     }
 
+    readingGuideAlignmentRef.current = null;
+    resetLiveReadingGuidePosition();
     clearReadingGuideFinishTimer();
   }
 

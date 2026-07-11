@@ -203,13 +203,26 @@ export function alignTranscriptToPrompt(
   promptWords: readonly string[],
   transcript: string,
 ): number {
+  return alignTranscriptToPromptPosition(promptWords, transcript).wordIndex;
+}
+
+export type SpeechGuidePosition = {
+  readonly wordIndex: number;
+  readonly wordProgress: number;
+};
+
+export function alignTranscriptToPromptPosition(
+  promptWords: readonly string[],
+  transcript: string,
+): SpeechGuidePosition {
   const promptTokens = promptWords.map(normalizeSpeechToken);
   const spokenTokens = tokenizeSpeech(transcript);
   let cursor = 0;
   let bestMatchIndex = 0;
+  let bestMatchProgress = 0;
 
   if (spokenTokens.length === 0 || promptTokens.length === 0) {
-    return 0;
+    return { wordIndex: 0, wordProgress: 0 };
   }
 
   for (const spokenToken of spokenTokens) {
@@ -228,10 +241,17 @@ export function alignTranscriptToPrompt(
     }
 
     bestMatchIndex = matchIndex;
+    bestMatchProgress = estimateRecognizedWordProgress(
+      promptTokens[matchIndex],
+      spokenToken,
+    );
     cursor = matchIndex + 1;
   }
 
-  return Math.min(promptWords.length - 1, bestMatchIndex);
+  return {
+    wordIndex: Math.min(promptWords.length - 1, bestMatchIndex),
+    wordProgress: bestMatchProgress,
+  };
 }
 
 export function tokenizeSpeech(text: string): readonly string[] {
@@ -349,23 +369,87 @@ export function wordIndexFromSpeechProgress(
   words: readonly string[],
   progressWeight: number,
 ): number {
+  return wordPositionFromSpeechProgress(words, progressWeight).wordIndex;
+}
+
+export function wordPositionFromSpeechProgress(
+  words: readonly string[],
+  progressWeight: number,
+): SpeechGuidePosition {
   let accumulatedWeight = 0;
 
   for (let index = 0; index < words.length; index += 1) {
-    accumulatedWeight += estimateSpeechWordWeight(words[index]);
+    const wordWeight = estimateSpeechWordWeight(words[index]);
+    const nextWeight = accumulatedWeight + wordWeight;
 
-    if (progressWeight <= accumulatedWeight) {
-      return index;
+    if (progressWeight <= nextWeight) {
+      return {
+        wordIndex: index,
+        wordProgress: Math.max(
+          0,
+          Math.min(1, (progressWeight - accumulatedWeight) / wordWeight),
+        ),
+      };
     }
+
+    accumulatedWeight = nextWeight;
   }
 
-  return Math.max(0, words.length - 1);
+  return {
+    wordIndex: Math.max(0, words.length - 1),
+    wordProgress: words.length === 0 ? 0 : 1,
+  };
 }
 
 export function estimateSpeechWordWeight(word: string): number {
   const normalizedLength = Math.max(1, normalizeSpeechToken(word).length);
 
   return Math.min(2.35, Math.max(0.72, normalizedLength / 5));
+}
+
+export function wordPositionFromTimings(
+  words: readonly {
+    readonly startMs: number;
+    readonly endMs: number;
+  }[],
+  speechTimeMs: number,
+): SpeechGuidePosition {
+  if (words.length === 0) {
+    return { wordIndex: 0, wordProgress: 0 };
+  }
+
+  const boundedTime = Math.max(0, speechTimeMs);
+  const wordIndex = words.findIndex((word) => boundedTime <= word.endMs);
+  const resolvedIndex = wordIndex === -1 ? words.length - 1 : wordIndex;
+  const word = words[resolvedIndex];
+  const durationMs = Math.max(1, word.endMs - word.startMs);
+
+  return {
+    wordIndex: resolvedIndex,
+    wordProgress: Math.max(
+      0,
+      Math.min(1, (boundedTime - word.startMs) / durationMs),
+    ),
+  };
+}
+
+function estimateRecognizedWordProgress(
+  expected: string,
+  actual: string,
+): number {
+  if (expected.length === 0 || actual.length === 0) {
+    return 0;
+  }
+
+  if (expected === actual || actual.startsWith(expected)) {
+    return 1;
+  }
+
+  if (expected.startsWith(actual)) {
+    return Math.max(0.12, Math.min(0.96, actual.length / expected.length));
+  }
+
+  return 0.82;
 }
 
 export function createTranscriptPreview(transcript: string): string {
