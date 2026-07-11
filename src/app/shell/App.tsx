@@ -843,7 +843,9 @@ export function App() {
     analyser.smoothingTimeConstant = 0.42;
     source.connect(analyser);
 
-    const timeData = new Uint8Array(analyser.fftSize);
+    // Keep the analyser signal in floating point. Safari's quieter microphone
+    // streams lose visible detail when rounded to the 8-bit time-domain API.
+    const timeData = new Float32Array(analyser.fftSize);
     const frequencyData = new Uint8Array(analyser.frequencyBinCount);
 
     if (audioContext.state === "suspended") {
@@ -880,14 +882,12 @@ export function App() {
         scheduleAmbientLevelUpdate();
         return;
       }
-      analyser.getByteTimeDomainData(timeData);
+      analyser.getFloatTimeDomainData(timeData);
 
       let sumSquares = 0;
 
       for (const value of timeData) {
-        const normalized = (value - 128) / 128;
-
-        sumSquares += normalized * normalized;
+        sumSquares += value * value;
       }
 
       const rms = Math.sqrt(sumSquares / Math.max(1, timeData.length));
@@ -895,7 +895,7 @@ export function App() {
 
       if (pcmRecorderRef.current === null && !isPersistingRef.current) {
         pushLiveWaveformFromSource(
-          (index) => (timeData[index] - 128) / 128,
+          (index) => timeData[index],
           timeData.length,
           1.5 * inputSensitivityRef.current,
         );

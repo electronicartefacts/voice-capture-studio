@@ -54,6 +54,22 @@ export function getLiveAudioLevel(): number {
   return liveAudioSignal.level;
 }
 
+export function getWaveformDisplayGain(
+  baseGain: number,
+  level: number,
+  isCompactSurface: boolean,
+): number {
+  if (!isCompactSurface) return baseGain;
+
+  // Phone microphones, especially through Safari, can expose a much quieter
+  // time-domain signal than desktop inputs. Lift quiet speech more strongly,
+  // then ease the boost as the level rises so loud voices keep their shape.
+  const boundedLevel = Math.min(1, Math.max(0, level));
+  const compactBoost = 1.7 + (1 - boundedLevel) * 0.65;
+
+  return baseGain * compactBoost;
+}
+
 function softLimit(value: number, threshold: number, ratio: number): number {
   const absoluteValue = Math.abs(value);
 
