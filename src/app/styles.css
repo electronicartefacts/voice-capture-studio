@@ -3245,13 +3245,10 @@ body,
   align-items: center;
   display: grid;
   justify-items: center;
-  min-height: 100vh;
-  padding: 24px;
   text-align: center;
 }
 
 .opening-ritual > div {
-  animation: ritual-enter 900ms var(--ease-emphasized) both;
   display: grid;
   gap: 28px;
   justify-items: center;
@@ -3264,13 +3261,17 @@ body,
   line-height: 1.05;
   margin: 0;
   max-width: 16ch;
-  text-wrap: balance;
 }
 
 .opening-ritual p {
   color: var(--muted);
-  font-size: 14px;
   margin: 0;
+}
+
+.opening-ritual .ritual-reassurance {
+  font-size: 12px;
+  inset: auto 20px calc(22px + env(safe-area-inset-bottom));
+  position: fixed;
 }
 
 .ritual-button {
@@ -3319,18 +3320,6 @@ body,
   to {
     opacity: 0;
     scale: 1.55;
-  }
-}
-
-@keyframes ritual-enter {
-  from {
-    opacity: 0;
-    transform: translateY(12px) scale(0.992);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
   }
 }
 
@@ -3941,7 +3930,7 @@ body,
 
 @media (prefers-reduced-motion: reduce) {
   .voice-halo,
-  .opening-ritual > div,
+  .opening-ritual *,
   .simple-header,
   .session-stage,
   .home-card,
@@ -4682,19 +4671,6 @@ body,
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .folder-button,
-  .launch-button,
-  .download-action,
-  .stop-button,
-  .quiet-button,
-  .system-refresh,
-  .ritual-button,
-  .capture-mode-option {
-    transition: none;
   }
 }
 

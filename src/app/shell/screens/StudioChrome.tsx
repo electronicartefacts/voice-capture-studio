@@ -56,19 +56,38 @@ export function OpeningRitual(input: {
   return (
     <section className="opening-ritual" aria-live="polite">
       <div>
-        <h1>Bienvenue dans Voice Capture Studio.</h1>
+        <h1
+          style={{
+            animation:
+              "materialize 620ms var(--ease-emphasized) 100ms backwards",
+          }}
+        >
+          Bienvenue dans Voice Capture Studio.
+        </h1>
         <button
           className={`ritual-button is-${input.status}`}
           disabled={input.status === "requesting"}
           onClick={input.onAwaken}
+          style={{
+            animation:
+              "materialize 620ms var(--ease-emphasized) 410ms backwards",
+          }}
           type="button"
         >
           <Mic aria-hidden="true" size={18} />
           <span>{buttonLabel}</span>
         </button>
         {input.status === "idle" && (
-          <p className="ritual-reassurance">
-            100 % local — votre voix reste sur cet appareil.
+          <p
+            className="ritual-reassurance"
+            style={{
+              animation:
+                "materialize 540ms var(--ease-emphasized) 820ms backwards",
+            }}
+          >
+            100 % local
+            <br />
+            Votre voix reste sur cet appareil.
           </p>
         )}
         {input.status === "denied" && (
