@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -14,6 +15,7 @@ import {
   Home,
   Pause,
   Play,
+  Repeat2,
   RotateCcw,
   StepForward,
 } from "lucide-react";
@@ -45,6 +47,9 @@ export function ListeningReviewSurface(input: {
   const playbackContextRef = useRef<AudioContext | null>(null);
   const playbackSourceRef = useRef<MediaElementAudioSourceNode | null>(null);
   const playbackGainRef = useRef<GainNode | null>(null);
+  const playbackTimeRef = useRef<HTMLElement | null>(null);
+  const progressClipRef = useRef<SVGRectElement | null>(null);
+  const waveformRef = useRef<HTMLDivElement | null>(null);
   const onEnergyChangeRef = useRef(input.onEnergyChange);
   const onProgressChangeRef = useRef(input.onProgressChange);
   const smoothedPlaybackEnergyRef = useRef(0);
@@ -54,8 +59,7 @@ export function ListeningReviewSurface(input: {
   );
   const [isPlaying, setIsPlaying] = useState(false);
   const [loopEnabled, setLoopEnabled] = useState(false);
-  const [loopStart, setLoopStart] = useState(0);
-  const [loopEnd, setLoopEnd] = useState(1);
+  const waveformId = useId().replace(/:/g, "");
   const wordTimings = useMemo(
     () => createReviewWordTimings(input.take),
     [input.take],
@@ -115,8 +119,6 @@ export function ListeningReviewSurface(input: {
     durationSeconds <= 0
       ? 0
       : Math.max(0, Math.min(1, currentTime / durationSeconds));
-  const loopStartTime = loopStart * durationSeconds;
-  const loopEndTime = loopEnd * durationSeconds;
   const activeWordIndex = findActiveReviewWordIndex(
     wordTimings,
     currentTime * 1000,
@@ -132,12 +134,31 @@ export function ListeningReviewSurface(input: {
     setDuration(Math.max(0, (input.take?.durationMs ?? 0) / 1000));
     setIsPlaying(false);
     setLoopEnabled(false);
-    setLoopStart(0);
-    setLoopEnd(1);
     smoothedPlaybackEnergyRef.current = 0;
     onProgressChangeRef.current(0);
     onEnergyChangeRef.current(0);
   }, [input.audioUrl, input.take]);
+
+  function syncPlaybackSurface(nextTime: number) {
+    const progress =
+      durationSeconds <= 0
+        ? 0
+        : Math.max(0, Math.min(1, nextTime / durationSeconds));
+
+    waveformRef.current?.style.setProperty(
+      "--review-progress",
+      String(progress),
+    );
+    progressClipRef.current?.setAttribute("width", String(progress));
+
+    if (playbackTimeRef.current !== null) {
+      playbackTimeRef.current.textContent = formatPlaybackTime(nextTime);
+    }
+  }
+
+  useEffect(() => {
+    syncPlaybackSurface(currentTime);
+  }, [currentTime, durationSeconds]);
 
   useEffect(() => {
     if (!isPlaying) {
@@ -157,6 +178,9 @@ export function ListeningReviewSurface(input: {
         audio === null || durationSeconds <= 0
           ? playbackProgress
           : audio.currentTime / durationSeconds;
+      if (audio !== null) {
+        syncPlaybackSurface(audio.currentTime);
+      }
       const barIndex = Math.max(
         0,
         Math.min(
@@ -207,19 +231,7 @@ export function ListeningReviewSurface(input: {
       return;
     }
 
-    let nextTime = audio.currentTime;
-
-    if (
-      loopEnabled &&
-      durationSeconds > 0 &&
-      loopEndTime - loopStartTime > 0.24 &&
-      nextTime >= loopEndTime
-    ) {
-      audio.currentTime = loopStartTime;
-      nextTime = loopStartTime;
-    }
-
-    updateTime(nextTime);
+    updateTime(audio.currentTime);
   }
 
   function seekToProgress(nextProgress: number) {
@@ -293,8 +305,9 @@ export function ListeningReviewSurface(input: {
 
     await prepareReviewPlayback();
 
-    if (loopEnabled && currentTime >= loopEndTime) {
-      audio.currentTime = loopStartTime;
+    if (durationSeconds > 0 && currentTime >= durationSeconds - 0.05) {
+      audio.currentTime = 0;
+      updateTime(0);
     }
 
     await audio.play().catch(() => undefined);
@@ -302,16 +315,12 @@ export function ListeningReviewSurface(input: {
 
   function replay() {
     const audio = audioRef.current;
-    const startTime = loopEnabled ? loopStartTime : 0;
 
     if (audio !== null) {
-      audio.currentTime = startTime;
-      void prepareReviewPlayback().then(() =>
-        audio.play().catch(() => undefined),
-      );
+      audio.currentTime = 0;
     }
 
-    updateTime(startTime);
+    updateTime(0);
   }
 
   async function prepareReviewPlayback() {
@@ -386,6 +395,7 @@ export function ListeningReviewSurface(input: {
     <section className="listening-review" aria-label="Écoute de la prise">
       {input.audioUrl !== null && (
         <audio
+          loop={loopEnabled}
           onEnded={() => {
             setIsPlaying(false);
             onEnergyChangeRef.current(0);
@@ -409,10 +419,6 @@ export function ListeningReviewSurface(input: {
             {reviewFileName}
           </p>
         </div>
-        <div className="playback-time" aria-label="Temps de lecture">
-          <strong>{formatPlaybackTime(currentTime)}</strong>
-          <span>/ {formatPlaybackTime(durationSeconds)}</span>
-        </div>
       </div>
       <div
         aria-label="Surface de lecture de la prise"
@@ -423,6 +429,8 @@ export function ListeningReviewSurface(input: {
         onKeyDown={handleWaveformKeyboard}
         onPointerDown={handleWaveformSeek}
         role="slider"
+        ref={waveformRef}
+        style={{ "--review-progress": playbackProgress } as CSSProperties}
         tabIndex={0}
       >
         <span aria-hidden="true" className="waveform-format">
@@ -433,40 +441,73 @@ export function ListeningReviewSurface(input: {
           </span>
           <span>WAVE / PCM</span>
         </span>
-        <span
+        <svg
           aria-hidden="true"
-          className="loop-region"
-          style={{
-            left: `${loopStart * 100}%`,
-            width: `${Math.max(0, loopEnd - loopStart) * 100}%`,
-          }}
-        />
-        {waveformBars.map((bar, index) => (
-          <i
-            aria-hidden="true"
-            className={[
-              index / Math.max(1, waveformBars.length - 1) <= playbackProgress
-                ? "is-played"
-                : "",
-              bar.silent ? "is-silent" : "",
-            ]
-              .filter(Boolean)
-              .join(" ")}
-            key={index}
-            style={{ "--bar-height": `${bar.heightPercent}%` } as CSSProperties}
-          />
-        ))}
-        <span
-          aria-hidden="true"
-          className="review-playhead"
-          style={{ left: `${playbackProgress * 100}%` }}
-        />
+          className="review-waveform-svg"
+          preserveAspectRatio="none"
+          viewBox="0 0 100 100"
+        >
+          <defs>
+            <clipPath
+              clipPathUnits="objectBoundingBox"
+              id={`${waveformId}-progress`}
+            >
+              <rect height="1" ref={progressClipRef} width={playbackProgress} />
+            </clipPath>
+          </defs>
+          <g className="waveform-bars-base">
+            {waveformBars.map((bar, index) => {
+              const step = 100 / waveformBars.length;
+              const height = Math.max(2, bar.heightPercent * 0.72);
+
+              return (
+                <rect
+                  className={bar.silent ? "is-silent" : undefined}
+                  height={height}
+                  key={index}
+                  rx="0.36"
+                  width={Math.max(0.34, step * 0.62)}
+                  x={index * step + step * 0.19}
+                  y={(100 - height) / 2}
+                />
+              );
+            })}
+          </g>
+          <g
+            className="waveform-bars-played"
+            clipPath={`url(#${waveformId}-progress)`}
+          >
+            {waveformBars.map((bar, index) => {
+              const step = 100 / waveformBars.length;
+              const height = Math.max(2, bar.heightPercent * 0.72);
+
+              return (
+                <rect
+                  className={bar.silent ? "is-silent" : undefined}
+                  height={height}
+                  key={index}
+                  rx="0.36"
+                  width={Math.max(0.34, step * 0.62)}
+                  x={index * step + step * 0.19}
+                  y={(100 - height) / 2}
+                />
+              );
+            })}
+          </g>
+        </svg>
+        <span aria-hidden="true" className="review-playhead" />
         <span aria-hidden="true" className="waveform-time-scale">
           <span>0:00</span>
           <span>{formatPlaybackTime(durationSeconds)}</span>
         </span>
       </div>
       <div className="playback-controls">
+        <div className="playback-time" aria-label="Temps de lecture">
+          <strong ref={playbackTimeRef}>
+            {formatPlaybackTime(currentTime)}
+          </strong>
+          <span>/ {formatPlaybackTime(durationSeconds)}</span>
+        </div>
         <button
           className="transport-button transport-primary"
           disabled={input.audioUrl === null}
@@ -481,61 +522,27 @@ export function ListeningReviewSurface(input: {
           <span>{isPlaying ? "Pause" : "Écouter"}</span>
         </button>
         <button
-          className="transport-button transport-reset"
+          aria-label="Recommencer la lecture"
+          className="transport-icon-button"
           disabled={input.audioUrl === null}
           onClick={replay}
+          title="Recommencer la lecture"
           type="button"
         >
           <RotateCcw aria-hidden="true" size={17} />
-          <span>Début</span>
         </button>
-        <label className="inline-toggle loop-toggle">
-          <input
-            checked={loopEnabled}
-            onChange={(event) => setLoopEnabled(event.target.checked)}
-            type="checkbox"
-          />
-          <span aria-hidden="true" className="loop-switch" />
-          <span className="loop-copy">
-            <strong>Boucle</strong>
-            <small>{loopEnabled ? "Active" : "Inactive"}</small>
-          </span>
-        </label>
+        <button
+          aria-label="Lire en boucle"
+          aria-pressed={loopEnabled}
+          className="transport-icon-button"
+          disabled={input.audioUrl === null}
+          onClick={() => setLoopEnabled((enabled) => !enabled)}
+          title="Lire en boucle"
+          type="button"
+        >
+          <Repeat2 aria-hidden="true" size={18} />
+        </button>
       </div>
-      {loopEnabled && (
-        <div className="loop-editor" aria-label="Section de boucle">
-          <label>
-            <span>Début</span>
-            <input
-              max={Math.max(0, loopEnd - 0.04)}
-              min={0}
-              onChange={(event) =>
-                setLoopStart(
-                  Math.min(Number(event.target.value), loopEnd - 0.04),
-                )
-              }
-              step={0.01}
-              type="range"
-              value={loopStart}
-            />
-          </label>
-          <label>
-            <span>Fin</span>
-            <input
-              max={1}
-              min={Math.min(1, loopStart + 0.04)}
-              onChange={(event) =>
-                setLoopEnd(
-                  Math.max(Number(event.target.value), loopStart + 0.04),
-                )
-              }
-              step={0.01}
-              type="range"
-              value={loopEnd}
-            />
-          </label>
-        </div>
-      )}
       <div className="transcript-panel">
         <div className="transcript-header">
           <p className="soft-label">Transcription</p>
@@ -757,131 +764,110 @@ export function DoneScreen(input: {
         onProgressChange={input.onPlaybackProgressChange}
         take={input.take}
       />
-      <div className="result-action-grid">
-        <section className="next-step-panel" aria-label="Prochaine action">
-          <div>
-            <p className="soft-label">Prochaine action</p>
-            <p>
-              {input.isFreeCapture
-                ? input.isContinuousLyricsCapture
-                  ? "La prise complète des paroles est prête. Conserve le WAV avec son manifeste JSON."
-                  : "La prise libre est complète. Conserve le WAV avec son manifeste JSON de provenance et de mesures."
-                : isKeeper
-                  ? input.hasNextPrompt
-                    ? "Continue avec la phrase suivante tant que la posture et le niveau sont stables."
-                    : "La session est prête à être clôturée ou relancée."
-                  : "Refais cette phrase avant de continuer la collecte."}
-            </p>
-          </div>
-          <div className="stacked-actions">
-            {input.isFreeCapture ? (
-              <button
-                className="launch-button"
-                onClick={input.onAgain}
-                type="button"
-              >
-                <Play aria-hidden="true" size={19} />
-                <span>
-                  {input.isContinuousLyricsCapture
-                    ? "Reprendre les paroles"
-                    : "Nouvelle capture libre"}
-                </span>
-              </button>
-            ) : !isKeeper ? (
-              <button
-                className="launch-button"
-                onClick={input.onRetake}
-                type="button"
-              >
-                <RotateCcw aria-hidden="true" size={19} />
-                <span>Refaire cette prise</span>
-              </button>
-            ) : input.hasNextPrompt ? (
-              <button
-                className="launch-button"
-                onClick={input.onNext}
-                type="button"
-              >
-                <StepForward aria-hidden="true" size={19} />
-                <span>Phrase suivante</span>
-              </button>
-            ) : (
-              <button
-                className="launch-button"
-                onClick={input.onAgain}
-                type="button"
-              >
-                <Play aria-hidden="true" size={19} />
-                <span>Nouvelle session</span>
-              </button>
-            )}
-            {isKeeper && (
-              <button
-                className="folder-button"
-                onClick={input.onRetake}
-                type="button"
-              >
-                <RotateCcw aria-hidden="true" size={19} />
-                <span>Refaire cette prise</span>
-              </button>
-            )}
-            {(!isKeeper || input.hasNextPrompt) && (
-              <button
-                className="folder-button"
-                onClick={input.onAgain}
-                type="button"
-              >
-                <Play aria-hidden="true" size={19} />
-                <span>Nouvelle session</span>
-              </button>
-            )}
+      <section
+        className="result-command-panel"
+        aria-label="Actions de la prise"
+      >
+        <div className="result-primary-actions">
+          {input.isFreeCapture ? (
             <button
-              className="quiet-button standalone"
-              onClick={input.onHome}
+              className="launch-button"
+              onClick={input.onAgain}
               type="button"
             >
-              <Home aria-hidden="true" size={17} />
-              <span>Accueil</span>
+              <Play aria-hidden="true" size={19} />
+              <span>
+                {input.isContinuousLyricsCapture
+                  ? "Reprendre les paroles"
+                  : "Nouvelle capture libre"}
+              </span>
             </button>
-          </div>
-        </section>
-
-        <section className="export-panel" aria-label="Exports de la prise">
-          <div>
-            <p className="soft-label">Exports</p>
-            <p>Conserve le WAV et le JSON ensemble pour retrouver la prise.</p>
-          </div>
-          <div className="export-actions">
-            {input.downloadUrl !== null && input.fileName !== null && (
-              <a
-                className="download-action"
-                download={input.fileName}
-                href={input.downloadUrl}
-              >
-                <Download aria-hidden="true" size={18} />
-                <span>Télécharger le WAV</span>
-              </a>
-            )}
-            {input.metadataDownloadUrl !== null && (
-              <a
-                className="folder-button"
-                download="voice.capture_session.json"
-                href={input.metadataDownloadUrl}
-              >
-                <Download aria-hidden="true" size={18} />
-                <span>Télécharger le JSON</span>
-              </a>
-            )}
-            {input.downloadUrl === null &&
-              input.metadataDownloadUrl === null && (
-                <p className="empty-export-state">
-                  Les liens de téléchargement apparaissent ici quand le
-                  navigateur ne peut pas écrire directement dans le dossier.
-                </p>
-              )}
-          </div>
-        </section>
-      </div>
+          ) : !isKeeper ? (
+            <button
+              className="launch-button"
+              onClick={input.onRetake}
+              type="button"
+            >
+              <RotateCcw aria-hidden="true" size={19} />
+              <span>Refaire cette prise</span>
+            </button>
+          ) : input.hasNextPrompt ? (
+            <button
+              className="launch-button"
+              onClick={input.onNext}
+              type="button"
+            >
+              <StepForward aria-hidden="true" size={19} />
+              <span>Phrase suivante</span>
+            </button>
+          ) : (
+            <button
+              className="launch-button"
+              onClick={input.onAgain}
+              type="button"
+            >
+              <Play aria-hidden="true" size={19} />
+              <span>Nouvelle session</span>
+            </button>
+          )}
+          {isKeeper && (
+            <button
+              className="folder-button"
+              onClick={input.onRetake}
+              type="button"
+            >
+              <RotateCcw aria-hidden="true" size={19} />
+              <span>Refaire cette prise</span>
+            </button>
+          )}
+          {!input.isFreeCapture && (!isKeeper || input.hasNextPrompt) && (
+            <button
+              className="folder-button"
+              onClick={input.onAgain}
+              type="button"
+            >
+              <Play aria-hidden="true" size={19} />
+              <span>Nouvelle session</span>
+            </button>
+          )}
+          <button
+            className="quiet-button result-home-action"
+            onClick={input.onHome}
+            type="button"
+          >
+            <Home aria-hidden="true" size={17} />
+            <span>Accueil</span>
+          </button>
+        </div>
+        <div className="result-export-actions" aria-label="Téléchargements">
+          {input.downloadUrl !== null && input.fileName !== null && (
+            <a
+              className="download-action"
+              download={input.fileName}
+              href={input.downloadUrl}
+            >
+              <Download aria-hidden="true" size={18} />
+              <span>Télécharger le WAV</span>
+            </a>
+          )}
+          {input.metadataDownloadUrl !== null && (
+            <a
+              className="folder-button"
+              download="voice.capture_session.json"
+              href={input.metadataDownloadUrl}
+            >
+              <Download aria-hidden="true" size={18} />
+              <span>Télécharger le JSON</span>
+            </a>
+          )}
+          {input.downloadUrl === null && input.metadataDownloadUrl === null && (
+            <p className="empty-export-state">
+              Les liens de téléchargement apparaissent ici quand le navigateur
+              ne peut pas écrire directement dans le dossier.
+            </p>
+          )}
+        </div>
+      </section>
       {input.take !== null && (
         <details className="take-score progressive-review">
           <summary>

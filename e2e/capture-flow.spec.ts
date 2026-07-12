@@ -128,31 +128,49 @@ test("a guided take flows from launch to the review screen", async ({
   ).toBeVisible();
   await expect(page.getByText("Moniteur de prise")).toBeVisible();
   await expect(page.getByLabel("Temps de lecture")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Écouter" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Début" })).toBeVisible();
-  await expect(page.locator("label.loop-toggle")).toBeVisible();
-  const loopToggle = page.getByRole("checkbox", { name: "Boucle" });
+  const playbackButton = page.getByRole("button", { name: "Écouter" });
+  const restartButton = page.getByRole("button", {
+    name: "Recommencer la lecture",
+  });
+  const loopButton = page.getByRole("button", { name: "Lire en boucle" });
 
-  await expect(loopToggle).not.toBeChecked();
-  await page.locator("label.loop-toggle").click();
-  await expect(loopToggle).toBeChecked();
-  await expect(page.getByLabel("Section de boucle")).toBeVisible();
-  await expect
-    .poll(() =>
-      page.evaluate(
-        () => document.documentElement.scrollWidth <= window.innerWidth,
-      ),
-    )
-    .toBe(true);
-  await expect
-    .poll(() =>
-      page.locator(".listening-review").evaluate((element) => {
-        const bounds = element.getBoundingClientRect();
+  await expect(playbackButton).toBeVisible();
+  await expect(restartButton).toBeVisible();
+  await expect(page.getByRole("button", { name: "Début" })).toHaveCount(0);
+  await expect(loopButton).toHaveAttribute("aria-pressed", "false");
+  await loopButton.click();
+  await expect(loopButton).toHaveAttribute("aria-pressed", "true");
+  await playbackButton.click();
+  await expect(page.getByRole("button", { name: "Pause" })).toBeVisible();
+  await page.getByRole("button", { name: "Pause" }).click();
+  await expect(playbackButton).toBeVisible();
+  await expect(page.locator(".review-waveform-svg")).toBeVisible();
+  await expect(page.locator(".review-transcript")).toHaveCount(1);
 
-        return bounds.left >= 0 && bounds.right <= window.innerWidth;
-      }),
-    )
-    .toBe(true);
+  for (const viewport of [
+    { width: 320, height: 568 },
+    { width: 393, height: 852 },
+    { width: 852, height: 393 },
+    { width: 1440, height: 900 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () => document.documentElement.scrollWidth <= window.innerWidth,
+        ),
+      )
+      .toBe(true);
+    await expect
+      .poll(() =>
+        page.locator(".playback-waveform").evaluate((element) => {
+          const bounds = element.getBoundingClientRect();
+
+          return bounds.left >= 0 && bounds.right <= window.innerWidth;
+        }),
+      )
+      .toBe(true);
+  }
   await expect
     .poll(() =>
       page.locator(".file-receipt").evaluate((receipt) => {
@@ -203,7 +221,9 @@ test("free capture removes unavailable controls and can replay the finished reco
   ).toBeVisible();
   await expect(page.getByText("Capture LIBRE")).toBeVisible();
   await expect(page.getByRole("button", { name: "Écouter" })).toBeEnabled();
-  await expect(page.getByRole("button", { name: "Début" })).toBeEnabled();
+  await expect(
+    page.getByRole("button", { name: "Recommencer la lecture" }),
+  ).toBeEnabled();
 });
 
 test("dubbing connects a YouTube scene to the scripted recording surface", async ({
