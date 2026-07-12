@@ -193,11 +193,44 @@ function scorePromptPriority(
   const completedEnergies = new Set(
     completedPrompts.map((item) => item.delivery.energy),
   );
+  const completedTones = new Set(
+    completedPrompts.map((item) => item.delivery.tone),
+  );
+  const completedArticulations = new Set(
+    completedPrompts.map((item) => item.delivery.articulation),
+  );
+  const completedProjections = new Set(
+    completedPrompts.map((item) => item.delivery.projection),
+  );
+  const completedPauseStyles = new Set(
+    completedPrompts.map((item) => item.delivery.pauseStyle),
+  );
+  const completedPitchTargets = new Set(
+    completedPrompts.map((item) => item.prosody.targetPitch),
+  );
+  const completedPitchVariations = new Set(
+    completedPrompts.map((item) => item.prosody.pitchVariation),
+  );
+  const completedPhraseAttacks = new Set(
+    completedPrompts.map((item) => item.prosody.phraseAttack),
+  );
+  const completedSentenceEndings = new Set(
+    completedPrompts.map((item) => item.prosody.sentenceEnding),
+  );
+  const completedIntimacyTargets = new Set(
+    completedPrompts.map((item) => item.prosody.intimacy),
+  );
+  const completedSecondaryIntents = new Set(
+    completedPrompts.flatMap((item) => item.intention.secondary),
+  );
   const completedEmotionLabels = new Set(
     completedPrompts.flatMap((item) => item.intention.emotion.labels),
   );
   const completedPhoneticCoverage = new Set(
     completedPrompts.flatMap((item) => item.phonetics.coverage),
+  );
+  const completedPhoneticFocus = new Set(
+    completedPrompts.flatMap((item) => item.phonetics.focus),
   );
   const completedLetters = new Set(
     completedPrompts
@@ -217,16 +250,33 @@ function scorePromptPriority(
   const newEmotionLabels = prompt.intention.emotion.labels.filter(
     (label) => !completedEmotionLabels.has(label),
   ).length;
+  const newSecondaryIntents = prompt.intention.secondary.filter(
+    (intent) => !completedSecondaryIntents.has(intent),
+  ).length;
   const newPhoneticTargets = prompt.phonetics.coverage.filter(
     (target) => !completedPhoneticCoverage.has(target),
+  ).length;
+  const newPhoneticFocus = prompt.phonetics.focus.filter(
+    (target) => !completedPhoneticFocus.has(target),
   ).length;
 
   return [
     completedIntents.has(prompt.intention.primary) ? 0 : 42,
     completedPaces.has(prompt.delivery.pace) ? 0 : 24,
     completedEnergies.has(prompt.delivery.energy) ? 0 : 16,
+    completedTones.has(prompt.delivery.tone) ? 0 : 10,
+    completedArticulations.has(prompt.delivery.articulation) ? 0 : 8,
+    completedProjections.has(prompt.delivery.projection) ? 0 : 8,
+    completedPauseStyles.has(prompt.delivery.pauseStyle) ? 0 : 6,
+    completedPitchTargets.has(prompt.prosody.targetPitch) ? 0 : 8,
+    completedPitchVariations.has(prompt.prosody.pitchVariation) ? 0 : 6,
+    completedPhraseAttacks.has(prompt.prosody.phraseAttack) ? 0 : 6,
+    completedSentenceEndings.has(prompt.prosody.sentenceEnding) ? 0 : 6,
+    completedIntimacyTargets.has(prompt.prosody.intimacy) ? 0 : 6,
+    newSecondaryIntents * 4,
     newEmotionLabels * 6,
     newPhoneticTargets * 8,
+    newPhoneticFocus * 6,
     rareLetterBonus * 12,
     prompt.tags.includes("signature") ? 5 : 0,
   ].reduce((total, value) => total + value, 0);

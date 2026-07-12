@@ -88,6 +88,18 @@ test("ML session planning recalculates marginal coverage after every selected pr
     new Set(prompts.map((prompt) => prompt.delivery.energy)).size >= 3,
     "a short ML session should diversify energy as each selected prompt changes marginal coverage",
   );
+  assert.ok(
+    new Set(prompts.map((prompt) => prompt.delivery.tone)).size >= 5,
+    "a short ML session should diversify delivery tone for useful training coverage",
+  );
+  assert.ok(
+    new Set(prompts.map((prompt) => prompt.prosody.targetPitch)).size >= 3,
+    "a short ML session should diversify pitch targets",
+  );
+  assert.ok(
+    new Set(prompts.flatMap((prompt) => prompt.phonetics.focus)).size >= 10,
+    "a short ML session should maximize distinct pronunciation targets",
+  );
 });
 
 test("workspace progress only credits keeper takes as completed prompts", () => {
