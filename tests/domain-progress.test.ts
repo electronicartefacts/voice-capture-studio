@@ -59,6 +59,37 @@ test("session planning skips completed prompts until the language corpus is exha
   );
 });
 
+test("ML session planning recalculates marginal coverage after every selected prompt", () => {
+  const workspace = createEmptyWorkspace({
+    corpus: canonicalCorpus,
+    speakers: initialSpeakers,
+    now: new Date("2026-07-09T08:00:00.000Z"),
+  });
+  const session = planSession({
+    workspace,
+    corpus: canonicalCorpus,
+    speakerId,
+    language: fr,
+    targetMinutes: 5,
+    now: new Date("2026-07-09T08:01:00.000Z"),
+    strategy: "coverage",
+  });
+  const prompts = session.plannedPromptIds.map(findPrompt);
+
+  assert.equal(
+    new Set(prompts.map((prompt) => prompt.intention.primary)).size,
+    6,
+  );
+  assert.ok(
+    new Set(prompts.map((prompt) => prompt.delivery.pace)).size >= 3,
+    "a short ML session should diversify pace instead of repeatedly scoring against an empty history",
+  );
+  assert.ok(
+    new Set(prompts.map((prompt) => prompt.delivery.energy)).size >= 3,
+    "a short ML session should diversify energy as each selected prompt changes marginal coverage",
+  );
+});
+
 test("workspace progress only credits keeper takes as completed prompts", () => {
   const workspace = createEmptyWorkspace({
     corpus: canonicalCorpus,

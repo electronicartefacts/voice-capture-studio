@@ -45,26 +45,30 @@ export function planSession(input: {
   const completedPrompts = prompts.filter((prompt) =>
     completedPromptIds.includes(prompt.id),
   );
-  const prioritizePrompts = (candidates: readonly PromptDefinition[]) =>
+  const prioritizePrompts = (
+    candidates: readonly PromptDefinition[],
+    priorSelections: readonly PromptDefinition[] = [],
+    limit = promptBudget,
+  ) =>
     input.strategy === "sequential"
-      ? [...candidates]
-      : [...candidates].sort((left, right) => {
-          const leftScore = scorePromptPriority(left, completedPrompts);
-          const rightScore = scorePromptPriority(right, completedPrompts);
-
-          return rightScore - leftScore;
-        });
+      ? candidates.slice(0, limit)
+      : prioritizeCoverage(
+          candidates,
+          [...completedPrompts, ...priorSelections],
+          limit,
+        );
   const incompletePrompts = prompts.filter(
     (prompt) => !completedPromptIds.includes(prompt.id),
   );
-  const plannedPromptIds = [
-    ...prioritizePrompts(
-      incompletePrompts.filter((prompt) => !attemptedPromptIds.has(prompt.id)),
-    ),
-    ...prioritizePrompts(
-      incompletePrompts.filter((prompt) => attemptedPromptIds.has(prompt.id)),
-    ),
-  ]
+  const unseenPrompts = prioritizePrompts(
+    incompletePrompts.filter((prompt) => !attemptedPromptIds.has(prompt.id)),
+  );
+  const attemptedPrompts = prioritizePrompts(
+    incompletePrompts.filter((prompt) => attemptedPromptIds.has(prompt.id)),
+    unseenPrompts,
+    promptBudget - unseenPrompts.length,
+  );
+  const plannedPromptIds = [...unseenPrompts, ...attemptedPrompts]
     .map((prompt) => prompt.id)
     .slice(0, promptBudget);
   const fallbackPromptIds = prioritizePrompts(prompts)
@@ -226,6 +230,35 @@ function scorePromptPriority(
     rareLetterBonus * 12,
     prompt.tags.includes("signature") ? 5 : 0,
   ].reduce((total, value) => total + value, 0);
+}
+
+function prioritizeCoverage(
+  candidates: readonly PromptDefinition[],
+  alreadyCovered: readonly PromptDefinition[],
+  limit: number,
+): PromptDefinition[] {
+  const remaining = [...candidates];
+  const selected: PromptDefinition[] = [];
+
+  while (remaining.length > 0 && selected.length < limit) {
+    const covered = [...alreadyCovered, ...selected];
+    let bestIndex = 0;
+    let bestScore = scorePromptPriority(remaining[0], covered);
+
+    for (let index = 1; index < remaining.length; index += 1) {
+      const score = scorePromptPriority(remaining[index], covered);
+
+      if (score > bestScore) {
+        bestIndex = index;
+        bestScore = score;
+      }
+    }
+
+    selected.push(remaining[bestIndex]);
+    remaining.splice(bestIndex, 1);
+  }
+
+  return selected;
 }
 
 function normalizeText(text: string): string {
