@@ -4,6 +4,7 @@ import type {
   AnalysisWorkerResponse,
   SpeechSegment,
 } from "./types";
+import { normalizeWhisperWordTimings } from "./whisperWordTimings";
 
 const VAD_FRAME_SAMPLES = 512;
 const VAD_SAMPLE_RATE = 16_000;
@@ -17,10 +18,18 @@ type WorkerScope = {
   postMessage: (message: AnalysisWorkerResponse) => void;
 };
 
+type Transcription = {
+  readonly text: string;
+  readonly chunks?: readonly {
+    readonly text: string;
+    readonly timestamp: readonly (number | null)[];
+  }[];
+};
+
 type Transcriber = (
   audio: Float32Array,
   options: Record<string, unknown>,
-) => Promise<{ text: string } | { text: string }[]>;
+) => Promise<Transcription | Transcription[]>;
 
 type VadSession = {
   readonly inputNames: readonly string[];
@@ -256,10 +265,16 @@ async function analyze(request: AnalysisWorkerRequest): Promise<void> {
       language: request.language,
       task: "transcribe",
       chunk_length_s: 30,
+      return_timestamps: "word",
     });
-    const transcript = (
-      Array.isArray(transcription) ? transcription[0].text : transcription.text
-    ).trim();
+    const result = Array.isArray(transcription)
+      ? transcription[0]
+      : transcription;
+    const transcript = result.text.trim();
+    const whisperWords = normalizeWhisperWordTimings(
+      result.chunks ?? [],
+      (request.audio.length / request.sampleRate) * 1000,
+    );
 
     post({
       id: request.id,
@@ -272,7 +287,13 @@ async function analyze(request: AnalysisWorkerRequest): Promise<void> {
       request.audio,
     );
 
-    post({ id: request.id, kind: "result", transcript, speechSegments });
+    post({
+      id: request.id,
+      kind: "result",
+      transcript,
+      speechSegments,
+      whisperWords,
+    });
   } catch (error) {
     post({
       id: request.id,

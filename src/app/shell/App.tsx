@@ -16,6 +16,7 @@ import {
   type LocalTextCorpus,
 } from "@domains/corpus";
 import { summarizeCoverage } from "@domains/coverage";
+import type { LocalTakeAnalysis } from "../analysis/types";
 import {
   alignPromptToPhonemes,
   importForcedAlignment,
@@ -1468,6 +1469,55 @@ export function App() {
           ? error.message
           : "Impossible d'importer cet alignement forcé.",
       );
+    }
+  }
+
+  async function persistLocalTakeAnalysis(analysis: LocalTakeAnalysis) {
+    const takeId = lastTake?.id;
+    const currentWorkspace = workspaceRef.current ?? workspace;
+
+    if (takeId === undefined || currentWorkspace === null) {
+      return;
+    }
+
+    let updatedTake: RecordedTake | null = null;
+    const nextWorkspace: VoiceWorkspace = {
+      ...currentWorkspace,
+      updatedAt: new Date().toISOString() as VoiceWorkspace["updatedAt"],
+      capturedSessions: currentWorkspace.capturedSessions.map(
+        (capturedSession) => ({
+          ...capturedSession,
+          takes: capturedSession.takes.map((take) => {
+            if (take.id !== takeId) return take;
+            updatedTake = {
+              ...take,
+              timing: {
+                ...take.timing,
+                localAcousticAnalysis: {
+                  schemaVersion: "voice.local_acoustic_analysis.v1",
+                  engine: "whisper-tiny",
+                  transcript: analysis.transcript,
+                  analyzedAt: new Date().toISOString(),
+                  words: analysis.whisperWords,
+                  speechSegments: analysis.speechSegments.map((segment) => ({
+                    ...segment,
+                    source: "silero_vad" as const,
+                  })),
+                },
+              },
+            };
+            return updatedTake;
+          }),
+        }),
+      ),
+    };
+    const result = await workspaceRepository.save(nextWorkspace);
+
+    if (result.ok && updatedTake !== null) {
+      applyWorkspaceReceipt(result.value);
+      setLastTake(updatedTake);
+    } else if (!result.ok) {
+      setMessage(`Analyse terminée, mais non persistée : ${result.message}`);
     }
   }
 
@@ -3397,6 +3447,9 @@ export function App() {
                   nextRecommendation={coverage?.nextRecommendation ?? null}
                   onPlaybackEnergyChange={updateVisualAudioLevel}
                   onPlaybackProgressChange={setReviewPlaybackProgress}
+                  onLocalAnalysis={(analysis) =>
+                    void persistLocalTakeAnalysis(analysis)
+                  }
                   progressLabel={
                     session === null
                       ? null

@@ -47,7 +47,7 @@ export async function analyzeTakeAudio(input: {
 
   nextRequestId += 1;
 
-  const { transcript, speechSegments } = await new Promise<
+  const { transcript, speechSegments, whisperWords } = await new Promise<
     Extract<AnalysisWorkerResponse, { kind: "result" }>
   >((resolve, reject) => {
     const cleanup = () => {
@@ -99,6 +99,7 @@ export async function analyzeTakeAudio(input: {
     matchedWordCount: alignTranscriptToPrompt([...expectedWords], transcript),
     expectedWordCount: expectedWords.length,
     speechSegments,
+    whisperWords,
     segmentSummary: summarizeSpeechSegments(speechSegments, totalDurationMs),
   };
 }

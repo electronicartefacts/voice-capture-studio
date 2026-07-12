@@ -152,6 +152,25 @@ export type TakeTiming = {
   readonly phrases: readonly PhraseTiming[];
   readonly alignment?: PromptPhonemeAlignment;
   readonly forcedAlignment?: ForcedAlignment;
+  readonly localAcousticAnalysis?: LocalAcousticAnalysis;
+};
+
+export type LocalAcousticAnalysis = {
+  readonly schemaVersion: "voice.local_acoustic_analysis.v1";
+  readonly engine: "whisper-tiny";
+  readonly transcript: string;
+  readonly analyzedAt: string;
+  readonly words: readonly {
+    readonly word: string;
+    readonly startMs: number;
+    readonly endMs: number;
+    readonly source: "whisper_attention_timestamp";
+  }[];
+  readonly speechSegments: readonly {
+    readonly startMs: number;
+    readonly endMs: number;
+    readonly source: "silero_vad";
+  }[];
 };
 
 export type WordTiming = {

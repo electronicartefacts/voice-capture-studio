@@ -799,6 +799,7 @@ export function DoneScreen(input: {
   readonly onNext: () => void;
   readonly onPlaybackEnergyChange: (level: number) => void;
   readonly onPlaybackProgressChange: (progress: number) => void;
+  readonly onLocalAnalysis: (analysis: LocalTakeAnalysis) => void;
   readonly onRetake: () => void;
   readonly language: string;
   readonly progressLabel: string | null;
@@ -1047,6 +1048,7 @@ export function DoneScreen(input: {
             audioUrl={input.downloadUrl}
             expectedText={input.take.transcript.spokenText}
             language={input.language}
+            onAnalysis={input.onLocalAnalysis}
             takeId={input.take.id}
           />
         )}
@@ -1074,6 +1076,7 @@ function LocalAnalysisPanel(input: {
   readonly expectedText: string;
   readonly language: string;
   readonly takeId: string;
+  readonly onAnalysis: (analysis: LocalTakeAnalysis) => void;
 }) {
   const [state, setState] = useState<LocalAnalysisState>({ status: "idle" });
 
@@ -1097,6 +1100,7 @@ function LocalAnalysisPanel(input: {
       });
 
       setState({ status: "done", analysis });
+      input.onAnalysis(analysis);
     } catch (error) {
       setState({
         status: "error",
@@ -1187,6 +1191,14 @@ function LocalAnalysisPanel(input: {
                   )} (${state.analysis.speechSegments.length} segment${
                     state.analysis.speechSegments.length > 1 ? "s" : ""
                   })`}
+            </dd>
+          </div>
+          <div>
+            <dt>Repères acoustiques Whisper</dt>
+            <dd>
+              {state.analysis.whisperWords.length === 0
+                ? "Aucun repère de mot exploitable."
+                : `${state.analysis.whisperWords.length} mot${state.analysis.whisperWords.length > 1 ? "s" : ""} horodaté${state.analysis.whisperWords.length > 1 ? "s" : ""} depuis le signal.`}
             </dd>
           </div>
           {state.analysis.speechSegments.length > 0 && (

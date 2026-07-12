@@ -80,4 +80,7 @@ test("a recorded take can be analyzed on-device with whisper and VAD", async ({
   await expect(page.getByTestId("local-analysis-result")).toContainText(
     "Parole détectée",
   );
+  await expect(page.getByTestId("local-analysis-result")).toContainText(
+    "Repères acoustiques Whisper",
+  );
 });

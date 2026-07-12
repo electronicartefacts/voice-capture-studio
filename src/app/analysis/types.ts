@@ -10,6 +10,13 @@ export type SpeechSegmentSummary = {
   readonly totalDurationMs: number;
 };
 
+export type WhisperWordTiming = {
+  readonly word: string;
+  readonly startMs: number;
+  readonly endMs: number;
+  readonly source: "whisper_attention_timestamp";
+};
+
 export type LocalAnalysisProgress =
   | { readonly stage: "loading-model"; readonly progressPercent: number }
   | { readonly stage: "transcribing" }
@@ -21,6 +28,7 @@ export type LocalTakeAnalysis = {
   readonly expectedWordCount: number;
   readonly speechSegments: readonly SpeechSegment[];
   readonly segmentSummary: SpeechSegmentSummary;
+  readonly whisperWords: readonly WhisperWordTiming[];
 };
 
 export type AnalysisWorkerRequest = {
@@ -42,6 +50,7 @@ export type AnalysisWorkerResponse =
       readonly kind: "result";
       readonly transcript: string;
       readonly speechSegments: readonly SpeechSegment[];
+      readonly whisperWords: readonly WhisperWordTiming[];
     }
   | {
       readonly id: number;
