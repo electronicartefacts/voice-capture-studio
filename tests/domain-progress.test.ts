@@ -12,6 +12,7 @@ import {
   completePlannedSession,
   createEmptyWorkspace,
   reconcileWorkspaceProgress,
+  type VoiceWorkspace,
 } from "../src/domains/workspace";
 import type { IsoDateTime } from "../src/shared";
 
@@ -90,6 +91,59 @@ test("workspace progress only credits keeper takes as completed prompts", () => 
   );
 
   assert.deepEqual(progress?.completedPrompts ?? [], []);
+});
+
+test("a failed attempt is not immediately replanned while unseen prompts remain", () => {
+  const workspace = createEmptyWorkspace({
+    corpus: canonicalCorpus,
+    speakers: initialSpeakers,
+    now: new Date("2026-07-09T08:00:00.000Z"),
+  });
+  const firstSession = planSession({
+    workspace,
+    corpus: canonicalCorpus,
+    speakerId,
+    language: fr,
+    targetMinutes: 5,
+    now: new Date("2026-07-09T08:01:00.000Z"),
+  });
+  const attemptedPrompt = findPrompt(firstSession.plannedPromptIds[0]);
+  const attemptedWorkspace = completePlannedSession(
+    workspace,
+    canonicalCorpus,
+    {
+      ...firstSession,
+      takes: [createTake(firstSession, attemptedPrompt, "maybe")],
+    },
+    new Date("2026-07-09T08:02:00.000Z"),
+  );
+  const nextSession = planSession({
+    workspace: {
+      ...attemptedWorkspace,
+      capturedSessions: [
+        null,
+        ...attemptedWorkspace.capturedSessions,
+      ] as unknown as VoiceWorkspace["capturedSessions"],
+    },
+    corpus: canonicalCorpus,
+    speakerId,
+    language: fr,
+    targetMinutes: 5,
+    now: new Date("2026-07-09T08:03:00.000Z"),
+  });
+  const progress = attemptedWorkspace.corpusProgress.find(
+    (snapshot) =>
+      snapshot.corpusId === canonicalCorpus.id &&
+      snapshot.speakerId === speakerId &&
+      snapshot.language === fr,
+  );
+
+  assert.deepEqual(progress?.completedPrompts ?? [], []);
+  assert.equal(
+    nextSession.plannedPromptIds.includes(attemptedPrompt.id),
+    false,
+    "an uncredited attempt should remain incomplete without trapping the next session on it",
+  );
 });
 
 test("workspace progress can be reconciled from captured keeper sessions", () => {

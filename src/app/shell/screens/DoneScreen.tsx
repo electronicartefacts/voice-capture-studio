@@ -783,14 +783,26 @@ export function DoneScreen(input: {
               </span>
             </button>
           ) : !isKeeper ? (
-            <button
-              className="launch-button"
-              onClick={input.onRetake}
-              type="button"
-            >
-              <RotateCcw aria-hidden="true" size={19} />
-              <span>Refaire cette prise</span>
-            </button>
+            <>
+              <button
+                className="launch-button"
+                onClick={input.onRetake}
+                type="button"
+              >
+                <RotateCcw aria-hidden="true" size={19} />
+                <span>Refaire cette prise</span>
+              </button>
+              {input.hasNextPrompt && (
+                <button
+                  className="folder-button"
+                  onClick={input.onNext}
+                  type="button"
+                >
+                  <StepForward aria-hidden="true" size={19} />
+                  <span>Passer sans valider</span>
+                </button>
+              )}
+            </>
           ) : input.hasNextPrompt ? (
             <button
               className="launch-button"
@@ -820,16 +832,18 @@ export function DoneScreen(input: {
               <span>Refaire cette prise</span>
             </button>
           )}
-          {!input.isFreeCapture && (!isKeeper || input.hasNextPrompt) && (
-            <button
-              className="folder-button"
-              onClick={input.onAgain}
-              type="button"
-            >
-              <Play aria-hidden="true" size={19} />
-              <span>Nouvelle session</span>
-            </button>
-          )}
+          {!input.isFreeCapture &&
+            ((!isKeeper && !input.hasNextPrompt) ||
+              (isKeeper && input.hasNextPrompt)) && (
+              <button
+                className="folder-button"
+                onClick={input.onAgain}
+                type="button"
+              >
+                <Play aria-hidden="true" size={19} />
+                <span>Nouvelle session</span>
+              </button>
+            )}
           <button
             className="quiet-button result-home-action"
             onClick={input.onHome}

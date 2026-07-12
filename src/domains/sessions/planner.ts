@@ -36,6 +36,12 @@ export function planSession(input: {
   );
   const prompts = scenarios.flatMap((scenario) => scenario.prompts);
   const completedPromptIds = progress?.completedPrompts ?? [];
+  const attemptedPromptIds = findAttemptedPromptIds(
+    input.workspace,
+    input.corpus.id,
+    input.speakerId,
+    input.language,
+  );
   const completedPrompts = prompts.filter((prompt) =>
     completedPromptIds.includes(prompt.id),
   );
@@ -48,9 +54,17 @@ export function planSession(input: {
 
           return rightScore - leftScore;
         });
-  const plannedPromptIds = prioritizePrompts(
-    prompts.filter((prompt) => !completedPromptIds.includes(prompt.id)),
-  )
+  const incompletePrompts = prompts.filter(
+    (prompt) => !completedPromptIds.includes(prompt.id),
+  );
+  const plannedPromptIds = [
+    ...prioritizePrompts(
+      incompletePrompts.filter((prompt) => !attemptedPromptIds.has(prompt.id)),
+    ),
+    ...prioritizePrompts(
+      incompletePrompts.filter((prompt) => attemptedPromptIds.has(prompt.id)),
+    ),
+  ]
     .map((prompt) => prompt.id)
     .slice(0, promptBudget);
   const fallbackPromptIds = prioritizePrompts(prompts)
@@ -115,6 +129,43 @@ function findProgress(
       progress.speakerId === speakerId &&
       progress.language === language,
   );
+}
+
+function findAttemptedPromptIds(
+  workspace: VoiceWorkspace,
+  corpusId: CorpusManifest["id"],
+  speakerId: SpeakerId,
+  language: LanguageCode,
+): ReadonlySet<PromptId> {
+  const attemptedPromptIds = new Set<PromptId>();
+
+  for (const session of workspace.capturedSessions as readonly unknown[]) {
+    if (
+      !isRecord(session) ||
+      session.corpusId !== corpusId ||
+      session.speakerId !== speakerId ||
+      session.language !== language ||
+      !Array.isArray(session.takes)
+    ) {
+      continue;
+    }
+
+    for (const take of session.takes) {
+      if (isRecord(take) && isNonEmptyString(take.promptId)) {
+        attemptedPromptIds.add(take.promptId as PromptId);
+      }
+    }
+  }
+
+  return attemptedPromptIds;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
 }
 
 function createSessionId(now: Date): SessionId {

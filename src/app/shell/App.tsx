@@ -2760,16 +2760,26 @@ export function App() {
     setLastTake(finalization.take);
     setSession(finalization.completedSession);
     setScreen("done");
+    const progressionMessage =
+      captureMode !== "training" || finalization.take === null
+        ? null
+        : finalization.take.quality.verdict === "pass"
+          ? "Prise validée : le parcours ML a avancé d'une phrase."
+          : "Prise sauvegardée, mais non validée : le parcours ML reste inchangé. Reprends cette phrase ou passe sans la créditer.";
     setMessage(
       !finalization.workspaceSaveResult.ok
         ? `Prise exportable, mais la progression locale n'a pas été mise à jour : ${finalization.workspaceSaveResult.message}`
         : finalization.metadataSaveMessage !== null
-          ? `Prise sauvegardée. ${finalization.metadataSaveMessage} Télécharge le JSON complémentaire.`
-          : finalization.audioSaveResult.ok
-            ? "Prise sauvegardée. Télécharge l'audio et les métadonnées si besoin."
-            : nextDownloadUrl === null
-              ? finalization.audioSaveResult.message
-              : "Stockage interne refusé. Télécharge le fichier maintenant.",
+          ? `${progressionMessage ?? "Prise sauvegardée."} ${finalization.metadataSaveMessage} Télécharge le JSON complémentaire.`
+          : !finalization.audioSaveResult.ok
+            ? `${captureMode === "training" ? "Le parcours ML reste inchangé." : "La prise n'a pas été enregistrée dans le stockage local."} ${
+                nextDownloadUrl === null
+                  ? finalization.audioSaveResult.message
+                  : "Stockage interne refusé : télécharge le fichier maintenant."
+              }`
+            : progressionMessage !== null
+              ? progressionMessage
+              : "Prise sauvegardée. Télécharge l'audio et les métadonnées si besoin.",
     );
   }
 
@@ -3366,15 +3376,19 @@ export function App() {
                   progressLabel={
                     session === null
                       ? null
-                      : `Phrase ${Math.min(currentPromptIndex + 1, session.plannedPromptIds.length)} sur ${
-                          session.plannedPromptIds.length
-                        }`
+                      : [
+                          `Phrase ${Math.min(currentPromptIndex + 1, session.plannedPromptIds.length)} sur ${session.plannedPromptIds.length}`,
+                          captureMode === "training" && coverage !== null
+                            ? `parcours ${coverage.completedPrompts}/${coverage.totalPrompts} validées`
+                            : null,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")
                   }
                   take={lastTake}
                   hasNextPrompt={
                     session !== null &&
-                    currentPromptIndex < session.plannedPromptIds.length - 1 &&
-                    lastTake?.quality.verdict === "pass"
+                    currentPromptIndex < session.plannedPromptIds.length - 1
                   }
                   isFreeCapture={isFreeCapture}
                   isContinuousLyricsCapture={isContinuousLyricsCapture}
