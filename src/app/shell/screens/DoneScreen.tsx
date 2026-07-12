@@ -1201,6 +1201,14 @@ function LocalAnalysisPanel(input: {
                 : `${state.analysis.whisperWords.length} mot${state.analysis.whisperWords.length > 1 ? "s" : ""} horodaté${state.analysis.whisperWords.length > 1 ? "s" : ""} depuis le signal.`}
             </dd>
           </div>
+          <div>
+            <dt>Accord des méthodes locales</dt>
+            <dd>
+              {state.analysis.alignmentComparison.medianBoundaryDeltaMs === null
+                ? "Preuves insuffisantes pour comparer les frontières."
+                : `${state.analysis.alignmentComparison.status} · ${Math.round(state.analysis.alignmentComparison.matchRate * 100)} % des mots reliés · écart médian ${state.analysis.alignmentComparison.medianBoundaryDeltaMs} ms`}
+            </dd>
+          </div>
           {state.analysis.speechSegments.length > 0 && (
             <div>
               <dt>Silences de bord</dt>

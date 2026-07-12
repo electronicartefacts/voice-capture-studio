@@ -29,6 +29,7 @@ export type LocalTakeAnalysis = {
   readonly speechSegments: readonly SpeechSegment[];
   readonly segmentSummary: SpeechSegmentSummary;
   readonly whisperWords: readonly WhisperWordTiming[];
+  readonly alignmentComparison: LocalAlignmentComparison;
 };
 
 export type AnalysisWorkerRequest = {
@@ -57,3 +58,4 @@ export type AnalysisWorkerResponse =
       readonly kind: "error";
       readonly message: string;
     };
+import type { LocalAlignmentComparison } from "./localAlignmentComparison";

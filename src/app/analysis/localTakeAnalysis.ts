@@ -1,4 +1,6 @@
 import { alignTranscriptToPrompt, tokenizeSpeech } from "../shell/speech";
+import { alignPromptToPhonemes } from "../../domains/phonetics/textPhonemeAlignment";
+import type { LanguageCode } from "../../shared";
 import { summarizeSpeechSegments } from "./speechSegments";
 import type {
   AnalysisWorkerRequest,
@@ -93,6 +95,14 @@ export async function analyzeTakeAudio(input: {
   });
 
   const expectedWords = tokenizeSpeech(input.expectedText);
+  const estimatedAlignment = alignPromptToPhonemes({
+    activitySegments: speechSegments,
+    durationMs: totalDurationMs,
+    language: input.language as LanguageCode,
+    text: input.expectedText,
+  });
+  const { compareLocalWordAlignments } =
+    await import("./localAlignmentComparison");
 
   return {
     transcript,
@@ -100,6 +110,10 @@ export async function analyzeTakeAudio(input: {
     expectedWordCount: expectedWords.length,
     speechSegments,
     whisperWords,
+    alignmentComparison: compareLocalWordAlignments({
+      estimatedWords: estimatedAlignment.words,
+      whisperWords,
+    }),
     segmentSummary: summarizeSpeechSegments(speechSegments, totalDurationMs),
   };
 }

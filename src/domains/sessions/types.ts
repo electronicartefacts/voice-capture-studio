@@ -171,6 +171,27 @@ export type LocalAcousticAnalysis = {
     readonly endMs: number;
     readonly source: "silero_vad";
   }[];
+  readonly alignmentComparison: {
+    readonly schemaVersion: "voice.local_alignment_comparison.v1";
+    readonly status: "strong" | "acceptable" | "review" | "insufficient";
+    readonly reviewRequired: boolean;
+    readonly matchedWordCount: number;
+    readonly expectedWordCount: number;
+    readonly whisperWordCount: number;
+    readonly matchRate: number;
+    readonly medianBoundaryDeltaMs: number | null;
+    readonly maximumBoundaryDeltaMs: number | null;
+    readonly words: readonly {
+      readonly word: string;
+      readonly expectedIndex: number;
+      readonly whisperIndex: number;
+      readonly estimatedStartMs: number;
+      readonly estimatedEndMs: number;
+      readonly whisperStartMs: number;
+      readonly whisperEndMs: number;
+      readonly boundaryDeltaMs: number;
+    }[];
+  };
 };
 
 export type WordTiming = {

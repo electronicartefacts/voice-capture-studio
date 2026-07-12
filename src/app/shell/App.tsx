@@ -1503,6 +1503,7 @@ export function App() {
                     ...segment,
                     source: "silero_vad" as const,
                   })),
+                  alignmentComparison: analysis.alignmentComparison,
                 },
               },
             };
