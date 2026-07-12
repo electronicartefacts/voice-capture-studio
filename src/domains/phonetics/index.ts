@@ -1,5 +1,6 @@
 export type {
   AlignmentSource,
+  AlignmentConsensus,
   ForcedAlignment,
   ForcedAlignmentWord,
   PhonemeInterval,
@@ -14,3 +15,4 @@ export {
   tokenizeTranscript,
 } from "./textPhonemeAlignment";
 export { importForcedAlignment } from "./forcedAlignment";
+export { createAlignmentConsensus } from "./alignmentConsensus";

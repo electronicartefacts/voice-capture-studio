@@ -549,7 +549,8 @@ export function ForcedAlignmentImport(input: {
         <p className="soft-label">Alignement acoustique</p>
         <strong>Remplacer l'estimation texte</strong>
         <span>
-          Importe le JSON produit par MFA, WhisperX ou un autre aligneur.
+          Importe un JSON MFA/WhisperX, ou un paquet contenant plusieurs
+          alignements pour calculer un consensus pondéré.
         </span>
       </div>
       <button

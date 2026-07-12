@@ -9,8 +9,12 @@ export function applyForcedAlignment(
     gate.id === "phoneme_alignment"
       ? {
           ...gate,
-          status: "pass" as const,
-          message: `Alignement acoustique importé depuis ${alignment.aligner}.`,
+          status: alignment.consensus?.reviewRequired
+            ? ("review" as const)
+            : ("pass" as const),
+          message: alignment.consensus?.reviewRequired
+            ? `Consensus acoustique divergent (${alignment.consensus.agreementMs} ms) : révision requise.`
+            : `Alignement acoustique importé depuis ${alignment.aligner}.`,
         }
       : gate,
   );

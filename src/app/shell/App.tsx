@@ -1400,7 +1400,25 @@ export function App() {
         return;
       }
 
-      const alignment = importForcedAlignment(JSON.parse(await file.text()));
+      const payload: unknown = JSON.parse(await file.text());
+      const acousticPayloads =
+        typeof payload === "object" &&
+        payload !== null &&
+        "alignments" in payload &&
+        Array.isArray(payload.alignments)
+          ? payload.alignments
+          : null;
+      const alignment =
+        acousticPayloads === null
+          ? importForcedAlignment(payload)
+          : (
+              await import("@domains/phonetics/alignmentConsensus")
+            ).createAlignmentConsensus({
+              estimated: target.take.timing.alignment,
+              acoustic: acousticPayloads.map((item) =>
+                importForcedAlignment(item),
+              ),
+            });
 
       if (alignment.language !== target.capturedSession.language) {
         setMessage("La langue de l'alignement ne correspond pas à la prise.");
@@ -1437,7 +1455,13 @@ export function App() {
 
       applyWorkspaceReceipt(result.value);
       setLastTake(updatedTake);
-      setMessage(`Alignement forcé importé avec ${alignment.aligner}.`);
+      setMessage(
+        alignment.consensus === undefined
+          ? `Alignement forcé importé avec ${alignment.aligner}.`
+          : alignment.consensus.reviewRequired
+            ? `Consensus importé, mais les aligneurs divergent de ${alignment.consensus.agreementMs} ms : révision requise.`
+            : `Consensus ${alignment.consensus.status} importé depuis ${alignment.consensus.acousticSourceCount} aligneurs acoustiques.`,
+      );
     } catch (error) {
       setMessage(
         error instanceof Error

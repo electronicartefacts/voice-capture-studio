@@ -68,6 +68,29 @@ export type ForcedAlignment = {
   readonly words: readonly ForcedAlignmentWord[];
   readonly phonemes: readonly PhonemeInterval[];
   readonly importedAt: string;
+  readonly consensus?: AlignmentConsensus;
+};
+
+export type AlignmentConsensus = {
+  readonly schemaVersion: "voice.alignment_consensus.v1";
+  readonly method: "weighted_median";
+  readonly sourceCount: number;
+  readonly acousticSourceCount: number;
+  readonly agreementMs: number;
+  readonly status: "strong" | "acceptable" | "review";
+  readonly reviewRequired: boolean;
+  readonly sources: readonly {
+    readonly id: string;
+    readonly kind: "estimated" | "acoustic";
+    readonly weight: number;
+    readonly confidence: number;
+    readonly words: readonly {
+      readonly word: string;
+      readonly startMs: number;
+      readonly endMs: number;
+      readonly confidence: number;
+    }[];
+  }[];
 };
 
 export type TranscriptMatchEstimate = {

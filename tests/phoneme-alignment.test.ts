@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   alignPromptToPhonemes,
+  createAlignmentConsensus,
   estimateTranscriptMatch,
   importForcedAlignment,
   tokenizeTranscript,
@@ -32,6 +33,68 @@ test("phoneme alignment links every token to timed phonemes", () => {
     ),
   );
 });
+
+test("alignment consensus favors acoustic agreement and exposes disagreement", () => {
+  const estimated = alignPromptToPhonemes({
+    durationMs: 1200,
+    language: "fr" as LanguageCode,
+    text: "Bonjour",
+  });
+  const acoustic = [
+    createForcedAlignment("MFA", 180, 980, 0.95),
+    createForcedAlignment("WhisperX", 200, 1000, 0.9),
+  ];
+  const consensus = createAlignmentConsensus({
+    estimated,
+    acoustic,
+    now: new Date("2026-07-13T10:00:00.000Z"),
+  });
+
+  assert.equal(consensus.words[0].startMs, 180);
+  assert.equal(consensus.words[0].endMs, 1000);
+  assert.equal(consensus.consensus?.sourceCount, 3);
+  assert.equal(consensus.consensus?.acousticSourceCount, 2);
+  assert.equal(consensus.consensus?.status, "strong");
+  assert.equal(consensus.consensus?.reviewRequired, false);
+  assert.deepEqual(
+    consensus.consensus?.sources.map((source) => source.words[0].startMs),
+    [0, 180, 200],
+  );
+
+  const divergent = createAlignmentConsensus({
+    estimated,
+    acoustic: [
+      createForcedAlignment("MFA", 100, 700, 0.95),
+      createForcedAlignment("WhisperX", 400, 1100, 0.9),
+    ],
+  });
+  assert.equal(divergent.consensus?.status, "review");
+  assert.equal(divergent.consensus?.reviewRequired, true);
+});
+
+function createForcedAlignment(
+  aligner: string,
+  startMs: number,
+  endMs: number,
+  confidence: number,
+) {
+  return importForcedAlignment({
+    aligner,
+    language: "fr",
+    durationMs: 1200,
+    confidence,
+    words: [{ word: "Bonjour", startMs, endMs, confidence, phonemes: [] }],
+    phonemes: [
+      {
+        phoneme: "b",
+        startMs,
+        endMs,
+        confidence,
+        wordIndex: 0,
+      },
+    ],
+  });
+}
 
 test("english alignment emits ascii phone labels and bounded intervals", () => {
   const alignment = alignPromptToPhonemes({

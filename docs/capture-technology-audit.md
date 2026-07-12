@@ -91,6 +91,44 @@ Practical decision:
 - `phonemes/*.json` gives downstream tools a deterministic word/phone map to validate or replace.
 - `reports/report.transcript_alignment.json` lists takes requiring forced alignment.
 
+### Multi-aligner consensus import
+
+The acoustic-alignment importer also accepts a consensus bundle:
+
+```json
+{
+  "alignments": [
+    {
+      "aligner": "MFA",
+      "language": "fr",
+      "durationMs": 1200,
+      "confidence": 0.94,
+      "words": [],
+      "phonemes": []
+    },
+    {
+      "aligner": "WhisperX",
+      "language": "fr",
+      "durationMs": 1200,
+      "confidence": 0.89,
+      "words": [],
+      "phonemes": []
+    }
+  ]
+}
+```
+
+Each nested value uses the existing `voice.forced_alignment.v1` import shape and must contain real
+word and phoneme intervals. The studio compares both acoustic alignments with its local G2P/VAD
+estimate, gives acoustic evidence five times the base weight of the estimate, and selects word
+boundaries with a weighted median. The strongest acoustic source remains the phoneme source because
+phone inventories cannot be averaged safely across aligners.
+
+The exported alignment retains every consensus source, weight, confidence, median boundary
+disagreement, and review status. Acoustic disagreement up to 40 ms is `strong`, up to 120 ms is
+`acceptable`, and larger disagreement is `review`; a review consensus cannot pass the phoneme
+alignment quality gate automatically.
+
 ## Dataset Readiness Tiers
 
 For real-time rendering:
