@@ -30,4 +30,8 @@ test("platform shell exposes a keyboard-safe viewport and touch-safe controls", 
     page.locator(".ritual-button, button.launch-button").first(),
   ).toHaveCSS("touch-action", "manipulation");
   await expect(page.locator("main.simple-app")).toHaveCSS("min-height", /px$/);
+  await expect(page.locator("main.simple-app")).toHaveCSS(
+    "user-select",
+    "none",
+  );
 });

@@ -210,6 +210,10 @@ export function installPlatformExperience(): () => void {
   const viewport = browserWindow.visualViewport;
   const standaloneQuery = window.matchMedia("(display-mode: standalone)");
   const removeCustomCursor = installCustomCursor(root);
+  const touchSelectionStyle = document.createElement("style");
+  touchSelectionStyle.textContent =
+    "@media (pointer:coarse){.simple-app{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}.simple-app :is(input,textarea){-webkit-user-select:text;user-select:text}}";
+  document.head.append(touchSelectionStyle);
   const edgeEffects = ["top", "bottom"].map((edge) => {
     const effect = document.createElement("div");
     const direction = edge === "top" ? "bottom" : "top";
@@ -336,6 +340,7 @@ export function installPlatformExperience(): () => void {
     window.removeEventListener("touchend", endEdgePull);
     window.removeEventListener("touchcancel", endEdgePull);
     removeCustomCursor();
+    touchSelectionStyle.remove();
     edgeEffects.forEach((effect) => effect.remove());
   };
 }

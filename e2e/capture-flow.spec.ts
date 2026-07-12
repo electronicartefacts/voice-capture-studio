@@ -147,6 +147,33 @@ test("a guided take flows from launch to the review screen", async ({
   await expect(page.locator(".review-waveform-svg")).toBeVisible();
   await expect(page.locator(".review-transcript")).toHaveCount(1);
 
+  const reviewWaveform = page.locator(".playback-waveform");
+  await expect(reviewWaveform).toHaveCSS("touch-action", "none");
+  const waveformBounds = await reviewWaveform.boundingBox();
+  expect(waveformBounds).not.toBeNull();
+  if (waveformBounds !== null) {
+    const centerY = waveformBounds.y + waveformBounds.height / 2;
+    await page.mouse.move(
+      waveformBounds.x + waveformBounds.width * 0.2,
+      centerY,
+    );
+    await page.mouse.down();
+    await expect(reviewWaveform).toHaveClass(/is-scrubbing/);
+    await page.mouse.move(
+      waveformBounds.x + waveformBounds.width * 0.75,
+      centerY,
+      {
+        steps: 4,
+      },
+    );
+    await expect(reviewWaveform).toHaveAttribute(
+      "aria-valuenow",
+      /^(7[0-9]|8[0-2])$/,
+    );
+    await page.mouse.up();
+    await expect(reviewWaveform).not.toHaveClass(/is-scrubbing/);
+  }
+
   for (const viewport of [
     { width: 320, height: 568 },
     { width: 393, height: 852 },

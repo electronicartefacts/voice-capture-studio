@@ -50,6 +50,7 @@ export function ListeningReviewSurface(input: {
   const playbackTimeRef = useRef<HTMLElement | null>(null);
   const progressClipRef = useRef<SVGRectElement | null>(null);
   const waveformRef = useRef<HTMLDivElement | null>(null);
+  const scrubbingPointerRef = useRef<number | null>(null);
   const onEnergyChangeRef = useRef(input.onEnergyChange);
   const onProgressChangeRef = useRef(input.onProgressChange);
   const smoothedPlaybackEnergyRef = useRef(0);
@@ -58,6 +59,7 @@ export function ListeningReviewSurface(input: {
     Math.max(0, (input.take?.durationMs ?? 0) / 1000),
   );
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isScrubbing, setIsScrubbing] = useState(false);
   const [loopEnabled, setLoopEnabled] = useState(false);
   const waveformId = useId().replace(/:/g, "");
   const wordTimings = useMemo(
@@ -257,14 +259,55 @@ export function ListeningReviewSurface(input: {
     );
   }
 
-  function handleWaveformSeek(event: PointerEvent<HTMLDivElement>) {
-    const bounds = event.currentTarget.getBoundingClientRect();
+  function seekWaveformFromClientX(element: HTMLDivElement, clientX: number) {
+    const bounds = element.getBoundingClientRect();
 
     if (bounds.width === 0) {
       return;
     }
 
-    seekToProgress((event.clientX - bounds.left) / bounds.width);
+    seekToProgress((clientX - bounds.left) / bounds.width);
+  }
+
+  function handleWaveformPointerDown(event: PointerEvent<HTMLDivElement>) {
+    if (
+      !event.isPrimary ||
+      (event.pointerType === "mouse" && event.button !== 0)
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    scrubbingPointerRef.current = event.pointerId;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setIsScrubbing(true);
+    seekWaveformFromClientX(event.currentTarget, event.clientX);
+
+    if (event.pointerType === "touch") {
+      navigator.vibrate?.(8);
+    }
+  }
+
+  function handleWaveformPointerMove(event: PointerEvent<HTMLDivElement>) {
+    if (scrubbingPointerRef.current !== event.pointerId) {
+      return;
+    }
+
+    event.preventDefault();
+    seekWaveformFromClientX(event.currentTarget, event.clientX);
+  }
+
+  function finishWaveformScrubbing(event: PointerEvent<HTMLDivElement>) {
+    if (scrubbingPointerRef.current !== event.pointerId) {
+      return;
+    }
+
+    scrubbingPointerRef.current = null;
+    setIsScrubbing(false);
+
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
   }
 
   function handleWaveformKeyboard(event: KeyboardEvent<HTMLDivElement>) {
@@ -425,12 +468,23 @@ export function ListeningReviewSurface(input: {
         aria-valuemax={100}
         aria-valuemin={0}
         aria-valuenow={Math.round(playbackProgress * 100)}
-        className="playback-waveform"
+        aria-valuetext={`${formatPlaybackTime(currentTime)} sur ${formatPlaybackTime(durationSeconds)}`}
+        className={`playback-waveform${isScrubbing ? " is-scrubbing" : ""}`}
         onKeyDown={handleWaveformKeyboard}
-        onPointerDown={handleWaveformSeek}
+        onLostPointerCapture={finishWaveformScrubbing}
+        onPointerCancel={finishWaveformScrubbing}
+        onPointerDown={handleWaveformPointerDown}
+        onPointerMove={handleWaveformPointerMove}
+        onPointerUp={finishWaveformScrubbing}
         role="slider"
         ref={waveformRef}
-        style={{ "--review-progress": playbackProgress } as CSSProperties}
+        style={
+          {
+            "--review-progress": playbackProgress,
+            cursor: isScrubbing ? "grabbing" : "ew-resize",
+            touchAction: "none",
+          } as CSSProperties
+        }
         tabIndex={0}
       >
         <span aria-hidden="true" className="waveform-format">
@@ -495,7 +549,19 @@ export function ListeningReviewSurface(input: {
             })}
           </g>
         </svg>
-        <span aria-hidden="true" className="review-playhead" />
+        <span
+          aria-hidden="true"
+          className="review-playhead"
+          style={
+            isScrubbing
+              ? {
+                  boxShadow:
+                    "0 0 26px 4px color-mix(in srgb, var(--accent-a) 72%, transparent)",
+                  width: 3,
+                }
+              : undefined
+          }
+        />
         <span aria-hidden="true" className="waveform-time-scale">
           <span>0:00</span>
           <span>{formatPlaybackTime(durationSeconds)}</span>
