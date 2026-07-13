@@ -38,6 +38,7 @@ import { createTakeCoachNote, formatPercent } from "../helpers";
 export function ListeningReviewSurface(input: {
   readonly audioUrl: string | null;
   readonly fileName: string | null;
+  readonly onBeforePlayback: () => void;
   readonly onEnergyChange: (level: number) => void;
   readonly onProgressChange: (progress: number) => void;
   readonly take: RecordedTake | null;
@@ -320,6 +321,8 @@ export function ListeningReviewSurface(input: {
       audio.pause();
       return;
     }
+
+    input.onBeforePlayback();
 
     if (durationSeconds > 0 && currentTime >= durationSeconds - 0.05) {
       audio.currentTime = 0;
@@ -726,6 +729,7 @@ export function DoneScreen(input: {
   readonly onAgain: () => void;
   readonly onHome: () => void;
   readonly onNext: () => void;
+  readonly onBeforePlayback: () => void;
   readonly onPlaybackEnergyChange: (level: number) => void;
   readonly onPlaybackProgressChange: (progress: number) => void;
   readonly onLocalAnalysis: (analysis: LocalTakeAnalysis) => void;
@@ -756,6 +760,7 @@ export function DoneScreen(input: {
       <ListeningReviewSurface
         audioUrl={input.downloadUrl}
         fileName={input.fileName}
+        onBeforePlayback={input.onBeforePlayback}
         onEnergyChange={input.onPlaybackEnergyChange}
         onProgressChange={input.onPlaybackProgressChange}
         take={input.take}

@@ -3706,6 +3706,7 @@ export function App() {
                   onLocalAnalysis={(analysis) =>
                     void persistLocalTakeAnalysis(analysis)
                   }
+                  onBeforePlayback={stopAmbientMicrophoneMonitor}
                   progressLabel={
                     session === null
                       ? null
