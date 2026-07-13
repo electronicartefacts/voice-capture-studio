@@ -3270,11 +3270,6 @@ export function App() {
     clearRoomToneTimers();
     mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
     mediaStreamRef.current = null;
-    // The recorder can use a clone of the always-on ambient monitor stream.
-    // Releasing only that clone leaves iOS Safari in capture mode, which
-    // attenuates or reroutes replay through the receiver. Close both streams
-    // before entering the review screen so native speaker playback is restored.
-    stopAmbientMicrophoneMonitor();
     stopBackingTrackPlayback(true);
     releaseRecordingWakeLock();
   }
