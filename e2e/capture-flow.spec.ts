@@ -35,6 +35,35 @@ test("studio boots to the home screen with recording available", async ({
   await expect(launchButton).toContainText("Créer le dataset");
 });
 
+test("leaving the page cuts the microphone and requires device revalidation", async ({
+  page,
+}) => {
+  await enterStudio(page);
+
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      value: "hidden",
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+
+  await expect(page.locator("main.is-ritual")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Revalider l’appareil" }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Le microphone a été coupé lorsque tu as quitté la page."),
+  ).toBeVisible();
+
+  await page.reload();
+
+  await expect(page.locator("main.is-ritual")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Revalider l’appareil" }),
+  ).toBeVisible();
+});
+
 test("ML session tracking and export storage have distinct home regions", async ({
   page,
 }) => {

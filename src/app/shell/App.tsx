@@ -270,9 +270,36 @@ function disconnectAudioNode(node: AudioNode | null): void {
   }
 }
 
+const MICROPHONE_REVALIDATION_KEY =
+  "voice-capture-studio.microphone-revalidation.v1";
+
+function requiresStoredMicrophoneRevalidation(): boolean {
+  try {
+    return sessionStorage.getItem(MICROPHONE_REVALIDATION_KEY) === "required";
+  } catch {
+    return false;
+  }
+}
+
+function storeMicrophoneRevalidation(required: boolean): void {
+  try {
+    if (required) {
+      sessionStorage.setItem(MICROPHONE_REVALIDATION_KEY, "required");
+    } else {
+      sessionStorage.removeItem(MICROPHONE_REVALIDATION_KEY);
+    }
+  } catch {
+    // Safari private browsing can make storage unavailable. The in-memory
+    // lifecycle state still protects the current page instance.
+  }
+}
+
 export function App() {
   const surfaceProfile = useSurfaceProfile();
   const [studioAwake, setStudioAwake] = useState(false);
+  const [requiresDeviceRevalidation, setRequiresDeviceRevalidation] = useState(
+    requiresStoredMicrophoneRevalidation,
+  );
   const [isWaveformReady, setIsWaveformReady] = useState(false);
   const [ritualStatus, setRitualStatus] = useState<RitualStatus>("idle");
   const [screen, setScreenState] = useState<Screen>("home");
@@ -671,6 +698,10 @@ export function App() {
 
     void (async () => {
       try {
+        if (requiresStoredMicrophoneRevalidation()) {
+          return;
+        }
+
         if (navigator.permissions?.query === undefined) {
           return;
         }
@@ -744,19 +775,66 @@ export function App() {
   }, [workspace, workspaceDurability]);
 
   useEffect(() => {
+    function handlePageExit() {
+      const recorder = pcmRecorderRef.current;
+      const hasActiveMicrophone =
+        ambientMonitorRef.current !== null ||
+        mediaStreamRef.current !== null ||
+        recorder !== null;
+
+      if (!hasActiveMicrophone) {
+        return;
+      }
+
+      storeMicrophoneRevalidation(true);
+      stopAmbientMicrophoneMonitor();
+      setStudioAwake(false);
+      setRequiresDeviceRevalidation(true);
+      setRitualStatus("idle");
+      setIsWaveformReady(false);
+      resetVisualAudioLevel();
+      stopPromptReference();
+
+      if (recorder !== null && screenRef.current === "karaoke") {
+        stopMediaStream();
+        void finishRecordingRef.current();
+        return;
+      }
+
+      if (recorder !== null) {
+        pcmRecorderRef.current = null;
+        void recorder.stop().catch(() => undefined);
+        setScreen("permission");
+      }
+
+      stopMediaStream();
+    }
+
     function handleVisibilityChange() {
-      if (
-        document.visibilityState === "visible" &&
-        pcmRecorderRef.current !== null
-      ) {
-        void requestRecordingWakeLock();
+      if (document.visibilityState === "hidden") {
+        handlePageExit();
+      }
+    }
+
+    function handlePageReturn() {
+      if (requiresStoredMicrophoneRevalidation()) {
+        setStudioAwake(false);
+        setRequiresDeviceRevalidation(true);
+        setRitualStatus("idle");
       }
     }
 
     document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("blur", handlePageExit);
+    window.addEventListener("pagehide", handlePageExit);
+    window.addEventListener("pageshow", handlePageReturn);
 
-    return () =>
+    return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("blur", handlePageExit);
+      window.removeEventListener("pagehide", handlePageExit);
+      window.removeEventListener("pageshow", handlePageReturn);
+    };
   }, []);
 
   useEffect(() => {
@@ -850,6 +928,8 @@ export function App() {
       stopAmbientMicrophoneMonitor();
       ambientMonitorRef.current = monitor;
       setStudioAwake(true);
+      storeMicrophoneRevalidation(false);
+      setRequiresDeviceRevalidation(false);
       setRitualStatus("idle");
       setMessage(createRuntimeHomeMessage(diagnostics));
     } catch (error) {
@@ -3381,6 +3461,7 @@ export function App() {
       {!studioAwake ? (
         <OpeningRitual
           onAwaken={() => void awakenStudio()}
+          requiresDeviceRevalidation={requiresDeviceRevalidation}
           status={ritualStatus}
         />
       ) : (

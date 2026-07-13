@@ -44,6 +44,7 @@ export function SiteFooter() {
 
 export function OpeningRitual(input: {
   readonly onAwaken: () => void;
+  readonly requiresDeviceRevalidation?: boolean;
   readonly status: RitualStatus;
 }) {
   const buttonLabel =
@@ -51,7 +52,9 @@ export function OpeningRitual(input: {
       ? "Activation du microphone…"
       : input.status === "denied"
         ? "Réessayer le microphone"
-        : "Activer le microphone";
+        : input.requiresDeviceRevalidation
+          ? "Revalider l’appareil"
+          : "Activer le microphone";
 
   return (
     <section className="opening-ritual" aria-live="polite">
@@ -77,7 +80,12 @@ export function OpeningRitual(input: {
           <Mic aria-hidden="true" size={18} />
           <span>{buttonLabel}</span>
         </button>
-        {input.status === "idle" && (
+        {input.status === "idle" && input.requiresDeviceRevalidation && (
+          <p className="ritual-reassurance">
+            Le microphone a été coupé lorsque tu as quitté la page.
+          </p>
+        )}
+        {input.status === "idle" && !input.requiresDeviceRevalidation && (
           <p
             className="ritual-reassurance"
             style={{
