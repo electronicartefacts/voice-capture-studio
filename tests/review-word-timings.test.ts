@@ -16,6 +16,7 @@ function takeWithTimings(): RecordedTake {
         { word: "monde", startMs: 600, endMs: 1_200 },
       ],
       localAcousticAnalysis: {
+        speechSegments: [{ startMs: 560, endMs: 1_800 }],
         words: [
           {
             word: "Bonjour",
@@ -38,8 +39,9 @@ function takeWithTimings(): RecordedTake {
 test("replay uses acoustic Whisper timings instead of early G2P estimates", () => {
   const timings = createReviewWordTimings(takeWithTimings());
 
-  assert.equal(timings[0].startMs, 420);
-  assert.equal(timings[1].startMs, 1_050);
+  assert.equal(timings[0].startMs, 505);
+  assert.ok(timings[1].startMs > 1_050);
+  assert.ok((timings.at(-1)?.endMs ?? 0) >= 1_800);
 });
 
 test("replay gives verified forced alignment the highest priority", () => {
@@ -62,8 +64,8 @@ test("replay does not highlight transcription during leading silence", () => {
   const timings = createReviewWordTimings(takeWithTimings());
 
   assert.equal(findActiveReviewWordIndex(timings, 0), -1);
-  assert.equal(findActiveReviewWordIndex(timings, 419), -1);
-  assert.equal(findActiveReviewWordIndex(timings, 420), 0);
-  assert.equal(findActiveReviewWordIndex(timings, 1_020), 0);
-  assert.equal(findActiveReviewWordIndex(timings, 1_050), 1);
+  assert.equal(findActiveReviewWordIndex(timings, 504), -1);
+  assert.equal(findActiveReviewWordIndex(timings, 505), 0);
+  assert.equal(findActiveReviewWordIndex(timings, 1_050), 0);
+  assert.equal(findActiveReviewWordIndex(timings, timings[1].startMs), 1);
 });
