@@ -525,7 +525,11 @@ export async function createVoiceCapturePackagePlan(input: {
       });
     }
 
-    const lifecycle = lifecycleFor(take, alignment.status, consent.status);
+    const lifecycle = lifecycleFor(
+      take,
+      alignment.status,
+      isConsentTrainingGrantValid(consent),
+    );
     const sample: VoiceCapturePackageSample = {
       sample_id: `sample_${stableToken(`${session.id}:${take.id}`)}`,
       utterance_id: utteranceId,
@@ -882,7 +886,7 @@ function shouldIncludeTake(
       : take.timing.localAcousticAnalysis !== undefined
         ? "local_acoustic_comparison"
         : "estimated_g2p",
-    "unknown",
+    false,
   ).status;
   return statuses.includes(take.review.rating) || statuses.includes(lifecycle);
 }
@@ -890,7 +894,7 @@ function shouldIncludeTake(
 function lifecycleFor(
   take: RecordedTake,
   alignmentStatus: VoiceCapturePackageSample["alignment"]["status"],
-  consentStatus: ConsentRecord["status"],
+  hasTrainingRights: boolean,
 ): VoiceCapturePackageSample["lifecycle"] {
   if (take.review.rating === "reject")
     return {
@@ -915,7 +919,7 @@ function lifecycleFor(
     ...(alignmentStatus === "local_acoustic_comparison"
       ? ["local_acoustic_alignment_requires_confirmation"]
       : []),
-    ...(consentStatus !== "granted" ? ["rights_not_granted"] : []),
+    ...(!hasTrainingRights ? ["rights_not_granted"] : []),
     ...(take.quality.verdict !== "pass" ? ["quality_requires_review"] : []),
   ];
   return {
@@ -1071,10 +1075,30 @@ function getRightsStatus(
   licenses: readonly LicenseRecord[],
 ): VoiceCapturePackageManifest["rights_status"] {
   if (consents.length === 0 || licenses.length === 0) return "unknown";
-  return consents.every((record) => record.status === "granted") &&
-    licenses.every((record) => record.status === "granted")
+  return consents.every(isConsentTrainingGrantValid) &&
+    licenses.every(isLicenseTrainingGrantValid)
     ? "resolved"
     : "blocked";
+}
+
+function isConsentTrainingGrantValid(record: ConsentRecord): boolean {
+  return (
+    record.status === "granted" &&
+    record.grants.includes("forge_ingestion") &&
+    record.grants.includes("model_training") &&
+    record.restrictions.length === 0 &&
+    record.grantedAt !== null &&
+    record.revokedAt === null &&
+    record.evidenceRef !== null
+  );
+}
+
+function isLicenseTrainingGrantValid(record: LicenseRecord): boolean {
+  return (
+    record.status === "granted" &&
+    record.restrictions.length === 0 &&
+    record.evidenceRef !== null
+  );
 }
 
 function createQualitySummary(samples: readonly VoiceCapturePackageSample[]) {

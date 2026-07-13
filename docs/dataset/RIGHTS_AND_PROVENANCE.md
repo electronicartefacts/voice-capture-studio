@@ -17,6 +17,13 @@ Legacy workspaces do not contain durable rights records, so their package rows
 default to `unknown`. Forge ingestion readiness is blocked until all required
 consents and licenses are explicit `granted`.
 
+Workspace schema v2 persists two explicit local attestations: the speaker's
+consent for both `forge_ingestion` and `model_training`, and the right to use the
+selected corpus for that purpose. Rights are resolved only when both records
+are granted, unrestricted, backed by an evidence reference, and the speaker
+consent has not been revoked. Clearing either attestation blocks Forge readiness
+again; permission is never inferred from the existence of a recording.
+
 ## Provenance records
 
 Every sample carries:

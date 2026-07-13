@@ -146,6 +146,8 @@ export function TechnicalPage(input: {
   readonly inputGainMode: InputGainMode;
   readonly microphoneActive: boolean;
   readonly microphoneLabel: string | null;
+  readonly trainingConsentGranted: boolean;
+  readonly corpusLicenseGranted: boolean;
   readonly onBack: () => void;
   readonly onClearCachedModels: () => void;
   readonly onDownloadDataset: () => void;
@@ -154,6 +156,8 @@ export function TechnicalPage(input: {
   readonly onImportWorkspaceArchive: (file: File) => Promise<number>;
   readonly onInputSensitivityChange: (value: number) => void;
   readonly onInputGainModeChange: (mode: InputGainMode) => void;
+  readonly onTrainingConsentChange: (granted: boolean) => void;
+  readonly onCorpusLicenseChange: (granted: boolean) => void;
   readonly onWriteDatasetToFolder: () => void;
   readonly recordings: readonly DownloadableRecording[];
   readonly savedSessions: number;
@@ -299,6 +303,42 @@ export function TechnicalPage(input: {
         onDownload={input.onDownloadWorkspaceArchive}
         onImport={input.onImportWorkspaceArchive}
       />
+      <section
+        className="forced-alignment-panel"
+        aria-label="Droits du dataset"
+      >
+        <div>
+          <p className="soft-label">Droits du dataset</p>
+          <strong>Attestations locales et révocables</strong>
+          <label>
+            <input
+              checked={input.trainingConsentGranted}
+              onChange={(event) =>
+                input.onTrainingConsentChange(event.currentTarget.checked)
+              }
+              type="checkbox"
+            />{" "}
+            J’autorise l’ingestion Forge et l’entraînement de modèles avec cette
+            voix.
+          </label>
+          <label>
+            <input
+              checked={input.corpusLicenseGranted}
+              onChange={(event) =>
+                input.onCorpusLicenseChange(event.currentTarget.checked)
+              }
+              type="checkbox"
+            />{" "}
+            J’atteste disposer des droits nécessaires sur ce corpus pour cet
+            usage.
+          </label>
+          <span>
+            Ces attestations restent sur cet appareil, sont exportées comme
+            preuves de provenance et peuvent être révoquées ici. Ceci ne
+            constitue pas un avis juridique.
+          </span>
+        </div>
+      </section>
       <section className="forced-alignment-panel">
         <div>
           <p className="soft-label">Modèles d'analyse</p>

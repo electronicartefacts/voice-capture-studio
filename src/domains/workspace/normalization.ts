@@ -52,7 +52,16 @@ export function normalizeWorkspacePayload(
     ),
     sessions: coerceReadonlyArray(workspace.sessions),
     capturedSessions: coerceReadonlyArray(workspace.capturedSessions),
+    rights: normalizeWorkspaceRights(workspace.rights),
     settings: normalizeWorkspaceSettings(workspace.settings),
+  };
+}
+
+function normalizeWorkspaceRights(value: unknown): VoiceWorkspace["rights"] {
+  const rights = isRecord(value) ? value : {};
+  return {
+    consents: coerceReadonlyArray(rights.consents),
+    licenses: coerceReadonlyArray(rights.licenses),
   };
 }
 

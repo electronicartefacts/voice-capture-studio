@@ -21,7 +21,37 @@ export type VoiceWorkspace = {
   readonly localCorpusSnapshot: LocalCorpusSnapshot | null;
   readonly sessions: readonly SessionId[];
   readonly capturedSessions: readonly CaptureSession[];
+  readonly rights: WorkspaceRights;
   readonly settings: WorkspaceSettings;
+};
+
+export type WorkspaceRights = {
+  readonly consents: readonly WorkspaceConsentRecord[];
+  readonly licenses: readonly WorkspaceLicenseRecord[];
+};
+
+export type WorkspaceConsentRecord = {
+  readonly consentId: string;
+  readonly speakerId: string;
+  readonly policyVersion: string;
+  readonly status: "granted" | "revoked" | "unknown";
+  readonly grants: readonly string[];
+  readonly restrictions: readonly string[];
+  readonly grantedAt: string | null;
+  readonly revokedAt: string | null;
+  readonly evidenceRef: string | null;
+  readonly source: "local_user_attestation";
+};
+
+export type WorkspaceLicenseRecord = {
+  readonly licenseId: string;
+  readonly corpusId: string;
+  readonly corpusVersion: string;
+  readonly status: "granted" | "unknown";
+  readonly spdxId: string | null;
+  readonly restrictions: readonly string[];
+  readonly evidenceRef: string | null;
+  readonly source: "local_user_attestation";
 };
 
 export type WorkspaceSpeaker = {

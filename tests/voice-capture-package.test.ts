@@ -323,6 +323,28 @@ test("voice capture package v1 can be Forge-ingestion-ready only when rights are
   assert.equal(plan.forgeCompatibility.ready, true);
   assert.equal(plan.samples[0].alignment.status, "external_forced_alignment");
   assert.equal(plan.samples[0].lifecycle.status, "training_candidate");
+
+  const incompleteGrantPlan = await createVoiceCapturePackagePlan({
+    corpus: canonicalCorpus,
+    getAudioBlob: async (fileName) => fixture.audioByFileName.get(fileName),
+    licenses,
+    rights: [{ ...rights[0], grants: ["forge_ingestion"] }],
+    scope: createScope(fixture.workspace, {
+      speakerId: frSpeaker.id,
+      language: "fr",
+      sessionIds: [fixture.session.id],
+    }),
+    speakerProfiles: initialSpeakers,
+    workspace: fixture.workspace,
+  });
+
+  assert.equal(incompleteGrantPlan.manifest.rights_status, "blocked");
+  assert.equal(incompleteGrantPlan.forgeCompatibility.ready, false);
+  assert.ok(
+    incompleteGrantPlan.samples[0].lifecycle.reasons.includes(
+      "rights_not_granted",
+    ),
+  );
 });
 
 test("wav validation accepts the production encoder and rejects malformed RIFF", async () => {

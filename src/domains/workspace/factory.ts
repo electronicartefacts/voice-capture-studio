@@ -8,7 +8,7 @@ import type {
   WorkspaceSchemaVersion,
 } from "./types";
 
-export const CURRENT_WORKSPACE_SCHEMA_VERSION = 1 as WorkspaceSchemaVersion;
+export const CURRENT_WORKSPACE_SCHEMA_VERSION = 2 as WorkspaceSchemaVersion;
 
 export function createEmptyWorkspace(input: {
   readonly corpus: CorpusManifest;
@@ -31,6 +31,7 @@ export function createEmptyWorkspace(input: {
     localCorpusSnapshot: null,
     sessions: [],
     capturedSessions: [],
+    rights: { consents: [], licenses: [] },
     settings: DEFAULT_WORKSPACE_SETTINGS,
   };
 }

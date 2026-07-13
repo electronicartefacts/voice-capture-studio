@@ -1,4 +1,6 @@
 import {
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -40,7 +42,7 @@ import {
   type WorkspaceId,
   type WorkspaceReceipt,
 } from "@domains/workspace";
-import { type LanguageCode } from "@shared/index";
+import { type IsoDateTime, type LanguageCode } from "@shared/index";
 import { createPcmRecorder, type PcmRecorder } from "../audio/pcmRecorder";
 import type { InputGainMode } from "../audio/inputGain";
 import { createBrowserAsrObservation } from "../analysis/browserAsrObservation";
@@ -171,9 +173,14 @@ import {
   OpeningRitual,
   SiteFooter,
 } from "./screens/StudioChrome";
-import { TechnicalPage } from "./screens/TechnicalPage";
 import { surfaceProfileDetails, useSurfaceProfile } from "./surfaceProfile";
 import { useAmbientRenderingBudget } from "./useAmbientRenderingBudget";
+
+const TechnicalPage = lazy(() =>
+  import("./screens/TechnicalPage").then((module) => ({
+    default: module.TechnicalPage,
+  })),
+);
 
 type RecordingWakeLockSentinel = {
   readonly released: boolean;
@@ -492,6 +499,24 @@ export function App() {
     captureMode === "training"
       ? canonicalCorpus
       : (localCorpus?.corpus ?? null);
+  const trainingConsentGranted =
+    workspace?.rights.consents.some(
+      (record) =>
+        record.speakerId === selectedSpeakerId &&
+        record.status === "granted" &&
+        record.grants.includes("forge_ingestion") &&
+        record.grants.includes("model_training") &&
+        record.revokedAt === null,
+    ) ?? false;
+  const corpusLicenseGranted =
+    activeCorpus !== null &&
+    (workspace?.rights.licenses.some(
+      (record) =>
+        record.corpusId === activeCorpus.id &&
+        record.corpusVersion === activeCorpus.version &&
+        record.status === "granted",
+    ) ??
+      false);
   const activePromptId = session?.plannedPromptIds[currentPromptIndex];
   const promptText =
     activePromptId && activeCorpus !== null
@@ -1049,6 +1074,8 @@ export function App() {
       const plan = await createVoiceCapturePackagePlan({
         corpus: activeCorpus,
         getAudioBlob: getWorkspaceRecording,
+        licenses: workspace.rights.licenses,
+        rights: workspace.rights.consents,
         scope,
         speakerProfiles,
         workspace,
@@ -1141,6 +1168,8 @@ export function App() {
       const plan = await createVoiceCapturePackagePlan({
         corpus: activeCorpus,
         getAudioBlob: getWorkspaceRecording,
+        licenses: workspace.rights.licenses,
+        rights: workspace.rights.consents,
         scope,
         speakerProfiles,
         workspace,
@@ -1170,6 +1199,92 @@ export function App() {
             : "Le dataset n'a pas pu être écrit dans ce dossier.",
       });
     }
+  }
+
+  async function updateTrainingConsent(granted: boolean) {
+    const currentWorkspace = await ensureWorkspace();
+    const now = new Date().toISOString() as IsoDateTime;
+    const previous = currentWorkspace.rights.consents.find(
+      (record) => record.speakerId === selectedSpeakerId,
+    );
+    const nextRecord = {
+      consentId: previous?.consentId ?? `consent.${selectedSpeakerId}.local`,
+      speakerId: selectedSpeakerId,
+      policyVersion: "voice-training-consent.v1",
+      status: granted ? ("granted" as const) : ("revoked" as const),
+      grants: granted ? ["forge_ingestion", "model_training"] : [],
+      restrictions: [],
+      grantedAt: granted ? now : (previous?.grantedAt ?? null),
+      revokedAt: granted ? null : now,
+      evidenceRef: granted ? `local-attestation:${now}` : null,
+      source: "local_user_attestation" as const,
+    };
+    const nextWorkspace = {
+      ...currentWorkspace,
+      updatedAt: now,
+      rights: {
+        ...currentWorkspace.rights,
+        consents: [
+          ...currentWorkspace.rights.consents.filter(
+            (record) => record.speakerId !== selectedSpeakerId,
+          ),
+          nextRecord,
+        ],
+      },
+    };
+    const result = await workspaceRepository.save(nextWorkspace);
+    if (!result.ok) throw new Error(result.message);
+    applyWorkspaceReceipt(result.value);
+    setDatasetExportState({ status: "idle" });
+    setMessage(
+      granted ? "Consentement enregistré localement." : "Consentement révoqué.",
+    );
+  }
+
+  async function updateCorpusLicense(granted: boolean) {
+    if (activeCorpus === null) return;
+    const currentWorkspace = await ensureWorkspace();
+    const now = new Date().toISOString() as IsoDateTime;
+    const matchesCorpus = (
+      record: VoiceWorkspace["rights"]["licenses"][number],
+    ) =>
+      record.corpusId === activeCorpus.id &&
+      record.corpusVersion === activeCorpus.version;
+    const previous = currentWorkspace.rights.licenses.find(matchesCorpus);
+    const nextRecord = {
+      licenseId:
+        previous?.licenseId ??
+        `license.${activeCorpus.id}.${activeCorpus.version}.local`,
+      corpusId: activeCorpus.id,
+      corpusVersion: activeCorpus.version,
+      status: granted ? ("granted" as const) : ("unknown" as const),
+      spdxId: null,
+      restrictions: [],
+      evidenceRef: granted ? `local-attestation:${now}` : null,
+      source: "local_user_attestation" as const,
+    };
+    const nextWorkspace = {
+      ...currentWorkspace,
+      updatedAt: now,
+      rights: {
+        ...currentWorkspace.rights,
+        licenses: [
+          ...currentWorkspace.rights.licenses.filter(
+            (record) => !matchesCorpus(record),
+          ),
+          nextRecord,
+        ],
+      },
+    };
+    const result = await workspaceRepository.save(nextWorkspace);
+    if (!result.ok) throw new Error(result.message);
+    applyWorkspaceReceipt(result.value);
+    setDatasetExportState({ status: "idle" });
+    setMessage(
+      granted
+        ? "Droits du corpus attestés localement."
+        : "Attestation du corpus retirée.",
+    );
   }
 
   function createCurrentVoicePackageScope(
@@ -3306,35 +3421,59 @@ export function App() {
           </header>
 
           {screen === "technical" ? (
-            <TechnicalPage
-              audioLevel={audioLevel}
-              captureMode={captureMode}
-              corpusId={activeCorpus?.id ?? null}
-              corpusVersion={activeCorpus?.version ?? null}
-              coverage={coverage}
-              coveragePercent={coverage?.percent ?? 0}
-              datasetExportState={datasetExportState}
-              diagnostics={diagnostics}
-              folderName={folderName}
-              inputGainMode={inputGainMode}
-              inputSensitivity={inputSensitivity}
-              microphoneActive={studioAwake}
-              microphoneLabel={microphoneLabel}
-              onBack={() => setScreen("home")}
-              onDownloadDataset={downloadDatasetPackage}
-              onDownloadWorkspaceArchive={downloadWorkspaceArchive}
-              onImportForcedAlignment={loadForcedAlignmentFile}
-              onImportWorkspaceArchive={importWorkspaceArchive}
-              onInputGainModeChange={updateInputGainMode}
-              onInputSensitivityChange={updateInputSensitivity}
-              onClearCachedModels={() => void clearCachedModels()}
-              onWriteDatasetToFolder={writeDatasetPackageToFolder}
-              recordings={storedRecordings}
-              savedSessions={workspace?.sessions.length ?? 0}
-              storageMode={
-                canChooseSystemFolder() ? "folder-capable" : "browser-downloads"
-              }
-            />
+            <Suspense fallback={<section className="technical-page" />}>
+              <TechnicalPage
+                audioLevel={audioLevel}
+                captureMode={captureMode}
+                corpusId={activeCorpus?.id ?? null}
+                corpusLicenseGranted={corpusLicenseGranted}
+                corpusVersion={activeCorpus?.version ?? null}
+                coverage={coverage}
+                coveragePercent={coverage?.percent ?? 0}
+                datasetExportState={datasetExportState}
+                diagnostics={diagnostics}
+                folderName={folderName}
+                inputGainMode={inputGainMode}
+                inputSensitivity={inputSensitivity}
+                microphoneActive={studioAwake}
+                microphoneLabel={microphoneLabel}
+                onBack={() => setScreen("home")}
+                onDownloadDataset={downloadDatasetPackage}
+                onDownloadWorkspaceArchive={downloadWorkspaceArchive}
+                onImportForcedAlignment={loadForcedAlignmentFile}
+                onImportWorkspaceArchive={importWorkspaceArchive}
+                onInputGainModeChange={updateInputGainMode}
+                onInputSensitivityChange={updateInputSensitivity}
+                onCorpusLicenseChange={(granted) =>
+                  void updateCorpusLicense(granted).catch((error: unknown) =>
+                    setMessage(
+                      error instanceof Error
+                        ? error.message
+                        : "Impossible d’enregistrer les droits du corpus.",
+                    ),
+                  )
+                }
+                onClearCachedModels={() => void clearCachedModels()}
+                onTrainingConsentChange={(granted) =>
+                  void updateTrainingConsent(granted).catch((error: unknown) =>
+                    setMessage(
+                      error instanceof Error
+                        ? error.message
+                        : "Impossible d’enregistrer le consentement.",
+                    ),
+                  )
+                }
+                onWriteDatasetToFolder={writeDatasetPackageToFolder}
+                recordings={storedRecordings}
+                savedSessions={workspace?.sessions.length ?? 0}
+                storageMode={
+                  canChooseSystemFolder()
+                    ? "folder-capable"
+                    : "browser-downloads"
+                }
+                trainingConsentGranted={trainingConsentGranted}
+              />
+            </Suspense>
           ) : (
             <section className="session-stage">
               {screen === "home" && (

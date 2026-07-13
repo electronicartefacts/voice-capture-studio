@@ -54,6 +54,7 @@ test("workspace normalization repairs missing and invalid browser payload fields
   assert.equal(workspace.localCorpusSnapshot, null);
   assert.deepEqual(workspace.sessions, ["session.valid"]);
   assert.deepEqual(workspace.capturedSessions, []);
+  assert.deepEqual(workspace.rights, { consents: [], licenses: [] });
   assert.equal(workspace.settings.preferredSessionMinutes, 60);
   assert.equal(workspace.settings.storageMode, "browser-private-storage");
   assert.equal(
@@ -106,6 +107,22 @@ test("workspace normalization preserves a local corpus snapshot", () => {
     sourceName: "scene.srt",
     text: "Oui.\nNon.",
   });
+});
+
+test("workspace normalization preserves durable rights records", () => {
+  const workspace = normalizeWorkspacePayload({
+    rights: {
+      consents: [{ consentId: "consent.local", status: "granted" }],
+      licenses: [{ licenseId: "license.local", status: "granted" }],
+    },
+  });
+
+  assert.deepEqual(workspace.rights.consents, [
+    { consentId: "consent.local", status: "granted" },
+  ]);
+  assert.deepEqual(workspace.rights.licenses, [
+    { licenseId: "license.local", status: "granted" },
+  ]);
 });
 
 test("workspace progress reconciliation tolerates malformed browser history entries", () => {

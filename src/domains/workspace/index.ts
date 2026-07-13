@@ -6,6 +6,9 @@ export type {
   WorkspaceSchemaVersion,
   WorkspaceSettings,
   WorkspaceSpeaker,
+  WorkspaceRights,
+  WorkspaceConsentRecord,
+  WorkspaceLicenseRecord,
 } from "./types";
 export type {
   WorkspaceDurability,
