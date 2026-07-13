@@ -21,6 +21,10 @@ import {
 } from "lucide-react";
 import type { RecordedTake } from "@domains/sessions";
 import {
+  createReviewWordTimings,
+  findActiveReviewWordIndex,
+} from "../../audio/reviewWordTimings";
+import {
   analyzeTakeAudio,
   isLocalAnalysisSupported,
 } from "../../analysis/localTakeAnalysis";
@@ -567,53 +571,6 @@ export function ListeningReviewSurface(input: {
       </div>
     </section>
   );
-}
-
-function createReviewWordTimings(take: RecordedTake | null): readonly {
-  readonly word: string;
-  readonly startMs: number;
-  readonly endMs: number;
-}[] {
-  if (take === null) {
-    return [];
-  }
-
-  if (take.timing.words.length > 0) {
-    return take.timing.words;
-  }
-
-  const words = take.transcript.spokenText.split(/\s+/).filter(Boolean);
-  const durationMs = Math.max(1, take.durationMs);
-
-  return words.map((word, index) => ({
-    word,
-    startMs: Math.round((durationMs / Math.max(1, words.length)) * index),
-    endMs: Math.round((durationMs / Math.max(1, words.length)) * (index + 1)),
-  }));
-}
-
-function findActiveReviewWordIndex(
-  wordTimings: readonly { readonly startMs: number; readonly endMs: number }[],
-  currentTimeMs: number,
-): number {
-  if (wordTimings.length === 0) {
-    return -1;
-  }
-
-  const exactIndex = wordTimings.findIndex(
-    (timing) =>
-      currentTimeMs >= timing.startMs && currentTimeMs <= timing.endMs,
-  );
-
-  if (exactIndex >= 0) {
-    return exactIndex;
-  }
-
-  const nextIndex = wordTimings.findIndex(
-    (timing) => currentTimeMs < timing.startMs,
-  );
-
-  return nextIndex === -1 ? wordTimings.length - 1 : Math.max(0, nextIndex - 1);
 }
 
 function formatPlaybackTime(seconds: number): string {
