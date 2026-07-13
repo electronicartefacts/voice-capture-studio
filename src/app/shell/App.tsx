@@ -439,6 +439,9 @@ export function App() {
   const lastTranscriptAtRef = useRef(0);
   const finishRecordingRef = useRef<() => void>(() => undefined);
   const hasCalibratedCurrentSessionRef = useRef(false);
+  const microphoneLeaseEpochRef = useRef(0);
+  const microphoneRequestPendingRef = useRef(false);
+  const pageExitHandledRef = useRef(false);
 
   const setScreen = useCallback((nextScreen: Screen) => {
     // Arming the capture screens must never wait on a transition: recording
@@ -782,15 +785,18 @@ export function App() {
       (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 
     function handlePageExit() {
+      microphoneLeaseEpochRef.current += 1;
       const recorder = pcmRecorderRef.current;
       const hasActiveMicrophone =
         ambientMonitorRef.current !== null ||
         mediaStreamRef.current !== null ||
-        recorder !== null;
+        recorder !== null ||
+        microphoneRequestPendingRef.current;
 
-      if (!hasActiveMicrophone) {
+      if (!hasActiveMicrophone || pageExitHandledRef.current) {
         return;
       }
+      pageExitHandledRef.current = true;
 
       storeMicrophoneRevalidation(true);
       stopAmbientMicrophoneMonitor();
@@ -831,18 +837,22 @@ export function App() {
     }
 
     document.addEventListener("visibilitychange", handleVisibilityChange);
+    document.addEventListener("freeze", handlePageExit);
     if (usesIOSBlurFallback) {
       window.addEventListener("blur", handlePageExit);
     }
     window.addEventListener("pagehide", handlePageExit);
+    window.addEventListener("beforeunload", handlePageExit);
     window.addEventListener("pageshow", handlePageReturn);
 
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
+      document.removeEventListener("freeze", handlePageExit);
       if (usesIOSBlurFallback) {
         window.removeEventListener("blur", handlePageExit);
       }
       window.removeEventListener("pagehide", handlePageExit);
+      window.removeEventListener("beforeunload", handlePageExit);
       window.removeEventListener("pageshow", handlePageReturn);
     };
   }, []);
@@ -931,21 +941,41 @@ export function App() {
     }
 
     setRitualStatus("requesting");
+    const leaseEpoch = microphoneLeaseEpochRef.current;
+    microphoneRequestPendingRef.current = true;
 
     try {
       const monitor = await createAmbientMicrophoneMonitor();
 
+      if (
+        leaseEpoch !== microphoneLeaseEpochRef.current ||
+        document.visibilityState === "hidden"
+      ) {
+        monitor.stop();
+        storeMicrophoneRevalidation(true);
+        setRequiresDeviceRevalidation(true);
+        setRitualStatus("idle");
+        return;
+      }
+
       stopAmbientMicrophoneMonitor();
       ambientMonitorRef.current = monitor;
+      pageExitHandledRef.current = false;
       setStudioAwake(true);
       storeMicrophoneRevalidation(false);
       setRequiresDeviceRevalidation(false);
       setRitualStatus("idle");
       setMessage(createRuntimeHomeMessage(diagnostics));
     } catch (error) {
+      if (leaseEpoch !== microphoneLeaseEpochRef.current) {
+        setRitualStatus("idle");
+        return;
+      }
       setRitualStatus("denied");
       setMessage(createMicrophoneErrorMessage(error));
       void refreshDiagnostics(false);
+    } finally {
+      microphoneRequestPendingRef.current = false;
     }
   }
 
@@ -963,7 +993,13 @@ export function App() {
     });
     setMicrophoneLabel(createMicrophoneLabel(stream));
 
-    const audioContext = new AudioContextConstructor();
+    let audioContext: AudioContext;
+    try {
+      audioContext = new AudioContextConstructor();
+    } catch (error) {
+      stream.getTracks().forEach((track) => track.stop());
+      throw error;
+    }
     const source = audioContext.createMediaStreamSource(stream);
     const analyser = audioContext.createAnalyser();
     let frameId = 0;
@@ -983,7 +1019,13 @@ export function App() {
     const frequencyData = new Uint8Array(analyser.frequencyBinCount);
 
     if (audioContext.state === "suspended") {
-      await audioContext.resume();
+      try {
+        await audioContext.resume();
+      } catch (error) {
+        stream.getTracks().forEach((track) => track.stop());
+        await closeAmbientAudioContext(audioContext);
+        throw error;
+      }
     }
 
     function scheduleAmbientLevelUpdate() {
@@ -2097,6 +2139,8 @@ export function App() {
     stopPromptReference();
 
     let stream: MediaStream | null = null;
+    const leaseEpoch = microphoneLeaseEpochRef.current;
+    microphoneRequestPendingRef.current = true;
 
     try {
       const ambientStream = ambientMonitorRef.current?.stream ?? null;
@@ -2111,6 +2155,17 @@ export function App() {
         stream = await navigator.mediaDevices.getUserMedia({
           audio: RAW_MICROPHONE_CONSTRAINTS,
         });
+      }
+
+      if (
+        leaseEpoch !== microphoneLeaseEpochRef.current ||
+        document.visibilityState === "hidden"
+      ) {
+        stream.getTracks().forEach((track) => track.stop());
+        setIsDirectCaptureStarting(false);
+        storeMicrophoneRevalidation(true);
+        setRequiresDeviceRevalidation(true);
+        return;
       }
 
       setMicrophoneLabel(createMicrophoneLabel(stream));
@@ -2153,6 +2208,8 @@ export function App() {
       setIsDirectCaptureStarting(false);
       setMessage(createMicrophoneErrorMessage(error));
       void refreshDiagnostics(false);
+    } finally {
+      microphoneRequestPendingRef.current = false;
     }
   }
 
