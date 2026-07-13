@@ -22,7 +22,10 @@ export type {
 } from "./types";
 export type { ForcedAlignment } from "@domains/phonetics";
 export type { SessionPlanner, SessionPlannerInput } from "./contracts";
-export { applyForcedAlignment } from "./forcedAlignment";
+export {
+  applyForcedAlignment,
+  assertForcedAlignmentMatchesTranscript,
+} from "./forcedAlignment";
 export {
   findPrompt,
   findPromptText,

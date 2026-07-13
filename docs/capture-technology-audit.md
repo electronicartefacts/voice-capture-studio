@@ -97,6 +97,7 @@ The acoustic-alignment importer also accepts a consensus bundle:
 
 ```json
 {
+  "takeId": "take.2026-07-13T10:00:00.000Z",
   "alignments": [
     {
       "aligner": "MFA",
@@ -134,6 +135,11 @@ alignment also creates a three-way consensus automatically: G2P/VAD is weak esti
 local Whisper is medium-weight acoustic evidence, and the external aligner is the authoritative
 acoustic/phonetic source. The studio only enables this shortcut when every expected word is matched;
 otherwise it preserves the external alignment without manufacturing missing local intervals.
+
+`takeId` is optional for backward compatibility; when present, it routes the import to that exact
+stored take. The importer rejects unknown take ids, overlapping or unordered word intervals, and any
+alignment whose normalized word sequence differs from the targeted take transcript. This prevents a
+valid-looking alignment file from being silently attached to the wrong recording.
 
 ## Dataset Readiness Tiers
 

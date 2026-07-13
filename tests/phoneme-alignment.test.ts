@@ -8,6 +8,7 @@ import {
   tokenizeTranscript,
 } from "../src/domains/phonetics";
 import type { LanguageCode } from "../src/shared";
+import { assertForcedAlignmentMatchesTranscript } from "../src/domains/sessions/forcedAlignment";
 
 test("phoneme alignment links every token to timed phonemes", () => {
   const alignment = alignPromptToPhonemes({
@@ -221,6 +222,13 @@ test("forced alignment import keeps acoustic provenance and rejects invalid inte
   assert.equal(alignment.source, "external_acoustic_forced_alignment");
   assert.equal(alignment.aligner, "WhisperX");
   assert.equal(alignment.importedAt, "2026-07-10T10:00:00.000Z");
+  assert.doesNotThrow(() =>
+    assertForcedAlignmentMatchesTranscript(alignment, "Bonjour !"),
+  );
+  assert.throws(
+    () => assertForcedAlignmentMatchesTranscript(alignment, "Bonsoir"),
+    /ne correspond pas à la prise ciblée/,
+  );
   assert.throws(() =>
     importForcedAlignment({
       aligner: "WhisperX",
@@ -244,6 +252,27 @@ test("forced alignment import keeps acoustic provenance and rejects invalid inte
           confidence: 0.9,
           wordIndex: 0,
         },
+      ],
+    }),
+  );
+  assert.throws(() =>
+    importForcedAlignment({
+      aligner: "MFA",
+      language: "fr",
+      durationMs: 1200,
+      confidence: 0.9,
+      words: [
+        { word: "Bon", startMs: 0, endMs: 700, confidence: 0.9, phonemes: [] },
+        {
+          word: "jour",
+          startMs: 600,
+          endMs: 1000,
+          confidence: 0.9,
+          phonemes: [],
+        },
+      ],
+      phonemes: [
+        { phoneme: "b", startMs: 0, endMs: 500, confidence: 0.9, wordIndex: 0 },
       ],
     }),
   );

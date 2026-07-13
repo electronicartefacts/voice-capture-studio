@@ -1389,18 +1389,32 @@ export function App() {
   async function loadForcedAlignmentFile(file: File) {
     try {
       const currentWorkspace = await ensureWorkspace();
-      const target = currentWorkspace.capturedSessions
-        .flatMap((capturedSession) =>
+      const payload: unknown = JSON.parse(await file.text());
+      const requestedTakeId =
+        typeof payload === "object" &&
+        payload !== null &&
+        "takeId" in payload &&
+        typeof payload.takeId === "string"
+          ? payload.takeId
+          : null;
+      const availableTakes = currentWorkspace.capturedSessions.flatMap(
+        (capturedSession) =>
           capturedSession.takes.map((take) => ({ capturedSession, take })),
-        )
-        .at(-1);
+      );
+      const target =
+        requestedTakeId === null
+          ? availableTakes.at(-1)
+          : availableTakes.find(({ take }) => take.id === requestedTakeId);
 
       if (target === undefined) {
-        setMessage("Aucune prise disponible pour cet alignement forcé.");
+        setMessage(
+          requestedTakeId === null
+            ? "Aucune prise disponible pour cet alignement forcé."
+            : `La prise ciblée ${requestedTakeId} est introuvable.`,
+        );
         return;
       }
 
-      const payload: unknown = JSON.parse(await file.text());
       const localAnalysis = target.take.timing.localAcousticAnalysis;
       const alignment = (
         await import("@domains/phonetics/alignmentConsensus")

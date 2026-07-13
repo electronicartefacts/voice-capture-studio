@@ -5,6 +5,10 @@ export function applyForcedAlignment(
   take: RecordedTake,
   alignment: ForcedAlignment,
 ): RecordedTake {
+  assertForcedAlignmentMatchesTranscript(
+    alignment,
+    take.transcript.spokenText || take.transcript.originalText,
+  );
   const gates = take.quality.gates.map((gate) =>
     gate.id === "phoneme_alignment"
       ? {
@@ -64,4 +68,28 @@ export function applyForcedAlignment(
       bestTake: verdict === "pass",
     },
   };
+}
+
+export function assertForcedAlignmentMatchesTranscript(
+  alignment: ForcedAlignment,
+  expectedText: string,
+): void {
+  const expected = normalizeSpeechText(expectedText);
+  const observed = normalizeSpeechText(
+    alignment.words.map((word) => word.word).join(" "),
+  );
+
+  if (expected.length === 0 || observed.length === 0 || expected !== observed) {
+    throw new Error(
+      "Le transcript de l'alignement ne correspond pas à la prise ciblée.",
+    );
+  }
+}
+
+function normalizeSpeechText(value: string): string {
+  return value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
 }

@@ -47,7 +47,7 @@ function readWords(
     return [];
   }
 
-  return value.map((item, index) => {
+  const words = value.map((item, index) => {
     if (!isRecord(item)) {
       throw new Error(`Le mot d'alignement ${index + 1} est invalide.`);
     }
@@ -73,6 +73,9 @@ function readWords(
       phonemes: readPhonemes(item.phonemes, durationMs),
     };
   });
+
+  assertOrderedIntervals(words, "mots");
+  return words;
 }
 
 function readPhonemes(
@@ -121,6 +124,19 @@ function readPhonemes(
 function assertInterval(startMs: number, endMs: number, field: string): void {
   if (endMs <= startMs) {
     throw new Error(`L'intervalle ${field} doit avoir une durée positive.`);
+  }
+}
+
+function assertOrderedIntervals(
+  intervals: readonly { readonly startMs: number; readonly endMs: number }[],
+  label: string,
+): void {
+  for (let index = 1; index < intervals.length; index += 1) {
+    if (intervals[index].startMs < intervals[index - 1].endMs) {
+      throw new Error(
+        `Les intervalles de ${label} se chevauchent ou sont désordonnés.`,
+      );
+    }
   }
 }
 
