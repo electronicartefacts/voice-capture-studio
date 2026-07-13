@@ -12,10 +12,19 @@ export type DatasetZipResult = {
 export async function createVoiceCapturePackageZip(input: {
   readonly plan: VoiceCapturePackagePlan;
 }): Promise<{ readonly blob: Blob; readonly writtenFiles: number }> {
+  const blob = await createZipBlobOffThread(
+    input.plan.files.map((entry) => ({ path: entry.path, data: entry.data })),
+  );
+  const { validateVoiceCapturePackageArchive } =
+    await import("./voiceCapturePackageArchive");
+  const validation = await validateVoiceCapturePackageArchive(blob);
+  if (!validation.valid) {
+    throw new Error(
+      `Serialized package failed validation: ${validation.errors.join("; ")}`,
+    );
+  }
   return {
-    blob: await createZipBlobOffThread(
-      input.plan.files.map((entry) => ({ path: entry.path, data: entry.data })),
-    ),
+    blob,
     writtenFiles: input.plan.files.length,
   };
 }

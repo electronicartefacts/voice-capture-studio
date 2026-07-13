@@ -81,6 +81,11 @@ Package validation fails on:
 - missing sample references
 - malformed `samples.jsonl`
 
+The downloadable ZIP is reopened after serialization and validated again from its stored entries.
+Download is refused when the final archive contains an unmanifested file, a missing or duplicate
+checksum, an artifact hash/size mismatch, a broken sample reference, an unresolved rights reference,
+or audio bytes that disagree with the sample's SHA-256, byte size, WAV shape, or duration.
+
 ## Audio rules
 
 Each sample audio object is validated from the final Blob, not from metadata

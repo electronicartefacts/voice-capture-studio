@@ -3,6 +3,9 @@ import test from "node:test";
 import { encodeWav24 } from "../src/app/audio/pcmAudio";
 import { validatePcmWavBlob } from "../src/app/audio/wavValidation";
 import { createVoiceCapturePackageZip } from "../src/app/export/downloadDatasetPackage";
+import { validateVoiceCapturePackageArchive } from "../src/app/export/voiceCapturePackageArchive";
+import { readStoredZipEntries } from "../src/app/export/zipReader";
+import { createZipBlobOffThread } from "../src/app/export/zipService";
 import {
   createVoiceCapturePackagePlan,
   validateVoiceCapturePackagePlan,
@@ -86,6 +89,29 @@ test("voice capture package v1 exports a self-validating Forge contract with exp
   const zip = await createVoiceCapturePackageZip({ plan });
   assert.equal(zip.writtenFiles, plan.files.length);
   assert.ok(zip.blob.size > 0);
+  const archiveValidation = await validateVoiceCapturePackageArchive(zip.blob);
+  assert.equal(
+    archiveValidation.valid,
+    true,
+    archiveValidation.errors.join("\n"),
+  );
+
+  const entries = await readStoredZipEntries(zip.blob);
+  const corrupted = await createZipBlobOffThread([
+    ...[...entries].map(([path, data]) => ({ path, data })),
+    { path: "unexpected.txt", data: new Blob(["unexpected"]) },
+  ]);
+  const corruptedValidation =
+    await validateVoiceCapturePackageArchive(corrupted);
+  assert.equal(corruptedValidation.valid, false);
+  assert.ok(
+    corruptedValidation.errors.includes(
+      "Unmanifested archive entry: unexpected.txt",
+    ),
+  );
+  assert.ok(
+    corruptedValidation.errors.includes("Checksum row missing: unexpected.txt"),
+  );
 });
 
 test("voice capture package v1 rejects missing audio instead of creating partial packages", async () => {
@@ -105,6 +131,13 @@ test("voice capture package v1 rejects missing audio instead of creating partial
     }),
     /is missing; package creation is aborted/,
   );
+});
+
+test("voice capture archive validator rejects a malformed ZIP", async () => {
+  const validation = await validateVoiceCapturePackageArchive(new Blob([]));
+
+  assert.equal(validation.valid, false);
+  assert.ok(validation.errors.length > 0);
 });
 
 test("voice capture package exposes local acoustic evidence without claiming forced alignment", async () => {
