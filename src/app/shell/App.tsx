@@ -775,6 +775,10 @@ export function App() {
   }, [workspace, workspaceDurability]);
 
   useEffect(() => {
+    const usesIOSBlurFallback =
+      /iPad|iPhone|iPod/u.test(navigator.userAgent) ||
+      (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+
     function handlePageExit() {
       const recorder = pcmRecorderRef.current;
       const hasActiveMicrophone =
@@ -825,13 +829,17 @@ export function App() {
     }
 
     document.addEventListener("visibilitychange", handleVisibilityChange);
-    window.addEventListener("blur", handlePageExit);
+    if (usesIOSBlurFallback) {
+      window.addEventListener("blur", handlePageExit);
+    }
     window.addEventListener("pagehide", handlePageExit);
     window.addEventListener("pageshow", handlePageReturn);
 
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
-      window.removeEventListener("blur", handlePageExit);
+      if (usesIOSBlurFallback) {
+        window.removeEventListener("blur", handlePageExit);
+      }
       window.removeEventListener("pagehide", handlePageExit);
       window.removeEventListener("pageshow", handlePageReturn);
     };
