@@ -147,10 +147,12 @@ export type VoiceCapturePackageSample = {
     readonly status:
       | "absent"
       | "estimated_g2p"
+      | "local_acoustic_comparison"
       | "browser_asr_assisted"
       | "external_forced_alignment"
       | "human_validated";
-    readonly kind: "none" | "text_alignment" | "forced_alignment";
+    readonly kind:
+      "none" | "text_alignment" | "acoustic_evidence" | "forced_alignment";
     readonly path: string | null;
     readonly source: string;
     readonly tool: string | null;
@@ -636,7 +638,11 @@ export async function createVoiceCapturePackagePlan(input: {
   const rightsStatus = getRightsStatus(consents, licenses);
   const downstreamRequired = uniqueStrings([
     ...samples
-      .filter((sample) => sample.alignment.status === "estimated_g2p")
+      .filter(
+        (sample) =>
+          sample.alignment.status === "estimated_g2p" ||
+          sample.alignment.status === "local_acoustic_comparison",
+      )
       .map(() => "external_forced_alignment_for_training_acceptance"),
     ...samples
       .filter((sample) => sample.lifecycle.review_required)
@@ -871,9 +877,11 @@ function shouldIncludeTake(
 ): boolean {
   const lifecycle = lifecycleFor(
     take,
-    take.timing.forcedAlignment === undefined
-      ? "estimated_g2p"
-      : "external_forced_alignment",
+    take.timing.forcedAlignment !== undefined
+      ? "external_forced_alignment"
+      : take.timing.localAcousticAnalysis !== undefined
+        ? "local_acoustic_comparison"
+        : "estimated_g2p",
     "unknown",
   ).status;
   return statuses.includes(take.review.rating) || statuses.includes(lifecycle);
@@ -904,6 +912,9 @@ function lifecycleFor(
     };
   const reasons = [
     ...(alignmentStatus === "estimated_g2p" ? ["alignment_is_estimated"] : []),
+    ...(alignmentStatus === "local_acoustic_comparison"
+      ? ["local_acoustic_alignment_requires_confirmation"]
+      : []),
     ...(consentStatus !== "granted" ? ["rights_not_granted"] : []),
     ...(take.quality.verdict !== "pass" ? ["quality_requires_review"] : []),
   ];
@@ -927,6 +938,25 @@ function createAlignmentRecord(
       tool: null,
       tool_version: null,
       confidence: take.timing.forcedAlignment.confidence,
+    };
+  }
+  if (take.timing.localAcousticAnalysis !== undefined) {
+    const comparison = take.timing.localAcousticAnalysis.alignmentComparison;
+    return {
+      status: "local_acoustic_comparison",
+      kind: "acoustic_evidence",
+      path,
+      source: "local_whisper_silero_g2p_comparison",
+      tool: "voice-capture-studio",
+      tool_version: "unknown",
+      confidence:
+        comparison.medianBoundaryDeltaMs === null
+          ? null
+          : Math.round(
+              comparison.matchRate *
+                Math.max(0, 1 - comparison.medianBoundaryDeltaMs / 500) *
+                1000,
+            ) / 1000,
     };
   }
   if (take.timing.alignment !== undefined) {

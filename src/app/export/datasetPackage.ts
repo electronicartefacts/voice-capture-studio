@@ -106,9 +106,12 @@ export function createDatasetPackagePlan(input: {
           alignment: take.timing.forcedAlignment ?? null,
           estimatedAlignment: take.timing.alignment ?? null,
           alignmentSource:
-            take.timing.forcedAlignment === undefined
-              ? "text_derived_estimate"
-              : "external_acoustic_forced_alignment",
+            take.timing.forcedAlignment !== undefined
+              ? "external_acoustic_forced_alignment"
+              : take.timing.localAcousticAnalysis !== undefined
+                ? "local_whisper_silero_g2p_comparison"
+                : "text_derived_estimate",
+          localAcousticAnalysis: take.timing.localAcousticAnalysis ?? null,
           wordPhonemeMap: take.timing.words.map((word) => ({
             word: word.word,
             normalized: word.normalized ?? word.word.toLowerCase(),

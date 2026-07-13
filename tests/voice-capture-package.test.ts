@@ -107,6 +107,39 @@ test("voice capture package v1 rejects missing audio instead of creating partial
   );
 });
 
+test("voice capture package exposes local acoustic evidence without claiming forced alignment", async () => {
+  const fixture = await createFixture({
+    speakerIndex: 0,
+    language: "fr",
+    localAcousticAnalysis: true,
+  });
+  const plan = await createVoiceCapturePackagePlan({
+    corpus: canonicalCorpus,
+    getAudioBlob: async (fileName) => fixture.audioByFileName.get(fileName),
+    scope: createScope(fixture.workspace, {
+      speakerId: frSpeaker.id,
+      language: "fr",
+      sessionIds: [fixture.session.id],
+    }),
+    speakerProfiles: initialSpeakers,
+    workspace: fixture.workspace,
+  });
+
+  assert.equal(plan.samples[0].alignment.status, "local_acoustic_comparison");
+  assert.equal(plan.samples[0].alignment.kind, "acoustic_evidence");
+  assert.equal(plan.samples[0].alignment.confidence, 0.96);
+  assert.ok(
+    plan.samples[0].lifecycle.reasons.includes(
+      "local_acoustic_alignment_requires_confirmation",
+    ),
+  );
+  assert.ok(
+    plan.manifest.readiness.downstream_required.includes(
+      "external_forced_alignment_for_training_acceptance",
+    ),
+  );
+});
+
 test("voice capture package v1 rejects non-canonical WAV sources", async () => {
   const fixture = await createFixture({ speakerIndex: 0, language: "fr" });
   const corruptBlob = new Blob([new Uint8Array([1, 2, 3, 4])], {
@@ -279,6 +312,7 @@ test("wav validation accepts the production encoder and rejects malformed RIFF",
 async function createFixture(input: {
   readonly baseWorkspace?: VoiceWorkspace;
   readonly forcedAlignment?: boolean;
+  readonly localAcousticAnalysis?: boolean;
   readonly language: LanguageCode;
   readonly speakerIndex: 0 | 1;
   readonly takeSuffix?: string;
@@ -304,6 +338,7 @@ async function createFixture(input: {
   const wav = createWav(input.tone ?? 0.1);
   const take = await createTake({
     forcedAlignment: input.forcedAlignment ?? false,
+    localAcousticAnalysis: input.localAcousticAnalysis ?? false,
     prompt,
     session,
     suffix: input.takeSuffix ?? String(input.speakerIndex),
@@ -327,6 +362,7 @@ async function createFixture(input: {
 
 async function createTake(input: {
   readonly forcedAlignment: boolean;
+  readonly localAcousticAnalysis: boolean;
   readonly prompt: PromptDefinition;
   readonly session: CaptureSession;
   readonly suffix: string;
@@ -459,6 +495,35 @@ async function createTake(input: {
             })),
             phonemes: alignment.phonemes,
             importedAt: "2026-07-10T08:00:00.000Z",
+          }
+        : undefined,
+      localAcousticAnalysis: input.localAcousticAnalysis
+        ? {
+            schemaVersion: "voice.local_acoustic_analysis.v1",
+            engine: "whisper-tiny",
+            transcript: input.prompt.spokenText ?? input.prompt.text,
+            analyzedAt: "2026-07-10T08:00:00.000Z",
+            words: alignment.words.map((word) => ({
+              word: word.word,
+              startMs: word.startMs,
+              endMs: word.endMs,
+              source: "whisper_attention_timestamp" as const,
+            })),
+            speechSegments: [
+              { startMs: 0, endMs: durationMs, source: "silero_vad" },
+            ],
+            alignmentComparison: {
+              schemaVersion: "voice.local_alignment_comparison.v1",
+              status: "strong",
+              reviewRequired: false,
+              matchedWordCount: alignment.words.length,
+              expectedWordCount: alignment.words.length,
+              whisperWordCount: alignment.words.length,
+              matchRate: 1,
+              medianBoundaryDeltaMs: 20,
+              maximumBoundaryDeltaMs: 20,
+              words: [],
+            },
           }
         : undefined,
     },

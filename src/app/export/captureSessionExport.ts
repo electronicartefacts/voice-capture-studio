@@ -258,7 +258,11 @@ export function createVoiceCaptureReports(input: {
         (summary) => !summary.forcedAlignmentRequired,
       )
         ? "external_acoustic_forced_alignment"
-        : "text_derived_estimate",
+        : input.takes.some(
+              (take) => take.timing.localAcousticAnalysis !== undefined,
+            )
+          ? "local_acoustic_comparison"
+          : "text_derived_estimate",
       forcedAlignmentRequired: alignmentSummaries.some(
         (summary) => summary.forcedAlignmentRequired,
       ),
@@ -292,7 +296,7 @@ export function createVoiceCaptureReports(input: {
         )
         .map((summary) => summary.takeId),
       browserLimitations: [
-        "Word and phoneme timing is derived from prompt text and constrained to measured PCM speech activity when available.",
+        "Estimated phoneme timing is derived from prompt text; local Whisper word timestamps and Silero speech bounds are stored as separate acoustic evidence when analysis runs.",
         "Web Speech API transcripts are opportunistic and not available in every browser.",
         "Final dataset acceptance still needs acoustic forced alignment against WAV audio.",
       ],
@@ -375,18 +379,38 @@ function summarizeTakeAlignment(take: RecordedTake): {
   readonly takeId: RecordedTake["id"];
   readonly wordCount: number;
 } {
-  const words = take.timing.forcedAlignment?.words ?? [];
+  const words =
+    take.timing.forcedAlignment?.words ??
+    take.timing.localAcousticAnalysis?.words ??
+    [];
   const linkedWordCount = words.filter(
     (word) => word.endMs > word.startMs,
   ).length;
 
   return {
-    confidence: take.timing.forcedAlignment?.confidence ?? 0,
+    confidence:
+      take.timing.forcedAlignment?.confidence ??
+      localAcousticConfidence(take) ??
+      0,
     forcedAlignmentRequired: take.timing.forcedAlignment === undefined,
     linkedWordCount,
     takeId: take.id,
     wordCount: words.length,
   };
+}
+
+function localAcousticConfidence(take: RecordedTake): number | null {
+  const comparison = take.timing.localAcousticAnalysis?.alignmentComparison;
+  if (comparison?.medianBoundaryDeltaMs === null || comparison === undefined) {
+    return null;
+  }
+  return (
+    Math.round(
+      comparison.matchRate *
+        Math.max(0, 1 - comparison.medianBoundaryDeltaMs / 500) *
+        1000,
+    ) / 1000
+  );
 }
 
 function findCorpusPrompt(
