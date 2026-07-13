@@ -81,7 +81,7 @@ export type AlignmentConsensus = {
   readonly reviewRequired: boolean;
   readonly sources: readonly {
     readonly id: string;
-    readonly kind: "estimated" | "acoustic";
+    readonly kind: "estimated" | "local_acoustic" | "acoustic";
     readonly weight: number;
     readonly confidence: number;
     readonly words: readonly {

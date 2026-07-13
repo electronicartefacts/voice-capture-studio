@@ -129,6 +129,12 @@ disagreement, and review status. Acoustic disagreement up to 40 ms is `strong`, 
 `acceptable`, and larger disagreement is `review`; a review consensus cannot pass the phoneme
 alignment quality gate automatically.
 
+When the take already contains a complete local Whisper word pass, importing a single external
+alignment also creates a three-way consensus automatically: G2P/VAD is weak estimated evidence,
+local Whisper is medium-weight acoustic evidence, and the external aligner is the authoritative
+acoustic/phonetic source. The studio only enables this shortcut when every expected word is matched;
+otherwise it preserves the external alignment without manufacturing missing local intervals.
+
 ## Dataset Readiness Tiers
 
 For real-time rendering:

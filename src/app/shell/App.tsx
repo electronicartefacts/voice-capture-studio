@@ -19,7 +19,6 @@ import { summarizeCoverage } from "@domains/coverage";
 import type { LocalTakeAnalysis } from "../analysis/types";
 import {
   alignPromptToPhonemes,
-  importForcedAlignment,
   type PromptPhonemeAlignment,
 } from "@domains/phonetics";
 import {
@@ -1402,24 +1401,22 @@ export function App() {
       }
 
       const payload: unknown = JSON.parse(await file.text());
-      const acousticPayloads =
-        typeof payload === "object" &&
-        payload !== null &&
-        "alignments" in payload &&
-        Array.isArray(payload.alignments)
-          ? payload.alignments
-          : null;
-      const alignment =
-        acousticPayloads === null
-          ? importForcedAlignment(payload)
-          : (
-              await import("@domains/phonetics/alignmentConsensus")
-            ).createAlignmentConsensus({
-              estimated: target.take.timing.alignment,
-              acoustic: acousticPayloads.map((item) =>
-                importForcedAlignment(item),
-              ),
-            });
+      const localAnalysis = target.take.timing.localAcousticAnalysis;
+      const alignment = (
+        await import("@domains/phonetics/alignmentConsensus")
+      ).importAlignmentWithConsensus({
+        payload,
+        estimated: target.take.timing.alignment,
+        localAcoustic:
+          localAnalysis === undefined
+            ? undefined
+            : {
+                matchRate: localAnalysis.alignmentComparison.matchRate,
+                medianBoundaryDeltaMs:
+                  localAnalysis.alignmentComparison.medianBoundaryDeltaMs,
+                words: localAnalysis.words,
+              },
+      });
 
       if (alignment.language !== target.capturedSession.language) {
         setMessage("La langue de l'alignement ne correspond pas à la prise.");

@@ -72,6 +72,32 @@ test("alignment consensus favors acoustic agreement and exposes disagreement", (
   assert.equal(divergent.consensus?.reviewRequired, true);
 });
 
+test("one external aligner can form a three-way consensus with local Whisper and G2P", () => {
+  const estimated = alignPromptToPhonemes({
+    durationMs: 1200,
+    language: "fr" as LanguageCode,
+    text: "Bonjour",
+  });
+  const consensus = createAlignmentConsensus({
+    estimated,
+    localAcoustic: {
+      confidence: 0.84,
+      words: [{ word: "Bonjour", startMs: 190, endMs: 990 }],
+    },
+    acoustic: [createForcedAlignment("MFA", 180, 980, 0.95)],
+  });
+
+  assert.equal(consensus.consensus?.sourceCount, 3);
+  assert.equal(consensus.consensus?.acousticSourceCount, 2);
+  assert.equal(consensus.consensus?.status, "strong");
+  assert.match(consensus.aligner, /Local Whisper \+ MFA/);
+  assert.equal(consensus.phonemes.length, 1);
+  assert.deepEqual(
+    consensus.consensus?.sources.map((source) => source.kind),
+    ["estimated", "local_acoustic", "acoustic"],
+  );
+});
+
 function createForcedAlignment(
   aligner: string,
   startMs: number,

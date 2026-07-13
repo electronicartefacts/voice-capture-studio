@@ -5,23 +5,78 @@ import type {
   ForcedAlignmentWord,
   PromptPhonemeAlignment,
 } from "./types";
+import { importForcedAlignment } from "./forcedAlignment";
 
 type ConsensusSource = {
   readonly id: string;
-  readonly kind: "estimated" | "acoustic";
+  readonly kind: "estimated" | "local_acoustic" | "acoustic";
   readonly confidence: number;
   readonly words: readonly ForcedAlignmentWord[];
   readonly alignment?: ForcedAlignment;
 };
 
+export function importAlignmentWithConsensus(input: {
+  readonly payload: unknown;
+  readonly estimated?: PromptPhonemeAlignment;
+  readonly localAcoustic?: {
+    readonly matchRate: number;
+    readonly medianBoundaryDeltaMs: number | null;
+    readonly words: readonly {
+      readonly word: string;
+      readonly startMs: number;
+      readonly endMs: number;
+    }[];
+  };
+}): ForcedAlignment {
+  const acousticPayloads =
+    isRecord(input.payload) && Array.isArray(input.payload.alignments)
+      ? input.payload.alignments
+      : [input.payload];
+  const acoustic = acousticPayloads.map((item) => importForcedAlignment(item));
+  const local = input.localAcoustic;
+  const canUseLocalEvidence =
+    local !== undefined &&
+    local.matchRate === 1 &&
+    local.words.length === acoustic[0].words.length;
+
+  if (acoustic.length === 1 && !canUseLocalEvidence) {
+    return acoustic[0];
+  }
+
+  return createAlignmentConsensus({
+    estimated: input.estimated,
+    localAcoustic: canUseLocalEvidence
+      ? {
+          confidence: round(
+            local.matchRate *
+              Math.max(0, 1 - (local.medianBoundaryDeltaMs ?? 500) / 500),
+          ),
+          words: local.words,
+        }
+      : undefined,
+    acoustic,
+  });
+}
+
 export function createAlignmentConsensus(input: {
   readonly estimated?: PromptPhonemeAlignment;
+  readonly localAcoustic?: {
+    readonly confidence: number;
+    readonly words: readonly {
+      readonly word: string;
+      readonly startMs: number;
+      readonly endMs: number;
+    }[];
+  };
   readonly acoustic: readonly ForcedAlignment[];
   readonly now?: Date;
 }): ForcedAlignment {
-  if (input.acoustic.length < 2) {
+  if (
+    input.acoustic.length < 1 ||
+    (input.acoustic.length < 2 && input.localAcoustic === undefined)
+  ) {
     throw new Error(
-      "Le consensus exige au moins deux alignements acoustiques.",
+      "Le consensus exige deux preuves acoustiques, dont au moins un alignement externe.",
     );
   }
 
@@ -35,6 +90,20 @@ export function createAlignmentConsensus(input: {
             kind: "estimated" as const,
             confidence: input.estimated.confidence,
             words: input.estimated.words,
+          },
+        ]),
+    ...(input.localAcoustic === undefined
+      ? []
+      : [
+          {
+            id: "local_whisper_word_timestamps",
+            kind: "local_acoustic" as const,
+            confidence: input.localAcoustic.confidence,
+            words: input.localAcoustic.words.map((word) => ({
+              ...word,
+              confidence: input.localAcoustic?.confidence ?? 0,
+              phonemes: [],
+            })),
           },
         ]),
     ...input.acoustic.map((alignment) => ({
@@ -59,7 +128,7 @@ export function createAlignmentConsensus(input: {
     const endMs = weightedMedian(observations, "endMs");
     const acousticObservations = sources
       .map((source, index) => ({ source, observation: observations[index] }))
-      .filter((item) => item.source.kind === "acoustic")
+      .filter((item) => item.source.kind !== "estimated")
       .map((item) => item.observation);
     const startBoundaries = acousticObservations.map((item) => item.startMs);
     const endBoundaries = acousticObservations.map((item) => item.endMs);
@@ -89,7 +158,8 @@ export function createAlignmentConsensus(input: {
     schemaVersion: "voice.alignment_consensus.v1",
     method: "weighted_median",
     sourceCount: sources.length,
-    acousticSourceCount: input.acoustic.length,
+    acousticSourceCount:
+      input.acoustic.length + (input.localAcoustic === undefined ? 0 : 1),
     agreementMs,
     status,
     reviewRequired: status === "review",
@@ -113,7 +183,10 @@ export function createAlignmentConsensus(input: {
   return {
     schemaVersion: "voice.forced_alignment.v1",
     source: "external_acoustic_forced_alignment",
-    aligner: `Consensus (${input.acoustic.map((item) => item.aligner).join(" + ")})`,
+    aligner: `Consensus (${[
+      ...(input.localAcoustic === undefined ? [] : ["Local Whisper"]),
+      ...input.acoustic.map((item) => item.aligner),
+    ].join(" + ")})`,
     language: reference.language,
     durationMs: reference.durationMs,
     confidence: round(
@@ -162,7 +235,13 @@ function assertCompatibleSources(
 }
 
 function sourceWeight(source: ConsensusSource): number {
-  return round((source.kind === "acoustic" ? 1 : 0.2) * source.confidence);
+  const trust =
+    source.kind === "acoustic"
+      ? 1
+      : source.kind === "local_acoustic"
+        ? 0.65
+        : 0.2;
+  return round(trust * source.confidence);
 }
 
 function weightedMedian(
@@ -196,4 +275,8 @@ function normalize(value: string): string {
 
 function round(value: number): number {
   return Math.round(value * 1000) / 1000;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
