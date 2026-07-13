@@ -17,7 +17,7 @@ test("review playback lifts quiet takes without exceeding peak headroom", () => 
         integratedLufs: -30,
         estimatedTruePeakDbfs: -12,
       }) -
-        10 ** (11 / 20),
+        10 ** (16 / 20),
     ) < 0.000001,
   );
   assert.equal(
@@ -25,14 +25,14 @@ test("review playback lifts quiet takes without exceeding peak headroom", () => 
       integratedLufs: -32,
       estimatedTruePeakDbfs: -20,
     }),
-    4,
+    10 ** (18 / 20),
   );
   assert.equal(
     computeReviewPlaybackGain({
       integratedLufs: -16,
       estimatedTruePeakDbfs: -2,
     }),
-    1,
+    10 ** (2 / 20),
   );
 });
 

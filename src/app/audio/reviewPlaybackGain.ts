@@ -1,6 +1,5 @@
-const REVIEW_TARGET_LUFS = -18;
-const REVIEW_TRUE_PEAK_CEILING_DBFS = -1;
-const REVIEW_MAX_GAIN = 4;
+const REVIEW_TARGET_LUFS = -14;
+const REVIEW_MAX_GAIN = 8;
 
 export function computeReviewPlaybackGain(input: {
   readonly integratedLufs: number;
@@ -16,11 +15,7 @@ export function computeReviewPlaybackGain(input: {
   const loudnessGain = decibelsToLinear(
     REVIEW_TARGET_LUFS - input.integratedLufs,
   );
-  const peakSafeGain = decibelsToLinear(
-    REVIEW_TRUE_PEAK_CEILING_DBFS - input.estimatedTruePeakDbfs,
-  );
-
-  return Math.max(1, Math.min(REVIEW_MAX_GAIN, loudnessGain, peakSafeGain));
+  return Math.max(1, Math.min(REVIEW_MAX_GAIN, loudnessGain));
 }
 
 function decibelsToLinear(decibels: number): number {

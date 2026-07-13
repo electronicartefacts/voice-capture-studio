@@ -20,6 +20,7 @@ import {
   StepForward,
 } from "lucide-react";
 import type { RecordedTake } from "@domains/sessions";
+import { computeReviewPlaybackGain } from "../../audio/reviewPlaybackGain";
 import {
   createReviewWordTimings,
   findActiveReviewWordIndex,
@@ -48,6 +49,8 @@ export function ListeningReviewSurface(input: {
   readonly take: RecordedTake | null;
 }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const playbackAudioContextRef = useRef<AudioContext | null>(null);
+  const playbackSourceElementRef = useRef<HTMLAudioElement | null>(null);
   const playbackTimeRef = useRef<HTMLElement | null>(null);
   const progressClipRef = useRef<SVGRectElement | null>(null);
   const waveformRef = useRef<HTMLDivElement | null>(null);
@@ -120,6 +123,60 @@ export function ListeningReviewSurface(input: {
     onProgressChangeRef.current(0);
     onEnergyChangeRef.current(0);
   }, [input.audioUrl, input.take]);
+
+  useEffect(
+    () => () => {
+      const audioContext = playbackAudioContextRef.current;
+      playbackAudioContextRef.current = null;
+      playbackSourceElementRef.current = null;
+      if (audioContext !== null) void closeAmbientAudioContext(audioContext);
+    },
+    [input.audioUrl],
+  );
+
+  async function prepareAmplifiedPlayback(audio: HTMLAudioElement) {
+    const technical = input.take?.quality.technical;
+
+    const existingContext = playbackAudioContextRef.current;
+    if (
+      existingContext !== null &&
+      playbackSourceElementRef.current === audio
+    ) {
+      if (existingContext.state === "suspended") await existingContext.resume();
+      return;
+    }
+
+    const AudioContextConstructor =
+      window.AudioContext ??
+      (window as WindowWithAudioContext).webkitAudioContext;
+    if (AudioContextConstructor === undefined) return;
+
+    try {
+      const audioContext = new AudioContextConstructor();
+      const source = audioContext.createMediaElementSource(audio);
+      const gain = audioContext.createGain();
+      const limiter = audioContext.createDynamicsCompressor();
+      gain.gain.value =
+        technical === undefined
+          ? 2.5
+          : computeReviewPlaybackGain({
+              integratedLufs: technical.integratedLufs,
+              estimatedTruePeakDbfs: technical.estimatedTruePeakDbfs,
+            });
+      limiter.threshold.value = -3;
+      limiter.knee.value = 6;
+      limiter.ratio.value = 12;
+      limiter.attack.value = 0.003;
+      limiter.release.value = 0.18;
+      source.connect(gain).connect(limiter).connect(audioContext.destination);
+      playbackAudioContextRef.current = audioContext;
+      playbackSourceElementRef.current = audio;
+      if (audioContext.state === "suspended") await audioContext.resume();
+    } catch {
+      // Native <audio> remains a safe fallback when Web Audio routing is
+      // unavailable or rejected by the mobile browser.
+    }
+  }
 
   function syncPlaybackSurface(nextTime: number) {
     const progress =
@@ -327,6 +384,7 @@ export function ListeningReviewSurface(input: {
     }
 
     input.onBeforePlayback();
+    await prepareAmplifiedPlayback(audio);
 
     if (durationSeconds > 0 && currentTime >= durationSeconds - 0.05) {
       audio.currentTime = 0;
@@ -372,6 +430,7 @@ export function ListeningReviewSurface(input: {
     <section className="listening-review" aria-label="Écoute de la prise">
       {input.audioUrl !== null && (
         <audio
+          key={input.audioUrl}
           loop={loopEnabled}
           onEnded={() => {
             setIsPlaying(false);
