@@ -85,6 +85,11 @@ export async function finalizeCaptureSession(input: {
   readonly recordedAt?: Date;
   readonly recognizedTranscript?: string;
   readonly speechRecognition?: BrowserAsrObservation;
+  readonly liveWordTimings?: readonly {
+    readonly word: string;
+    readonly startMs: number;
+    readonly endMs: number;
+  }[];
   readonly saveRecording: (
     fileName: string,
     audioBlob: Blob,
@@ -160,6 +165,7 @@ export async function finalizeCaptureSession(input: {
           recordedAt,
           recognizedTranscript: input.recognizedTranscript,
           speechRecognition: input.speechRecognition,
+          liveWordTimings: input.liveWordTimings,
           truncated: input.recording.truncated,
           forcedAlignment: input.forcedAlignment,
           session: input.session,

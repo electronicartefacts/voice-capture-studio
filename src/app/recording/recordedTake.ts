@@ -33,6 +33,11 @@ export function createRecordedTake(input: {
   readonly recordedAt: Date;
   readonly recognizedTranscript?: string;
   readonly speechRecognition?: BrowserAsrObservation;
+  readonly liveWordTimings?: readonly {
+    readonly word: string;
+    readonly startMs: number;
+    readonly endMs: number;
+  }[];
   readonly session: CaptureSession;
   readonly takeId: TakeId;
   readonly truncated?: boolean;
@@ -171,6 +176,15 @@ export function createRecordedTake(input: {
         },
       ],
       alignment: phonemeAlignment,
+      ...(input.liveWordTimings === undefined ||
+      input.liveWordTimings.length === 0
+        ? {}
+        : {
+            liveAlignment: {
+              source: "browser_live_alignment" as const,
+              words: input.liveWordTimings,
+            },
+          }),
       ...(input.forcedAlignment === undefined
         ? {}
         : { forcedAlignment: input.forcedAlignment }),

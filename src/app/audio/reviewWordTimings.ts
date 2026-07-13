@@ -14,6 +14,9 @@ export function createReviewWordTimings(
   const forcedWords = take.timing.forcedAlignment?.words ?? [];
   if (forcedWords.length > 0) return forcedWords;
 
+  const liveWords = take.timing.liveAlignment?.words ?? [];
+  if (liveWords.length > 0) return liveWords;
+
   const whisperWords = take.timing.localAcousticAnalysis?.words ?? [];
   if (whisperWords.length > 0) {
     return calibrateWhisperToSpeechBounds(

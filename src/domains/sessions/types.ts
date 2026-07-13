@@ -153,6 +153,10 @@ export type TakeTiming = {
   readonly alignment?: PromptPhonemeAlignment;
   readonly forcedAlignment?: ForcedAlignment;
   readonly localAcousticAnalysis?: LocalAcousticAnalysis;
+  readonly liveAlignment?: {
+    readonly source: "browser_live_alignment";
+    readonly words: readonly WordTiming[];
+  };
 };
 
 export type LocalAcousticAnalysis = {

@@ -166,7 +166,6 @@ import {
   KaraokeScreen,
   RoomToneCalibrationScreen,
 } from "./screens/CaptureScreens";
-import { DoneScreen } from "./screens/DoneScreen";
 import { HomeScreen } from "./screens/HomeScreen";
 import { PermissionScreen } from "./screens/PermissionScreen";
 import {
@@ -180,6 +179,11 @@ import { useAmbientRenderingBudget } from "./useAmbientRenderingBudget";
 const TechnicalPage = lazy(() =>
   import("./screens/TechnicalPage").then((module) => ({
     default: module.TechnicalPage,
+  })),
+);
+const DoneScreen = lazy(() =>
+  import("./screens/DoneScreen").then((module) => ({
+    default: module.DoneScreen,
   })),
 );
 
@@ -430,8 +434,10 @@ export function App() {
   const readingGuideLastSpeechAtRef = useRef(0);
   const readingGuideProgressRef = useRef(0);
   const readingGuideAlignmentRef = useRef<PromptPhonemeAlignment | null>(null);
-  const readingGuideFinalAlignmentConfirmedRef = useRef(false);
   const readingGuideFinalAlignmentConfirmedAtRef = useRef<number | null>(null);
+  const readingGuideLiveAlignmentCompletedAtRef = useRef<number | null>(null);
+  const liveWordStartedAtMsRef = useRef<(number | null)[]>([]);
+  const captureRecordingStartedAtRef = useRef(0);
   const readingGuideFinishTimerRef = useRef<number | null>(null);
   const realtimeSpeechActivityRef =
     useRef<RealtimeSpeechActivityDetector | null>(null);
@@ -2223,6 +2229,7 @@ export function App() {
     clearRoomToneTimers();
     mediaStreamRef.current = stream;
     pcmRecorderRef.current = recorder;
+    captureRecordingStartedAtRef.current = performance.now();
     resetVisualAudioLevel();
     setActiveWordIndex(0);
     setScreen("karaoke");
@@ -2272,8 +2279,11 @@ export function App() {
     speechRecognitionSessionResultCountRef.current = 0;
     speechRecognitionRestartEnabledRef.current = true;
     speechRecognitionBiasEnabledRef.current = true;
-    readingGuideFinalAlignmentConfirmedRef.current = false;
     readingGuideFinalAlignmentConfirmedAtRef.current = null;
+    readingGuideLiveAlignmentCompletedAtRef.current = null;
+    liveWordStartedAtMsRef.current = Array<number | null>(
+      promptWords.length,
+    ).fill(null);
     resetLiveReadingGuidePosition();
 
     const speechRecognitionStarted = startSpeechRecognitionGuide(
@@ -2373,7 +2383,6 @@ export function App() {
             finalAlignment.matchedWordCount >= minimumFinalMatches &&
             finalAlignment.score >= 0.68
           ) {
-            readingGuideFinalAlignmentConfirmedRef.current = true;
             readingGuideFinalAlignmentConfirmedAtRef.current ??= now;
             updateReadingGuideIndex(
               finalAlignment.position.wordIndex,
@@ -2393,6 +2402,24 @@ export function App() {
 
         if (alignment.matchedWordCount === 0 || alignment.score < 0.42) {
           return;
+        }
+
+        recordLiveWordPosition(
+          alignment.position.wordIndex,
+          promptWords.length,
+          now,
+        );
+
+        const minimumLiveMatches = Math.max(
+          1,
+          Math.ceil(promptWords.length * 0.72),
+        );
+        if (
+          alignment.position.wordIndex === promptWords.length - 1 &&
+          alignment.matchedWordCount >= minimumLiveMatches &&
+          alignment.score >= 0.68
+        ) {
+          readingGuideLiveAlignmentCompletedAtRef.current ??= now;
         }
 
         lastTranscriptAtRef.current = now;
@@ -2685,6 +2712,39 @@ export function App() {
     if (boundedIndex < wordCount - 1) clearReadingGuideFinishTimer();
   }
 
+  function recordLiveWordPosition(
+    wordIndex: number,
+    wordCount: number,
+    observedAtMs: number,
+  ) {
+    if (wordIndex < 0 || wordIndex >= wordCount) return;
+    if (liveWordStartedAtMsRef.current[wordIndex] !== null) return;
+    const observedAt = Math.max(
+      0,
+      observedAtMs - captureRecordingStartedAtRef.current,
+    );
+    for (let index = 0; index <= wordIndex; index += 1) {
+      liveWordStartedAtMsRef.current[index] ??=
+        (observedAt * (index + 1)) / (wordIndex + 1);
+    }
+  }
+
+  function createLiveWordTimings(
+    promptWords: readonly string[],
+    durationMs: number,
+  ) {
+    const observed = liveWordStartedAtMsRef.current;
+    if (promptWords.length === 0 || observed[promptWords.length - 1] == null) {
+      return [];
+    }
+
+    return promptWords.map((word, index) => ({
+      word,
+      startMs: Math.round(observed[index] ?? 0),
+      endMs: Math.round(observed[index + 1] ?? durationMs),
+    }));
+  }
+
   function evaluateReadingGuideEndpoint(wordCount: number, now: number) {
     if (!isReadingGuideEndpointReady(wordCount, now)) {
       clearReadingGuideFinishTimer();
@@ -2736,10 +2796,12 @@ export function App() {
       Math.max(0, now - readingGuideLastSpeechAtRef.current);
     const expressiveEnding = /[!?…]\s*$/u.test(activePrompt?.text ?? "");
 
-    if (readingGuideFinalAlignmentConfirmedRef.current) {
+    const endpointConfirmedAtMs =
+      readingGuideFinalAlignmentConfirmedAtRef.current ??
+      readingGuideLiveAlignmentCompletedAtRef.current;
+    if (endpointConfirmedAtMs !== null) {
       return isConfirmedMlEndpointReady({
-        finalAlignmentConfirmedAtMs:
-          readingGuideFinalAlignmentConfirmedAtRef.current,
+        finalAlignmentConfirmedAtMs: endpointConfirmedAtMs,
         nowMs: now,
         expressiveEnding,
         speechActive: speechActivity?.active ?? false,
@@ -3080,6 +3142,10 @@ export function App() {
       corpus: activeCorpus,
       folderName,
       recognizedTranscript: recognizedFinalTranscriptRef.current,
+      liveWordTimings: createLiveWordTimings(
+        words,
+        recording.metrics.durationMs,
+      ),
       recordedAt,
       recording,
       speechRecognition: createBrowserAsrObservation({
@@ -3766,44 +3832,46 @@ export function App() {
               )}
 
               {screen === "done" && (
-                <DoneScreen
-                  downloadUrl={downloadUrl}
-                  fileName={savedFileName}
-                  language={selectedLanguage}
-                  location={savedLocation}
-                  metadataDownloadUrl={metadataDownloadUrl}
-                  message={message}
-                  nextRecommendation={coverage?.nextRecommendation ?? null}
-                  onPlaybackEnergyChange={updateVisualAudioLevel}
-                  onPlaybackProgressChange={setReviewPlaybackProgress}
-                  onLocalAnalysis={(analysis) =>
-                    void persistLocalTakeAnalysis(analysis)
-                  }
-                  onBeforePlayback={stopAmbientMicrophoneMonitor}
-                  progressLabel={
-                    session === null
-                      ? null
-                      : [
-                          `Phrase ${Math.min(currentPromptIndex + 1, session.plannedPromptIds.length)} sur ${session.plannedPromptIds.length}`,
-                          captureMode === "training" && coverage !== null
-                            ? `parcours ${coverage.completedPrompts}/${coverage.totalPrompts} validées`
-                            : null,
-                        ]
-                          .filter(Boolean)
-                          .join(" · ")
-                  }
-                  take={lastTake}
-                  hasNextPrompt={
-                    session !== null &&
-                    currentPromptIndex < session.plannedPromptIds.length - 1
-                  }
-                  isFreeCapture={isFreeCapture}
-                  isContinuousLyricsCapture={isContinuousLyricsCapture}
-                  onAgain={prepareSession}
-                  onNext={continueToNextPrompt}
-                  onHome={() => setScreen("home")}
-                  onRetake={retakeCurrentPrompt}
-                />
+                <Suspense fallback={null}>
+                  <DoneScreen
+                    downloadUrl={downloadUrl}
+                    fileName={savedFileName}
+                    language={selectedLanguage}
+                    location={savedLocation}
+                    metadataDownloadUrl={metadataDownloadUrl}
+                    message={message}
+                    nextRecommendation={coverage?.nextRecommendation ?? null}
+                    onPlaybackEnergyChange={updateVisualAudioLevel}
+                    onPlaybackProgressChange={setReviewPlaybackProgress}
+                    onLocalAnalysis={(analysis) =>
+                      void persistLocalTakeAnalysis(analysis)
+                    }
+                    onBeforePlayback={stopAmbientMicrophoneMonitor}
+                    progressLabel={
+                      session === null
+                        ? null
+                        : [
+                            `Phrase ${Math.min(currentPromptIndex + 1, session.plannedPromptIds.length)} sur ${session.plannedPromptIds.length}`,
+                            captureMode === "training" && coverage !== null
+                              ? `parcours ${coverage.completedPrompts}/${coverage.totalPrompts} validées`
+                              : null,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")
+                    }
+                    take={lastTake}
+                    hasNextPrompt={
+                      session !== null &&
+                      currentPromptIndex < session.plannedPromptIds.length - 1
+                    }
+                    isFreeCapture={isFreeCapture}
+                    isContinuousLyricsCapture={isContinuousLyricsCapture}
+                    onAgain={prepareSession}
+                    onNext={continueToNextPrompt}
+                    onHome={() => setScreen("home")}
+                    onRetake={retakeCurrentPrompt}
+                  />
+                </Suspense>
               )}
             </section>
           )}

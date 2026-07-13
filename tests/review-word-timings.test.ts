@@ -60,6 +60,26 @@ test("replay gives verified forced alignment the highest priority", () => {
   assert.equal(timings[0].startMs, 500);
 });
 
+test("replay reuses the alignment observed during live capture", () => {
+  const take = takeWithTimings();
+  const timings = createReviewWordTimings({
+    ...take,
+    timing: {
+      ...take.timing,
+      liveAlignment: {
+        source: "browser_live_alignment",
+        words: [
+          { word: "Bonjour", startMs: 610, endMs: 1_100 },
+          { word: "monde", startMs: 1_100, endMs: 1_780 },
+        ],
+      },
+    },
+  } as RecordedTake);
+
+  assert.equal(timings[0].startMs, 610);
+  assert.equal(timings[1].startMs, 1_100);
+});
+
 test("replay does not highlight transcription during leading silence", () => {
   const timings = createReviewWordTimings(takeWithTimings());
 
