@@ -43,6 +43,7 @@ import { createTakeCoachNote, formatPercent } from "../helpers";
 export function ListeningReviewSurface(input: {
   readonly audioUrl: string | null;
   readonly fileName: string | null;
+  readonly freeCaptureTranscript?: string | null;
   readonly onBeforePlayback: () => void;
   readonly onEnergyChange: (level: number) => void;
   readonly onProgressChange: (progress: number) => void;
@@ -107,6 +108,11 @@ export function ListeningReviewSurface(input: {
   const activeWordIndex = findActiveReviewWordIndex(
     wordTimings,
     currentTime * 1000,
+  );
+  const freeCaptureWords = useMemo(
+    () =>
+      input.freeCaptureTranscript?.trim().split(/\s+/).filter(Boolean) ?? [],
+    [input.freeCaptureTranscript],
   );
 
   useEffect(() => {
@@ -604,30 +610,63 @@ export function ListeningReviewSurface(input: {
           <Repeat2 aria-hidden="true" size={18} />
         </button>
       </div>
-      <div className="transcript-panel">
-        <div className="transcript-header">
-          <p className="soft-label">Transcription</p>
-          <span>{wordTimings.length} mots · synchronisée</span>
+      {input.take !== null && (
+        <div className="transcript-panel">
+          <div className="transcript-header">
+            <p className="soft-label">Transcription</p>
+            <span>{wordTimings.length} mots · synchronisée</span>
+          </div>
+          <div
+            className="review-transcript"
+            aria-label="Transcript synchronisé"
+          >
+            {wordTimings.map((timing, index) => (
+              <button
+                className={[
+                  "review-word",
+                  index === activeWordIndex ? "is-active" : "",
+                  index < activeWordIndex ? "is-spoken" : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+                key={`${timing.word}-${index}`}
+                onClick={() => seekToWord(index)}
+                type="button"
+              >
+                {timing.word}
+              </button>
+            ))}
+          </div>
         </div>
-        <div className="review-transcript" aria-label="Transcript synchronisé">
-          {wordTimings.map((timing, index) => (
-            <button
-              className={[
-                "review-word",
-                index === activeWordIndex ? "is-active" : "",
-                index < activeWordIndex ? "is-spoken" : "",
-              ]
-                .filter(Boolean)
-                .join(" ")}
-              key={`${timing.word}-${index}`}
-              onClick={() => seekToWord(index)}
-              type="button"
+      )}
+      {input.freeCaptureTranscript !== undefined &&
+        input.freeCaptureTranscript !== null && (
+          <div className="transcript-panel free-capture-transcript-panel">
+            <div className="transcript-header">
+              <p className="soft-label">Transcription</p>
+              <span>{freeCaptureWords.length} mots · détectée</span>
+            </div>
+            <div
+              className="review-transcript free-capture-transcript"
+              aria-label="Transcription de la capture libre"
             >
-              {timing.word}
-            </button>
-          ))}
-        </div>
-      </div>
+              {freeCaptureWords.length > 0 ? (
+                freeCaptureWords.map((word, index) => (
+                  <span
+                    className="review-word is-spoken"
+                    key={`${word}-${index}`}
+                  >
+                    {word}
+                  </span>
+                ))
+              ) : (
+                <p className="soft-label">
+                  Aucun mot n’a été détecté par ce navigateur pendant la prise.
+                </p>
+              )}
+            </div>
+          </div>
+        )}
     </section>
   );
 }
@@ -735,6 +774,7 @@ async function extractReviewWaveformBars(
 export function DoneScreen(input: {
   readonly downloadUrl: string | null;
   readonly fileName: string | null;
+  readonly freeCaptureTranscript?: string | null;
   readonly hasNextPrompt: boolean;
   readonly isFreeCapture?: boolean;
   readonly isContinuousLyricsCapture?: boolean;
@@ -776,6 +816,7 @@ export function DoneScreen(input: {
       <ListeningReviewSurface
         audioUrl={input.downloadUrl}
         fileName={input.fileName}
+        freeCaptureTranscript={input.freeCaptureTranscript}
         onBeforePlayback={input.onBeforePlayback}
         onEnergyChange={input.onPlaybackEnergyChange}
         onProgressChange={input.onPlaybackProgressChange}

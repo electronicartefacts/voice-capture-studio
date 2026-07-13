@@ -280,6 +280,9 @@ test("free capture removes unavailable controls and can replay the finished reco
   await expect(
     page.getByRole("button", { name: "Recommencer la lecture" }),
   ).toBeEnabled();
+  await expect(
+    page.getByLabel("Transcription de la capture libre"),
+  ).toBeVisible();
 });
 
 test("dubbing connects a YouTube scene to the scripted recording surface", async ({

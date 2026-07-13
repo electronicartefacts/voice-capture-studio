@@ -247,7 +247,7 @@ function FreeCaptureSurface(input: { readonly transcript: string }) {
           prise est complète.
         </p>
         <small>
-          Limite de {formatCaptureDurationLimit(FREE_CAPTURE_MAX_DURATION_MS)}
+          Limite de {formatCaptureDurationLimit(FREE_CAPTURE_MAX_DURATION_MS)}{" "}
           pour préserver la mémoire de l'appareil.
         </small>
       </div>

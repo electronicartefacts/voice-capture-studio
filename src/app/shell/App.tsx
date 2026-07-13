@@ -368,6 +368,8 @@ export function App() {
   const [readingGuideMode, setReadingGuideModeState] =
     useState<ReadingGuideMode>("voice-activity");
   const [recognizedTranscript, setRecognizedTranscript] = useState("");
+  const [freeCaptureReviewTranscript, setFreeCaptureReviewTranscript] =
+    useState<string | null>(null);
   const [roomToneProgress, setRoomToneProgress] = useState(0);
   const [sessionRoomTone, setSessionRoomTone] =
     useState<RoomToneCalibration | null>(null);
@@ -3241,6 +3243,10 @@ export function App() {
     );
     const audioUrl =
       recording.blob.size > 0 ? URL.createObjectURL(recording.blob) : null;
+    const freeCaptureTranscript = createFreeCaptureTranscript({
+      finalTranscript: recognizedFinalTranscriptRef.current,
+      recognitionAvailable: freeSpeechRecognitionAvailableRef.current,
+    });
     const metadata = {
       schemaVersion: "voice.free_capture.v1",
       mode: "free",
@@ -3262,10 +3268,7 @@ export function App() {
       lyrics: isContinuousLyricsCapture
         ? { text: continuousLyricsText, capture: "continuous-karaoke" }
         : null,
-      transcript: createFreeCaptureTranscript({
-        finalTranscript: recognizedFinalTranscriptRef.current,
-        recognitionAvailable: freeSpeechRecognitionAvailableRef.current,
-      }),
+      transcript: freeCaptureTranscript,
     };
     replaceDownloadUrl(audioUrl);
     replaceMetadataDownloadUrl(
@@ -3282,6 +3285,7 @@ export function App() {
         : "Téléchargement uniquement",
     );
     setLastTake(null);
+    setFreeCaptureReviewTranscript(freeCaptureTranscript.text);
     await refreshStoredRecordings();
     setScreen("done");
     setMessage(
@@ -3380,6 +3384,7 @@ export function App() {
     stopReadingGuide();
     setActiveWordIndex(0);
     setRecognizedTranscript("");
+    setFreeCaptureReviewTranscript(null);
     recognizedFinalTranscriptRef.current = "";
     speechRecognitionHypothesesRef.current = [];
     freeSpeechRecognitionAvailableRef.current = false;
@@ -3836,6 +3841,9 @@ export function App() {
                   <DoneScreen
                     downloadUrl={downloadUrl}
                     fileName={savedFileName}
+                    freeCaptureTranscript={
+                      isFreeCapture ? freeCaptureReviewTranscript : null
+                    }
                     language={selectedLanguage}
                     location={savedLocation}
                     metadataDownloadUrl={metadataDownloadUrl}
