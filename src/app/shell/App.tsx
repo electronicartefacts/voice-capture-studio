@@ -67,6 +67,7 @@ import {
   createRealtimeSpeechActivityDetector,
   type RealtimeSpeechActivityDetector,
 } from "../recording/realtimeSpeechActivity";
+import { isConfirmedMlEndpointReady } from "../recording/mlCaptureEndpoint";
 import {
   finalizeCaptureSession,
   type FinalizedRecording,
@@ -430,6 +431,7 @@ export function App() {
   const readingGuideProgressRef = useRef(0);
   const readingGuideAlignmentRef = useRef<PromptPhonemeAlignment | null>(null);
   const readingGuideFinalAlignmentConfirmedRef = useRef(false);
+  const readingGuideFinalAlignmentConfirmedAtRef = useRef<number | null>(null);
   const readingGuideFinishTimerRef = useRef<number | null>(null);
   const realtimeSpeechActivityRef =
     useRef<RealtimeSpeechActivityDetector | null>(null);
@@ -2214,6 +2216,7 @@ export function App() {
     speechRecognitionRestartEnabledRef.current = true;
     speechRecognitionBiasEnabledRef.current = true;
     readingGuideFinalAlignmentConfirmedRef.current = false;
+    readingGuideFinalAlignmentConfirmedAtRef.current = null;
     resetLiveReadingGuidePosition();
 
     const speechRecognitionStarted = startSpeechRecognitionGuide(
@@ -2314,6 +2317,11 @@ export function App() {
             finalAlignment.score >= 0.68
           ) {
             readingGuideFinalAlignmentConfirmedRef.current = true;
+            readingGuideFinalAlignmentConfirmedAtRef.current ??= now;
+            updateReadingGuideIndex(
+              finalAlignment.position.wordIndex,
+              promptWords.length,
+            );
           }
         }
 
@@ -2661,7 +2669,7 @@ export function App() {
     const speechActivity = realtimeSpeechActivityRef.current?.snapshot(now);
 
     if (speechActivity !== undefined) {
-      if (!speechActivity.hasDetectedSpeech || speechActivity.active) {
+      if (!speechActivity.hasDetectedSpeech) {
         return false;
       }
     }
@@ -2670,18 +2678,26 @@ export function App() {
       speechActivity?.trailingSilenceMs ??
       Math.max(0, now - readingGuideLastSpeechAtRef.current);
     const expressiveEnding = /[!?…]\s*$/u.test(activePrompt?.text ?? "");
-    const requiredSilenceMs = readingGuideFinalAlignmentConfirmedRef.current
-      ? expressiveEnding
-        ? 640
-        : 540
-      : 1_050;
 
-    if (trailingSilenceMs < requiredSilenceMs) {
+    if (readingGuideFinalAlignmentConfirmedRef.current) {
+      return isConfirmedMlEndpointReady({
+        finalAlignmentConfirmedAtMs:
+          readingGuideFinalAlignmentConfirmedAtRef.current,
+        nowMs: now,
+        expressiveEnding,
+        speechActive: speechActivity?.active ?? false,
+        trailingSilenceMs,
+      });
+    }
+
+    if (speechActivity?.active === true) {
       return false;
     }
 
-    if (readingGuideFinalAlignmentConfirmedRef.current) {
-      return true;
+    const requiredSilenceMs = 1_050;
+
+    if (trailingSilenceMs < requiredSilenceMs) {
+      return false;
     }
 
     const alignment = readingGuideAlignmentRef.current;
