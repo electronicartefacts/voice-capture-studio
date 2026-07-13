@@ -113,6 +113,8 @@ not silently omit audio.
 
 ## Room tone
 
-Current legacy calibration stores aggregate room-tone measurements, not the raw
-room-tone audio. The v1 package records that fact explicitly in session context
-and package warnings. It does not fabricate a `room-tones/*.wav` artifact.
+New calibrations retain their canonical raw WAV in local storage and workspace
+archives. When referenced by an exported session, the package verifies it and
+adds a content-addressed `room-tones/*.wav` artifact. Historical calibrations
+that contain aggregate measurements only remain explicit package warnings; the
+exporter never fabricates missing room-tone audio.

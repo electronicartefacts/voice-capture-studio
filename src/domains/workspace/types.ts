@@ -86,4 +86,6 @@ export type CaptureProfile = {
   readonly roomToneIntegratedLufs?: number;
   readonly roomToneDurationMs?: number;
   readonly calibratedAt?: IsoDateTime;
+  readonly roomToneFileName?: string;
+  readonly roomToneSha256?: string;
 };

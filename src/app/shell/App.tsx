@@ -2840,10 +2840,20 @@ export function App() {
       }
 
       const calibration = createRoomToneCalibration(roomToneRecording.metrics);
+      const roomToneSha256 = await sha256Blob(roomToneRecording.blob);
+      const roomToneFileName = `room-tone-${Date.now()}-${roomToneSha256.slice(0, 12)}.wav`;
+      const roomToneSaveResult = await saveRecordingToWorkspaceFolder(
+        roomToneFileName,
+        roomToneRecording.blob,
+      );
 
       setSessionRoomTone(calibration);
       hasCalibratedCurrentSessionRef.current = true;
-      await persistRoomToneCalibration(calibration);
+      await persistRoomToneCalibration(
+        calibration,
+        roomToneSaveResult.ok ? roomToneFileName : null,
+        roomToneSaveResult.ok ? roomToneSha256 : null,
+      );
 
       if (mediaStreamRef.current !== stream) {
         return;
@@ -2874,7 +2884,11 @@ export function App() {
     }
   }
 
-  async function persistRoomToneCalibration(calibration: RoomToneCalibration) {
+  async function persistRoomToneCalibration(
+    calibration: RoomToneCalibration,
+    roomToneFileName: string | null,
+    roomToneSha256: string | null,
+  ) {
     const currentWorkspace = await ensureWorkspace().catch(() => null);
 
     if (currentWorkspace === null) {
@@ -2895,6 +2909,8 @@ export function App() {
           roomToneDurationMs: calibration.durationMs,
           calibratedAt:
             new Date().toISOString() as CaptureProfile["calibratedAt"],
+          roomToneFileName: roomToneFileName ?? undefined,
+          roomToneSha256: roomToneSha256 ?? undefined,
         },
       },
     };

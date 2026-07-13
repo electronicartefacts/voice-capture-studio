@@ -322,6 +322,7 @@ export async function createVoiceCapturePackagePlan(input: {
   >();
   const speakerPaths = new Map<string, string>();
   const corpusPaths = new Map<string, string>();
+  const roomTonePathBySession = new Map<string, string>();
   const legacyWarnings: string[] = [];
   let audioBytes = 0;
 
@@ -339,6 +340,26 @@ export async function createVoiceCapturePackagePlan(input: {
     }
     const captureContext = createCaptureContext(input.workspace, session);
     contextBySession.set(session.id, captureContext);
+    let roomTonePath: string | null = null;
+    if (
+      scope.includeRoomTones === true &&
+      captureContext.room_tone.ref !== null
+    ) {
+      const roomToneBlob = await input.getAudioBlob(
+        captureContext.room_tone.ref,
+      );
+      if (roomToneBlob === undefined) {
+        legacyWarnings.push(
+          `Session ${session.id} references missing room tone ${captureContext.room_tone.ref}.`,
+        );
+      } else {
+        await validatePcmWavBlob(roomToneBlob);
+        const roomToneHash = await sha256Blob(roomToneBlob);
+        roomTonePath = `room-tones/room_tone_${roomToneHash}.wav`;
+        addAudioFileOnce(files, roomTonePath, roomToneBlob);
+        roomTonePathBySession.set(session.id, roomTonePath);
+      }
+    }
     addJsonFile(files, sessionPath, {
       schema_version: "voice.capture.session.v1",
       session_id: session.id,
@@ -353,8 +374,8 @@ export async function createVoiceCapturePackagePlan(input: {
       capture_context: captureContext,
       room_tone: {
         status: captureContext.room_tone.status,
-        ref: null,
-        audio_retained: false,
+        ref: roomTonePath,
+        audio_retained: roomTonePath !== null,
         reason: captureContext.room_tone.reason,
       },
     });
@@ -596,7 +617,7 @@ export async function createVoiceCapturePackagePlan(input: {
             },
           }),
       capture_context_ref: contextPath,
-      room_tone_ref: null,
+      room_tone_ref: roomTonePathBySession.get(session.id) ?? null,
       consent_refs: [consent.consentId],
       license_refs: [license.licenseId],
       lifecycle,
@@ -673,7 +694,9 @@ export async function createVoiceCapturePackagePlan(input: {
     warnings: uniqueStrings([
       ...legacyWarnings,
       ...(scope.includeRoomTones === true
-        ? ["room_tone_audio_not_retained_by_legacy_calibration"]
+        ? roomTonePathBySession.size === sessions.length
+          ? []
+          : ["room_tone_audio_not_retained_by_legacy_calibration"]
         : ["room_tone_not_included_in_scope"]),
     ]),
     downstream_required: downstreamRequired,
@@ -994,7 +1017,14 @@ function createCaptureContext(
   workspace: VoiceWorkspace,
   session: CaptureSession,
 ) {
-  const profile = workspace.settings.captureProfile;
+  const takeContext = session.takes.find(
+    (take) => take.captureContext !== undefined,
+  )?.captureContext;
+  const profile = takeContext?.profile ?? workspace.settings.captureProfile;
+  const roomToneRef =
+    takeContext?.roomToneRef ??
+    workspace.settings.captureProfile.roomToneFileName ??
+    null;
   return {
     schema_version: "voice.capture.context.v1",
     source: "workspace_snapshot",
@@ -1012,17 +1042,34 @@ function createCaptureContext(
     interruption_or_device_changes: null,
     orientation_changes: null,
     timezone: "unknown",
-    room_tone: profile.roomToneCaptured
-      ? {
-          status: "legacy_aggregate_only",
-          reason: "raw_room_tone_not_retained_by_legacy_calibration",
-          duration_ms: profile.roomToneDurationMs ?? null,
-          noise_floor_dbfs: profile.roomToneNoiseFloorDbfs ?? null,
-          peak_dbfs: profile.roomTonePeakDbfs ?? null,
-          integrated_lufs: profile.roomToneIntegratedLufs ?? null,
-          calibrated_at: profile.calibratedAt ?? null,
-        }
-      : { status: "not_recorded", reason: "no_room_tone_capture" },
+    room_tone:
+      roomToneRef !== null
+        ? {
+            status: "raw_audio_retained",
+            reason: null,
+            ref: roomToneRef,
+            duration_ms: profile.roomToneDurationMs ?? null,
+            noise_floor_dbfs: profile.roomToneNoiseFloorDbfs ?? null,
+            peak_dbfs: profile.roomTonePeakDbfs ?? null,
+            integrated_lufs: profile.roomToneIntegratedLufs ?? null,
+            calibrated_at: profile.calibratedAt ?? null,
+          }
+        : profile.roomToneCaptured
+          ? {
+              status: "legacy_aggregate_only",
+              reason: "raw_room_tone_not_retained_by_legacy_calibration",
+              ref: null,
+              duration_ms: profile.roomToneDurationMs ?? null,
+              noise_floor_dbfs: profile.roomToneNoiseFloorDbfs ?? null,
+              peak_dbfs: profile.roomTonePeakDbfs ?? null,
+              integrated_lufs: profile.roomToneIntegratedLufs ?? null,
+              calibrated_at: profile.calibratedAt ?? null,
+            }
+          : {
+              status: "not_recorded",
+              reason: "no_room_tone_capture",
+              ref: null,
+            },
     take_contexts: session.takes.map((take) => ({
       take_id: take.id,
       snapshot: take.captureContext ?? null,

@@ -216,6 +216,12 @@ function normalizeCaptureProfile(captureProfile: unknown): CaptureProfile {
     ...(roomToneIntegratedLufs === null ? {} : { roomToneIntegratedLufs }),
     ...(roomToneDurationMs === null ? {} : { roomToneDurationMs }),
     ...calibratedAt,
+    ...(isNonEmptyString(profile.roomToneFileName)
+      ? { roomToneFileName: profile.roomToneFileName }
+      : {}),
+    ...(isSha256(profile.roomToneSha256)
+      ? { roomToneSha256: profile.roomToneSha256 }
+      : {}),
   };
 }
 
@@ -233,6 +239,10 @@ function isNullableString(value: unknown): value is string | null {
 
 function isStringArray(value: unknown): value is readonly string[] {
   return Array.isArray(value) && value.every(isNonEmptyString);
+}
+
+function isSha256(value: unknown): value is string {
+  return typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
 }
 
 function coerceString(value: unknown, fallback: string): string {

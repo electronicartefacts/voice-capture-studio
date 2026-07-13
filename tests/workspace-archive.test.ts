@@ -16,22 +16,38 @@ import {
 
 test("workspace archive round-trips progression and every referenced WAV", async () => {
   const wav = encodeWav24(new Float32Array(480), 48_000);
-  const workspace = await createWorkspaceWithRecording("take.one.wav", wav);
+  const roomTone = encodeWav24(new Float32Array(960), 48_000);
+  const baseWorkspace = await createWorkspaceWithRecording("take.one.wav", wav);
+  const workspace: VoiceWorkspace = {
+    ...baseWorkspace,
+    settings: {
+      ...baseWorkspace.settings,
+      captureProfile: {
+        ...baseWorkspace.settings.captureProfile,
+        roomToneCaptured: true,
+        roomToneFileName: "room-tone.one.wav",
+        roomToneSha256: await sha256Blob(roomTone),
+      },
+    },
+  };
   const archive = await createWorkspaceArchive({
     workspace,
     getAudioBlob: async (fileName) =>
-      fileName === "take.one.wav" ? wav : undefined,
+      fileName === "take.one.wav"
+        ? wav
+        : fileName === "room-tone.one.wav"
+          ? roomTone
+          : undefined,
     now: new Date("2026-07-11T08:00:00.000Z"),
   });
   const restored = await readWorkspaceArchive(archive.blob);
 
-  assert.equal(archive.recordingCount, 1);
+  assert.equal(archive.recordingCount, 2);
   assert.match(archive.fileName, /\.workspace\.zip$/);
   assert.equal(restored.workspace.capturedSessions.length, 1);
-  assert.equal(restored.recordings[0].fileName, "take.one.wav");
-  assert.equal(
-    await sha256Blob(restored.recordings[0].blob),
-    await sha256Blob(wav),
+  assert.deepEqual(
+    restored.recordings.map((recording) => recording.fileName).sort(),
+    ["room-tone.one.wav", "take.one.wav"],
   );
 });
 

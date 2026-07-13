@@ -51,8 +51,13 @@ export async function createWorkspaceArchive(input: {
   readonly now: Date;
 }): Promise<WorkspaceArchive> {
   const takeRecords = collectTakeRecords(input.workspace);
+  const roomToneFileName =
+    input.workspace.settings.captureProfile.roomToneFileName;
   const fileNames = [
-    ...new Set(takeRecords.map((take) => take.fileName)),
+    ...new Set([
+      ...takeRecords.map((take) => take.fileName),
+      ...(roomToneFileName === undefined ? [] : [roomToneFileName]),
+    ]),
   ].sort();
   const recordings: WorkspaceArchiveRecording[] = [];
   const audioEntries = new Map<string, Blob>();
@@ -87,6 +92,13 @@ export async function createWorkspaceArchive(input: {
       ) {
         throw new Error(`Audio byte length mismatch for ${fileName}.`);
       }
+    }
+    if (
+      fileName === roomToneFileName &&
+      input.workspace.settings.captureProfile.roomToneSha256 !== undefined &&
+      input.workspace.settings.captureProfile.roomToneSha256 !== sha256
+    ) {
+      throw new Error(`Room-tone hash mismatch for ${fileName}.`);
     }
 
     recordings.push({ fileName, path, byteLength: blob.size, sha256 });
@@ -151,9 +163,12 @@ export async function readWorkspaceArchive(
   }
 
   const workspace = normalizeWorkspacePayload(payload.workspace);
-  const referencedFileNames = new Set(
-    collectTakeRecords(workspace).map((take) => take.fileName),
-  );
+  const referencedFileNames = new Set([
+    ...collectTakeRecords(workspace).map((take) => take.fileName),
+    ...(workspace.settings.captureProfile.roomToneFileName === undefined
+      ? []
+      : [workspace.settings.captureProfile.roomToneFileName]),
+  ]);
   const recordings = payload.recordings.map(parseRecordingEntry);
   const recordingByFileName = new Map<string, WorkspaceArchiveRecording>();
 

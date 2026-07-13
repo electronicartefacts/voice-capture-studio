@@ -189,6 +189,56 @@ test("voice capture package audits repeated text and blocks exact audio duplicat
   assert.equal(audit.provenance.length, 1);
 });
 
+test("voice capture package retains a referenced room-tone WAV", async () => {
+  const roomTone = createWav(0.01);
+  const roomToneFileName = "room-tone-fixture.wav";
+  const baseWorkspace = createEmptyWorkspace({
+    corpus: canonicalCorpus,
+    speakers: initialSpeakers,
+    now: new Date("2026-07-10T07:00:00.000Z"),
+  });
+  const fixture = await createFixture({
+    baseWorkspace: {
+      ...baseWorkspace,
+      settings: {
+        ...baseWorkspace.settings,
+        captureProfile: {
+          ...baseWorkspace.settings.captureProfile,
+          roomToneCaptured: true,
+          roomToneDurationMs: 100,
+          roomToneNoiseFloorDbfs: -70,
+          roomToneFileName,
+          roomToneSha256: await sha256Blob(roomTone),
+        },
+      },
+    },
+    speakerIndex: 0,
+    language: "fr",
+  });
+  const plan = await createVoiceCapturePackagePlan({
+    corpus: canonicalCorpus,
+    getAudioBlob: async (fileName) =>
+      fileName === roomToneFileName
+        ? roomTone
+        : fixture.audioByFileName.get(fileName),
+    scope: createScope(fixture.workspace, {
+      speakerId: frSpeaker.id,
+      language: "fr",
+      sessionIds: [fixture.session.id],
+    }),
+    speakerProfiles: initialSpeakers,
+    workspace: fixture.workspace,
+  });
+
+  assert.ok(plan.files.some((file) => file.path.startsWith("room-tones/")));
+  assert.match(plan.samples[0].room_tone_ref ?? "", /^room-tones\//);
+  assert.ok(
+    !plan.forgeCompatibility.warnings.includes(
+      "room_tone_audio_not_retained_by_legacy_calibration",
+    ),
+  );
+});
+
 test("voice capture archive validator rejects a malformed ZIP", async () => {
   const validation = await validateVoiceCapturePackageArchive(new Blob([]));
 
