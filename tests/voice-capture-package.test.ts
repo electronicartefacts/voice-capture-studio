@@ -133,6 +133,62 @@ test("voice capture package v1 rejects missing audio instead of creating partial
   );
 });
 
+test("voice capture package audits repeated text and blocks exact audio duplicates", async () => {
+  const fixture = await createFixture({ speakerIndex: 0, language: "fr" });
+  const duplicateTake = {
+    ...fixture.take,
+    id: `${fixture.take.id}.duplicate` as TakeId,
+    fileName: `duplicate-${fixture.take.fileName}`,
+  };
+  const duplicateSession = {
+    ...fixture.session,
+    id: `${fixture.session.id}.duplicate` as CaptureSession["id"],
+    takes: [duplicateTake],
+  };
+  const workspace = {
+    ...fixture.workspace,
+    sessions: [...fixture.workspace.sessions, duplicateSession.id],
+    capturedSessions: [fixture.session, duplicateSession],
+  };
+  const plan = await createVoiceCapturePackagePlan({
+    corpus: canonicalCorpus,
+    getAudioBlob: async (fileName) =>
+      fileName === fixture.take.fileName || fileName === duplicateTake.fileName
+        ? fixture.audioByFileName.get(fixture.take.fileName)
+        : undefined,
+    scope: createScope(workspace, {
+      speakerId: frSpeaker.id,
+      language: "fr",
+      sessionIds: [fixture.session.id, duplicateSession.id],
+    }),
+    speakerProfiles: initialSpeakers,
+    workspace,
+  });
+
+  assert.equal(plan.samples.length, 2);
+  assert.equal(
+    plan.files.filter((file) => file.path.startsWith("audio/")).length,
+    1,
+  );
+  assert.equal(
+    plan.files.filter((file) => file.path.startsWith("text/")).length,
+    2,
+  );
+  assert.ok(plan.forgeCompatibility.errors.includes("duplicate_audio_content"));
+  const auditFile = plan.files.find(
+    (file) => file.path === "reports/duplication-audit.json",
+  );
+  assert.ok(auditFile);
+  const audit = JSON.parse(await auditFile.data.text()) as {
+    exact_audio: unknown[];
+    normalized_text: unknown[];
+    provenance: unknown[];
+  };
+  assert.equal(audit.exact_audio.length, 1);
+  assert.equal(audit.normalized_text.length, 1);
+  assert.equal(audit.provenance.length, 1);
+});
+
 test("voice capture archive validator rejects a malformed ZIP", async () => {
   const validation = await validateVoiceCapturePackageArchive(new Blob([]));
 

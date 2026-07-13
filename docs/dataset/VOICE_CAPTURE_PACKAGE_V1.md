@@ -15,7 +15,7 @@ voice-capture-package/
   speakers/<speaker_id>.json
   sessions/<session_id>.json
   corpora/<corpus_id>/<corpus_version>.json
-  text/<utterance_id>.json
+  text/<take_id>.json
   alignment/<take_id>.json
   quality/<take_id>.json
   observations/<take_id>.json
@@ -27,6 +27,7 @@ voice-capture-package/
   reports/package-readiness.json
   reports/quality-summary.json
   reports/coverage-summary.json
+  reports/duplication-audit.json
   reports/forge-compatibility.json
 ```
 
@@ -80,6 +81,15 @@ Package validation fails on:
 - artifact size or hash mismatches
 - missing sample references
 - malformed `samples.jsonl`
+
+## Duplication and leakage rules
+
+`reports/duplication-audit.json` groups repeated samples independently by exact
+audio SHA-256, normalized text hash, and corpus provenance. Repeated text or
+provenance is preserved because multiple genuine performances are useful, but
+their existing group ids must remain together during downstream split
+assignment. Exact duplicate audio is stored once and blocks Forge ingestion
+until deduplicated; it must never silently inflate a dataset or cross splits.
 
 The downloadable ZIP is reopened after serialization and validated again from its stored entries.
 Download is refused when the final archive contains an unmanifested file, a missing or duplicate

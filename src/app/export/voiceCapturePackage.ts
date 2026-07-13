@@ -462,7 +462,7 @@ export async function createVoiceCapturePackagePlan(input: {
       take.transcript.spokenText || take.transcript.originalText;
     const normalizedText = normalizeText(utteranceText);
     const utteranceId = `utterance_${stableToken(`${corpusRefKey(corpus)}:${take.promptId}:${normalizedText}`)}`;
-    const textPath = `text/${pathToken(utteranceId)}.json`;
+    const textPath = `text/${takeKey}.json`;
     const alignmentPath = `alignment/${takeKey}.json`;
     const qualityPath = `quality/${takeKey}.json`;
     const reviewPath = `reviews/${takeKey}.json`;
@@ -479,7 +479,7 @@ export async function createVoiceCapturePackagePlan(input: {
       throw new Error(`Rights records are incomplete for take ${take.id}.`);
     }
 
-    addAudioFile(files, audioPath, audioBlob);
+    const addedAudio = addAudioFileOnce(files, audioPath, audioBlob);
     addJsonFile(files, textPath, {
       schema_version: "voice.capture.text.v1",
       utterance_id: utteranceId,
@@ -619,7 +619,7 @@ export async function createVoiceCapturePackagePlan(input: {
     };
     samples.push(sample);
     provenanceRows.push({
-      provenance_id: sample.utterance_id,
+      provenance_id: `provenance_${sample.sample_id}`,
       utterance_id: sample.utterance_id,
       source_type: "corpus_prompt",
       source_ref: sample.text.provenance_ref,
@@ -627,7 +627,7 @@ export async function createVoiceCapturePackagePlan(input: {
       license_ref: license.licenseId,
       timecodes: null,
     });
-    audioBytes += audioBlob.size;
+    if (addedAudio) audioBytes += audioBlob.size;
   }
 
   addJsonlFile(files, "rights/text-provenance.jsonl", provenanceRows);
@@ -639,6 +639,7 @@ export async function createVoiceCapturePackagePlan(input: {
 
   const qualitySummary = createQualitySummary(samples);
   const coverageSummary = createCoverageSummary(samples);
+  const duplicationAudit = createDuplicationAudit(samples);
   const rightsStatus = getRightsStatus(consents, licenses);
   const downstreamRequired = uniqueStrings([
     ...samples
@@ -656,6 +657,9 @@ export async function createVoiceCapturePackagePlan(input: {
     ...(rightsStatus === "resolved" ? [] : ["rights_not_resolved"]),
     ...(samples.some((sample) => sample.audio.sha256.length === 0)
       ? ["audio_hash_missing"]
+      : []),
+    ...(duplicationAudit.exact_audio.length > 0
+      ? ["duplicate_audio_content"]
       : []),
   ]);
   const forgeReady = blockingReasons.length === 0;
@@ -692,6 +696,7 @@ export async function createVoiceCapturePackagePlan(input: {
   });
   addJsonFile(files, "reports/quality-summary.json", qualitySummary);
   addJsonFile(files, "reports/coverage-summary.json", coverageSummary);
+  addJsonFile(files, "reports/duplication-audit.json", duplicationAudit);
   addJsonFile(files, "reports/forge-compatibility.json", forgeCompatibility);
   addTextFile(
     files,
@@ -1129,6 +1134,41 @@ function createCoverageSummary(samples: readonly VoiceCapturePackageSample[]) {
   };
 }
 
+function createDuplicationAudit(samples: readonly VoiceCapturePackageSample[]) {
+  return {
+    schema_version: "voice.capture.duplication_audit.v1",
+    sample_count: samples.length,
+    exact_audio: duplicateGroups(samples, (sample) => sample.audio.sha256),
+    normalized_text: duplicateGroups(
+      samples,
+      (sample) => sample.text.normalized_hash,
+    ),
+    provenance: duplicateGroups(
+      samples,
+      (sample) => sample.text.provenance_ref,
+    ),
+    policy: {
+      exact_audio: "blocking",
+      normalized_text: "group_for_split",
+      provenance: "group_for_split",
+    },
+  };
+}
+
+function duplicateGroups(
+  samples: readonly VoiceCapturePackageSample[],
+  keyFor: (sample: VoiceCapturePackageSample) => string,
+) {
+  const groups = new Map<string, string[]>();
+  for (const sample of samples) {
+    const key = keyFor(sample);
+    groups.set(key, [...(groups.get(key) ?? []), sample.sample_id]);
+  }
+  return [...groups]
+    .filter(([, sampleIds]) => sampleIds.length > 1)
+    .map(([key, sampleIds]) => ({ key, sample_ids: sampleIds }));
+}
+
 function countBy<T>(
   items: readonly T[],
   key: (item: T) => string,
@@ -1153,8 +1193,8 @@ async function createArtifacts(
       owners.set(sample.alignment.path, `sample:${sample.sample_id}`);
     owners.set(sample.capture_context_ref, `session:${sample.session_id}`);
     owners.set(
-      `text/${pathToken(sample.utterance_id)}.json`,
-      `utterance:${sample.utterance_id}`,
+      `text/${pathToken(sample.take_id)}.json`,
+      `sample:${sample.sample_id}`,
     );
   }
   return Promise.all(
@@ -1227,12 +1267,14 @@ function addTextFile(
   files.push(file(path, textBlob(text), "text/plain;charset=utf-8"));
 }
 
-function addAudioFile(
+function addAudioFileOnce(
   files: VoiceCapturePackageFile[],
   path: string,
   data: Blob,
-): void {
+): boolean {
+  if (files.some((entry) => entry.path === path)) return false;
   files.push(file(path, data, data.type || "audio/wav"));
+  return true;
 }
 
 function file(
