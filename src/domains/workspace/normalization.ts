@@ -8,7 +8,9 @@ import {
 import type {
   CaptureProfile,
   VoiceWorkspace,
+  WorkspaceConsentRecord,
   WorkspaceId,
+  WorkspaceLicenseRecord,
   WorkspaceSettings,
 } from "./types";
 
@@ -60,9 +62,49 @@ export function normalizeWorkspacePayload(
 function normalizeWorkspaceRights(value: unknown): VoiceWorkspace["rights"] {
   const rights = isRecord(value) ? value : {};
   return {
-    consents: coerceReadonlyArray(rights.consents),
-    licenses: coerceReadonlyArray(rights.licenses),
+    consents: coerceReadonlyArray(rights.consents).filter(
+      isWorkspaceConsentRecord,
+    ),
+    licenses: coerceReadonlyArray(rights.licenses).filter(
+      isWorkspaceLicenseRecord,
+    ),
   };
+}
+
+function isWorkspaceConsentRecord(
+  value: unknown,
+): value is WorkspaceConsentRecord {
+  if (!isRecord(value)) return false;
+  return (
+    isNonEmptyString(value.consentId) &&
+    isNonEmptyString(value.speakerId) &&
+    isNonEmptyString(value.policyVersion) &&
+    (value.status === "granted" ||
+      value.status === "revoked" ||
+      value.status === "unknown") &&
+    isStringArray(value.grants) &&
+    isStringArray(value.restrictions) &&
+    isNullableString(value.grantedAt) &&
+    isNullableString(value.revokedAt) &&
+    isNullableString(value.evidenceRef) &&
+    value.source === "local_user_attestation"
+  );
+}
+
+function isWorkspaceLicenseRecord(
+  value: unknown,
+): value is WorkspaceLicenseRecord {
+  if (!isRecord(value)) return false;
+  return (
+    isNonEmptyString(value.licenseId) &&
+    isNonEmptyString(value.corpusId) &&
+    isNonEmptyString(value.corpusVersion) &&
+    (value.status === "granted" || value.status === "unknown") &&
+    isNullableString(value.spdxId) &&
+    isStringArray(value.restrictions) &&
+    isNullableString(value.evidenceRef) &&
+    value.source === "local_user_attestation"
+  );
 }
 
 function normalizeLocalCorpusSnapshot(
@@ -183,6 +225,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
+}
+
+function isNullableString(value: unknown): value is string | null {
+  return value === null || isNonEmptyString(value);
+}
+
+function isStringArray(value: unknown): value is readonly string[] {
+  return Array.isArray(value) && value.every(isNonEmptyString);
 }
 
 function coerceString(value: unknown, fallback: string): string {

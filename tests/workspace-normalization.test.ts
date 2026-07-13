@@ -110,19 +110,37 @@ test("workspace normalization preserves a local corpus snapshot", () => {
 });
 
 test("workspace normalization preserves durable rights records", () => {
+  const consent = {
+    consentId: "consent.local",
+    speakerId: "speaker.local",
+    policyVersion: "voice-training-consent.v1",
+    status: "granted",
+    grants: ["forge_ingestion", "model_training"],
+    restrictions: [],
+    grantedAt: "2026-07-13T08:00:00.000Z",
+    revokedAt: null,
+    evidenceRef: "local-attestation:2026-07-13T08:00:00.000Z",
+    source: "local_user_attestation",
+  };
+  const license = {
+    licenseId: "license.local",
+    corpusId: "corpus.local",
+    corpusVersion: "1.0.0",
+    status: "granted",
+    spdxId: null,
+    restrictions: [],
+    evidenceRef: "local-attestation:2026-07-13T08:00:00.000Z",
+    source: "local_user_attestation",
+  };
   const workspace = normalizeWorkspacePayload({
     rights: {
-      consents: [{ consentId: "consent.local", status: "granted" }],
-      licenses: [{ licenseId: "license.local", status: "granted" }],
+      consents: [consent, { consentId: "incomplete", status: "granted" }],
+      licenses: [license, { licenseId: "incomplete", status: "granted" }],
     },
   });
 
-  assert.deepEqual(workspace.rights.consents, [
-    { consentId: "consent.local", status: "granted" },
-  ]);
-  assert.deepEqual(workspace.rights.licenses, [
-    { licenseId: "license.local", status: "granted" },
-  ]);
+  assert.deepEqual(workspace.rights.consents, [consent]);
+  assert.deepEqual(workspace.rights.licenses, [license]);
 });
 
 test("workspace progress reconciliation tolerates malformed browser history entries", () => {
