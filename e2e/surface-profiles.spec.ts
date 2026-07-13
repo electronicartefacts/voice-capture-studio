@@ -4,7 +4,7 @@ const APP_PATH = "/voice-capture-studio/";
 
 async function enterStudio(page: Page) {
   const ritualButton = page.getByRole("button", {
-    name: /Activer le microphone/,
+    name: /Activer le microphone|Revalider l’appareil/,
   });
 
   if (await ritualButton.isVisible()) {

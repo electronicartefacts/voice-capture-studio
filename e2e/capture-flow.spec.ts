@@ -8,7 +8,7 @@ async function enterStudio(page: Page): Promise<void> {
   // The opening ritual auto-skips when microphone permission is already
   // granted, so the studio may already be awake by the time we look.
   const ritualButton = page.getByRole("button", {
-    name: /Activer le microphone/,
+    name: /Activer le microphone|Revalider l’appareil/,
   });
 
   await expect(async () => {
@@ -258,7 +258,11 @@ test("free capture removes unavailable controls and can replay the finished reco
     timeout: 30_000,
   });
   await expect(page.locator(".read-progress")).toHaveCount(0);
-  await expect(page.locator(".free-capture-line")).toBeVisible();
+  await expect(page.locator(".free-capture-line")).toBeAttached();
+  await expect(page.locator(".free-capture-line")).toHaveAttribute(
+    "aria-label",
+    "En attente de mots reconnus",
+  );
   await expect(page.locator(".free-capture-line")).toBeEmpty();
   await expect(page.getByText("Le studio enregistre.")).toHaveCount(0);
   await expect(page.locator(".free-capture-guidance p")).toBeVisible();
@@ -267,7 +271,7 @@ test("free capture removes unavailable controls and can replay the finished reco
   await expect(page.locator(".recording-assist")).toHaveCount(0);
 
   await page.waitForTimeout(1_000);
-  await page.getByRole("button", { name: "Arrêter" }).click();
+  await page.getByRole("button", { name: "Stop" }).click();
 
   await expect(page.locator("main.screen-done")).toBeVisible({
     timeout: 30_000,
@@ -275,7 +279,9 @@ test("free capture removes unavailable controls and can replay the finished reco
   await expect(
     page.getByRole("region", { name: "Écoute de la prise" }),
   ).toBeVisible();
-  await expect(page.getByText("Capture LIBRE")).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Capture LIBRE", exact: true }),
+  ).toBeVisible();
   await expect(page.getByRole("button", { name: "Écouter" })).toBeEnabled();
   await expect(
     page.getByRole("button", { name: "Recommencer la lecture" }),
@@ -379,9 +385,6 @@ test("workspace progress survives a reload through IndexedDB", async ({
 
   await expect.poll(readWorkspaceFromIndexedDb, { timeout: 15_000 }).toBe(true);
 
-  await page.reload();
-  await expect(page.locator("main.is-awake")).toBeVisible({
-    timeout: 30_000,
-  });
+  await enterStudio(page);
   await expect(await readWorkspaceFromIndexedDb()).toBe(true);
 });

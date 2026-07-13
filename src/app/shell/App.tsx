@@ -906,6 +906,15 @@ export function App() {
   }, [activeWordIndex]);
 
   useEffect(() => {
+    // Chromium's headless shell currently exposes SpeechRecognition.available
+    // without binding the on-device recognition service. Calling it terminates
+    // the renderer with a bad Mojo message, so automated browsers must stay on
+    // the regular progressive SpeechRecognition path.
+    if (navigator.webdriver) {
+      speechRecognitionLocalReadyRef.current = false;
+      return;
+    }
+
     const SpeechRecognitionConstructor =
       (window as WindowWithSpeechRecognition).SpeechRecognition ??
       (window as WindowWithSpeechRecognition).webkitSpeechRecognition;

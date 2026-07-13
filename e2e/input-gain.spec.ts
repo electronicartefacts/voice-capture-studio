@@ -5,7 +5,7 @@ const APP_PATH = "/voice-capture-studio/";
 async function enterStudio(page: Page): Promise<void> {
   await page.goto(APP_PATH);
   const ritualButton = page.getByRole("button", {
-    name: /Activer le microphone/,
+    name: /Activer le microphone|Revalider l’appareil/,
   });
 
   await expect(async () => {
@@ -35,8 +35,7 @@ test("automatic sensitivity is the safe default and manual mode persists", async
   await expect(sensitivity).toBeEnabled();
   await sensitivity.fill("2.25");
 
-  await page.reload();
-  await expect(page.locator("main.is-awake")).toBeVisible({ timeout: 30_000 });
+  await enterStudio(page);
   await page.getByRole("button", { name: "Qualité et exports" }).click();
   await expect(manual).toHaveAttribute("aria-pressed", "true");
   await expect(sensitivity).toHaveValue("2.25");

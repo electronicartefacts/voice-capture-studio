@@ -1,6 +1,20 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 const APP_PATH = "/voice-capture-studio/";
+
+async function revalidateStudio(page: Page): Promise<void> {
+  const revalidationButton = page.getByRole("button", {
+    name: /Activer le microphone|Revalider l’appareil/,
+  });
+
+  if (await revalidationButton.isVisible()) {
+    await revalidationButton.click();
+  }
+
+  await expect(page.locator("main.is-awake")).toBeVisible({
+    timeout: 30_000,
+  });
+}
 
 test("offline service worker restarts the app without masking missing modules", async ({
   page,
@@ -15,7 +29,7 @@ test("offline service worker restarts the app without masking missing modules", 
   // Reload once under service-worker control so the app shell and its module
   // graph have both passed through the runtime cache before the offline boot.
   await page.reload();
-  await expect(page.locator("main.screen-home")).toBeVisible();
+  await revalidateStudio(page);
 
   await page.getByRole("button", { name: "Doublage" }).click();
   await expect
@@ -29,7 +43,7 @@ test("offline service worker restarts the app without masking missing modules", 
   await context.setOffline(true);
 
   await page.reload();
-  await expect(page.locator("main.screen-home")).toBeVisible();
+  await revalidateStudio(page);
   await page.getByRole("button", { name: "Doublage" }).click();
   await expect
     .poll(() =>

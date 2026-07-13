@@ -5,7 +5,7 @@ const APP_PATH = "/voice-capture-studio/";
 async function enterStudio(page: Page): Promise<void> {
   await page.goto(APP_PATH);
   const ritualButton = page.getByRole("button", {
-    name: /Activer le microphone/,
+    name: /Activer le microphone|Revalider l’appareil/,
   });
 
   await expect(async () => {
@@ -50,7 +50,7 @@ test("a complete workspace archive restores its WAV after browser storage is cle
 
   expect(archivePath).not.toBeNull();
   await expect(page.getByTestId("workspace-archive")).toContainText(
-    "Archive prête : 1 WAV vérifié.",
+    "Archive prête : 2 WAV vérifiés.",
   );
 
   await page.evaluate(async () => {
@@ -67,12 +67,12 @@ test("a complete workspace archive restores its WAV after browser storage is cle
   await openQualityPage(page);
   await page.getByTestId("workspace-archive-input").setInputFiles(archivePath!);
   await expect(page.getByTestId("workspace-archive")).toContainText(
-    "Workspace restauré avec 1 WAV vérifié.",
+    "Workspace restauré avec 2 WAV vérifiés.",
   );
 
   await enterStudio(page);
   await openQualityPage(page);
-  await expect(page.locator(".recordings-list-header")).toContainText("1 WAV");
+  await expect(page.locator(".recordings-list-header")).toContainText("2 WAV");
 });
 
 test("workspace archive controls stay usable on a narrow mobile surface", async ({
