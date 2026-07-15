@@ -68,6 +68,7 @@ import {
   type RealtimeSpeechActivityDetector,
 } from "../recording/realtimeSpeechActivity";
 import { isConfirmedMlEndpointReady } from "../recording/mlCaptureEndpoint";
+import { assessVocalPerformance } from "../recording/vocalPerformance";
 import {
   finalizeCaptureSession,
   type FinalizedRecording,
@@ -2338,7 +2339,9 @@ export function App() {
   function startPromptRecording(
     stream: MediaStream,
     recorder: PcmRecorder,
-    message = "Enregistrement en cours. Lis naturellement : le texte suit ta voix.",
+    message = captureMode === "mastering"
+      ? "Enregistrement en cours. Chante naturellement : le guide suit la performance sans juger la diction comme une lecture."
+      : "Enregistrement en cours. Lis ou chante naturellement : le texte suit ta voix.",
     calibratedRoomTone: RoomToneCalibration | null = sessionRoomTone,
     freeCapture = isFreeCaptureRef.current,
   ) {
@@ -2402,10 +2405,9 @@ export function App() {
     ).fill(null);
     resetLiveReadingGuidePosition();
 
-    const speechRecognitionStarted = startSpeechRecognitionGuide(
-      promptWords,
-      language,
-    );
+    const speechRecognitionStarted =
+      captureMode !== "mastering" &&
+      startSpeechRecognitionGuide(promptWords, language);
 
     setReadingGuideMode(
       speechRecognitionStarted ? "speech-recognition" : "voice-activity",
@@ -2929,7 +2931,7 @@ export function App() {
       return false;
     }
 
-    const requiredSilenceMs = 1_050;
+    const requiredSilenceMs = captureMode === "mastering" ? 1_500 : 1_050;
 
     if (trailingSilenceMs < requiredSilenceMs) {
       return false;
@@ -2941,7 +2943,8 @@ export function App() {
       finalWord !== undefined &&
       readingGuideProgressRef.current >= finalWord.startMs;
     const minimumPlausibleDuration =
-      estimateSpeechGuideDurationMs(words, activePrompt) * 0.55;
+      estimateSpeechGuideDurationMs(words, activePrompt) *
+      (captureMode === "mastering" ? 0.9 : 0.55);
 
     return (
       fallbackReachedFinalWord &&
@@ -3127,7 +3130,9 @@ export function App() {
       startPromptRecording(
         stream,
         nextRecorder,
-        `Salle calibrée : bruit de fond ${calibration.noiseFloorDbfs} dBFS. Enregistrement de la phrase.`,
+        captureMode === "mastering"
+          ? `Salle calibrée : bruit de fond ${calibration.noiseFloorDbfs} dBFS. Enregistrement de l'interprétation chantée.`
+          : `Salle calibrée : bruit de fond ${calibration.noiseFloorDbfs} dBFS. Enregistrement de la phrase parlée ou chantée.`,
         calibration,
       );
     } catch {
@@ -3357,8 +3362,14 @@ export function App() {
     );
     const audioUrl =
       recording.blob.size > 0 ? URL.createObjectURL(recording.blob) : null;
+    const vocalPerformance = assessVocalPerformance({
+      captureMode: isContinuousLyricsCapture ? "mastering" : "free",
+      metrics: recording.metrics,
+      sungIntent: isContinuousLyricsCapture,
+    });
     const freeCaptureTranscript = createFreeCaptureTranscript({
       finalTranscript: recognizedFinalTranscriptRef.current,
+      performanceKind: vocalPerformance.kind,
       recognitionAvailable: freeSpeechRecognitionAvailableRef.current,
     });
     const metadata = {
@@ -3379,6 +3390,7 @@ export function App() {
       speaker: selectedSpeaker ?? null,
       language: selectedLanguage,
       processing: { localOnly: true, audioWorkletPreferred: true },
+      vocalPerformance,
       lyrics: isContinuousLyricsCapture
         ? { text: continuousLyricsText, capture: "continuous-karaoke" }
         : null,
@@ -3399,7 +3411,13 @@ export function App() {
         : "Téléchargement uniquement",
     );
     setLastTake(null);
-    setFreeCaptureReviewTranscript(freeCaptureTranscript.text);
+    setFreeCaptureReviewTranscript(
+      vocalPerformance.kind === "sung"
+        ? isContinuousLyricsCapture
+          ? continuousLyricsText
+          : null
+        : freeCaptureTranscript.text,
+    );
     await refreshStoredRecordings();
     setScreen("done");
     setMessage(

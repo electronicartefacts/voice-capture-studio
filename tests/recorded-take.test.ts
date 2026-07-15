@@ -132,6 +132,36 @@ test("browser ASR mismatch requests review but cannot reject physical audio", ()
   assert.equal(take.transcript.matchEstimate?.source, "web_speech");
 });
 
+test("sung performances keep ASR mismatch secondary in every directed mode", () => {
+  const { prompt, session } = createPlannedPrompt();
+  const sungMetrics = createMetrics({
+    pitchRangeSemitones: 11,
+    pitchVariationSemitones: 3.4,
+    voicedFrameRatio: 0.64,
+  });
+
+  for (const captureMode of ["training", "dubbing", "mastering"] as const) {
+    const take = createRecordedTake({
+      captureMode,
+      durationMs: 3200,
+      fileName: `${captureMode}.wav`,
+      media: createMedia(),
+      metrics: sungMetrics,
+      profile: createCaptureProfile({ roomToneCaptured: true }),
+      prompt,
+      recordedAt,
+      recognizedTranscript: "browser asr cannot understand this melody",
+      session,
+      takeId,
+    });
+
+    assert.equal(take.captureContext?.vocalPerformance?.kind, "sung");
+    assert.equal(take.transcript.strictMatchRequired, false);
+    assert.equal(findGateStatus(take, "transcript_match"), "review");
+    assert.notEqual(take.quality.verdict, "reject");
+  }
+});
+
 test("recorded take can become keeper without browser ASR", () => {
   const { prompt, session } = createPlannedPrompt();
   const take = createRecordedTake({

@@ -76,6 +76,18 @@ test("free capture records when word recognition was unavailable", () => {
   assert.equal(transcript.wordCount, 0);
 });
 
+test("free capture labels browser words as candidates for singing", () => {
+  const transcript = createFreeCaptureTranscript({
+    finalTranscript: "an uncertain lyric",
+    performanceKind: "sung",
+    recognitionAvailable: true,
+  });
+
+  assert.equal(transcript.status, "candidate-sung");
+  assert.equal(transcript.text, "an uncertain lyric");
+  assert.equal(transcript.wordCount, 3);
+});
+
 test("speech hypotheses retain finality, confidence, and their first final timestamp", () => {
   const first = mergeSpeechRecognitionHypotheses([], recognitionEvent(), 120);
   const replayed = mergeSpeechRecognitionHypotheses(

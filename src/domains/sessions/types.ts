@@ -55,6 +55,15 @@ export type TakeCaptureContext = {
   readonly capturedAt: IsoDateTime;
   /** Mode-specific quality policy used when this take was evaluated. */
   readonly captureMode?: "training" | "dubbing" | "mastering";
+  /** Signal-derived performance family; absent on historical takes. */
+  readonly vocalPerformance?: {
+    readonly kind: "spoken" | "sung" | "undetermined";
+    readonly source: "mode_intent" | "audio_signal";
+    readonly confidence: number;
+    readonly pitchRangeSemitones: number | null;
+    readonly pitchVariationSemitones: number | null;
+    readonly voicedFrameRatio: number;
+  };
   readonly capture: AudioCaptureProvenance;
   readonly profile: {
     readonly microphoneName: string;

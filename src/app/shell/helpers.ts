@@ -365,7 +365,7 @@ export const captureModeOptions: readonly {
     pill: "Audio ou vidéo",
     kicker: "Atelier de segmentation",
     cta: "Découper l'audio",
-    headlineLead: "Transforme une piste parlée en mots isolés.",
+    headlineLead: "Transforme une voix parlée ou chantée en mots isolés.",
     headlineDetail:
       "La vidéo est écartée, chaque mot détecté reçoit son extrait audio et ses repères temporels.",
     workbenchTitle: "Console de découpe lexicale",

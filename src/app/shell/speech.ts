@@ -32,7 +32,8 @@ export type FreeCaptureTranscript = {
   readonly schemaVersion: "voice.free_transcript.v1";
   /** Browser recognition is optional and may use a browser-managed service. */
   readonly engine: "browser_speech_recognition" | "unavailable";
-  readonly status: "detected" | "no-final-words" | "unavailable";
+  readonly status:
+    "detected" | "candidate-sung" | "no-final-words" | "unavailable";
   /** Only final hypotheses are retained in a capture manifest. */
   readonly text: string;
   readonly wordCount: number;
@@ -390,6 +391,7 @@ export function createSpeechRecognitionBiasPhrases(
 
 export function createFreeCaptureTranscript(input: {
   readonly finalTranscript: string;
+  readonly performanceKind?: "spoken" | "sung" | "undetermined";
   readonly recognitionAvailable: boolean;
 }): FreeCaptureTranscript {
   const text = input.finalTranscript.trim();
@@ -402,9 +404,11 @@ export function createFreeCaptureTranscript(input: {
       : "unavailable",
     status: !input.recognitionAvailable
       ? "unavailable"
-      : words.length > 0
-        ? "detected"
-        : "no-final-words",
+      : input.performanceKind === "sung" && words.length > 0
+        ? "candidate-sung"
+        : words.length > 0
+          ? "detected"
+          : "no-final-words",
     text,
     wordCount: words.length,
     words,

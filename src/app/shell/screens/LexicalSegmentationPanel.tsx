@@ -55,9 +55,10 @@ export function LexicalSegmentationPanel(input: {
       <div className="local-analysis-heading">
         <p className="soft-label">Découpe lexicale locale</p>
         <p>
-          Importe une vidéo ou un son. L'analyse compare localement les mots
-          proposés aux zones vocales avant de préparer les extraits WAV. Un
-          résultat trop incertain est refusé et rien ne quitte cet appareil.
+          Importe une vidéo ou un son, parlé ou chanté. L'analyse compare
+          localement les mots proposés aux zones vocales avant de préparer les
+          extraits WAV. Les résultats incertains restent signalés et rien ne
+          quitte cet appareil.
         </p>
       </div>
 

@@ -20,6 +20,11 @@ import {
 } from "../../domains/phonetics";
 import type { PcmRecordingMetrics } from "../audio/pcmRecorder";
 import { getAudioModePolicy, type CaptureAudioMode } from "./audioModePolicy";
+import {
+  assessVocalPerformance,
+  describeVocalActivity,
+  type VocalPerformanceAssessment,
+} from "./vocalPerformance";
 
 export function createRecordedTake(input: {
   readonly captureMode?: Exclude<CaptureAudioMode, "free">;
@@ -44,6 +49,10 @@ export function createRecordedTake(input: {
 }): RecordedTake {
   const captureMode = input.captureMode ?? "training";
   const modePolicy = getAudioModePolicy(captureMode);
+  const vocalPerformance = assessVocalPerformance({
+    captureMode,
+    metrics: input.metrics,
+  });
   const spokenText = input.prompt.spokenText ?? input.prompt.text;
   const phonemeAlignment = alignPromptToPhonemes({
     activitySegments: input.metrics.speechSegments,
@@ -62,7 +71,10 @@ export function createRecordedTake(input: {
     input.durationMs > input.prompt.qa.maxDurationMs
       ? "review"
       : "pass";
-  const transcriptStatus = getTranscriptGateStatus(transcriptMatch);
+  const transcriptStatus = getTranscriptGateStatus(
+    transcriptMatch,
+    vocalPerformance,
+  );
   const phonemeAlignmentStatus =
     input.forcedAlignment === undefined
       ? ("review" as const)
@@ -139,7 +151,11 @@ export function createRecordedTake(input: {
     durationMs: input.durationMs,
     recordedAt: input.recordedAt.toISOString() as RecordedTake["recordedAt"],
     media: input.media,
-    captureContext: createTakeCaptureContext({ ...input, captureMode }),
+    captureContext: createTakeCaptureContext({
+      ...input,
+      captureMode,
+      vocalPerformance,
+    }),
     transcript: {
       schemaVersion: "voice.transcript.v2",
       originalText: input.prompt.text,
@@ -150,7 +166,7 @@ export function createRecordedTake(input: {
           ? null
           : observedTranscript,
       matchEstimate: transcriptMatch,
-      strictMatchRequired: true,
+      strictMatchRequired: vocalPerformance.kind !== "sung",
       annotations: [],
       tokens: phonemeAlignment.tokens,
     },
@@ -392,7 +408,10 @@ export function createRecordedTake(input: {
             id: "transcript_match",
             label: "Transcript",
             status: transcriptStatus,
-            message: createTranscriptGateMessage(transcriptMatch),
+            message: createTranscriptGateMessage(
+              transcriptMatch,
+              vocalPerformance,
+            ),
           },
           {
             id: "phoneme_alignment",
@@ -412,13 +431,13 @@ export function createRecordedTake(input: {
           },
           {
             id: "speech_detected",
-            label: "Parole détectée",
+            label: "Voix détectée",
             status:
               input.metrics.activeSpeechRatio >=
               modePolicy.minimumActiveSpeechRatio
                 ? "pass"
                 : "review",
-            message: `${Math.round(input.metrics.activeSpeechRatio * 100)} % d'activité vocale estimée depuis le signal.`,
+            message: `${Math.round(input.metrics.activeSpeechRatio * 100)} % d'activité ${describeVocalActivity(vocalPerformance)} estimée depuis le signal.`,
           },
           {
             id: "vad_valid",
@@ -429,7 +448,7 @@ export function createRecordedTake(input: {
                 ? "pass"
                 : "review",
             message:
-              "VAD énergétique disponible; Silero peut remplacer cette estimation en post-analyse.",
+              "Détection énergétique compatible avec la voix parlée et chantée; un détecteur de parole reste une preuve secondaire.",
           },
           {
             id: "energy_valid",
@@ -476,7 +495,10 @@ export function createRecordedTake(input: {
             id: "browser_asr_consistent",
             label: "Cohérence ASR navigateur",
             status: transcriptStatus,
-            message: createTranscriptGateMessage(transcriptMatch),
+            message: createTranscriptGateMessage(
+              transcriptMatch,
+              vocalPerformance,
+            ),
           },
           {
             id: "corpus_consistent",
@@ -580,12 +602,14 @@ function createTakeCaptureContext(input: {
   readonly media: TakeMedia;
   readonly profile: CaptureProfile;
   readonly recordedAt: Date;
+  readonly vocalPerformance: VocalPerformanceAssessment;
 }): TakeCaptureContext {
   return {
     schemaVersion: "voice.capture.context.v1",
     capturedAt:
       input.recordedAt.toISOString() as TakeCaptureContext["capturedAt"],
     captureMode: input.captureMode,
+    vocalPerformance: input.vocalPerformance,
     capture: input.media.capture,
     profile: {
       microphoneName: input.profile.microphoneName,
@@ -631,13 +655,14 @@ function createInputGainMessage(
 
 function getTranscriptGateStatus(
   match: ReturnType<typeof estimateTranscriptMatch>,
+  vocalPerformance: VocalPerformanceAssessment,
 ): RecordedTake["quality"]["gates"][number]["status"] {
   if (match.source === "prompt_only") {
     return "review";
   }
 
   if (match.score < 0.75) {
-    return "fail";
+    return vocalPerformance.kind === "sung" ? "review" : "fail";
   }
 
   if (match.score < 0.92) {
@@ -659,6 +684,7 @@ function getHeadroomStatus(
 
 function createTranscriptGateMessage(
   match: ReturnType<typeof estimateTranscriptMatch>,
+  vocalPerformance: VocalPerformanceAssessment,
 ): string {
   if (match.source === "prompt_only") {
     return "Aucun transcript navigateur fiable. Le texte prompt est exporté, à valider par alignement forcé.";
@@ -670,6 +696,10 @@ function createTranscriptGateMessage(
 
   if (match.score >= 0.75) {
     return `Transcript à relire : ${Math.round(match.score * 100)} %, écarts possibles.`;
+  }
+
+  if (vocalPerformance.kind === "sung") {
+    return `Paroles chantées non confirmées par l'ASR navigateur (${Math.round(match.score * 100)} %). L'audio reste valide; contrôle des paroles requis.`;
   }
 
   return `Transcript incompatible (${Math.round(match.score * 100)} %). Reprends mot pour mot.`;
