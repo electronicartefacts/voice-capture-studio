@@ -55,9 +55,9 @@ export function LexicalSegmentationPanel(input: {
       <div className="local-analysis-heading">
         <p className="soft-label">Découpe lexicale locale</p>
         <p>
-          Importe une vidéo ou un son. Seule la piste audio est décodée, puis
-          Whisper détecte chaque mot et prépare les extraits WAV avec leurs
-          repères temporels. Rien ne quitte cet appareil.
+          Importe une vidéo ou un son. L'analyse compare localement les mots
+          proposés aux zones vocales avant de préparer les extraits WAV. Un
+          résultat trop incertain est refusé et rien ne quitte cet appareil.
         </p>
       </div>
 
@@ -132,8 +132,20 @@ export function LexicalSegmentationPanel(input: {
         <>
           <dl>
             <div>
-              <dt>Transcription</dt>
+              <dt>Paroles à vérifier</dt>
               <dd>{input.state.result.manifest.transcription.transcript}</dd>
+            </div>
+            <div>
+              <dt>Fiabilité</dt>
+              <dd>
+                Contrôle humain recommandé ·{" "}
+                {Math.round(
+                  input.state.result.manifest.transcription.quality
+                    .speechOverlapRate * 100,
+                )}
+                % de soutien vocal · profil{" "}
+                {formatProfile(input.state.result.manifest.processing.profile)}
+              </dd>
             </div>
             <div>
               <dt>Découpe produite</dt>
@@ -172,7 +184,13 @@ function formatProgress(progress: LocalAnalysisProgress): string {
   }
   return progress.stage === "transcribing"
     ? "Détection et horodatage des mots…"
-    : "Vérification des zones de parole…";
+    : progress.stage === "detecting-speech"
+      ? "Vérification des zones vocales…"
+      : "Contrôle de fiabilité avant export…";
+}
+
+function formatProfile(profile: "balanced" | "compatible"): string {
+  return profile === "balanced" ? "équilibré" : "compatible";
 }
 
 function formatFileSize(size: number): string {

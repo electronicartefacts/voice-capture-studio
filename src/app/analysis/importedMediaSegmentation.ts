@@ -2,7 +2,17 @@ import { encodeWav24 } from "../audio/pcmAudio";
 import { createZipBlobOffThread } from "../export/zipService";
 import type { ZipEntryInput } from "../export/zipWriter";
 import { analyzeDecodedAudio, decodeAudioToMono16k } from "./localTakeAnalysis";
-import type { LocalAnalysisProgress, WhisperWordTiming } from "./types";
+import type {
+  LocalAnalysisProgress,
+  LocalProcessingProfile,
+  WhisperWordTiming,
+} from "./types";
+import {
+  assessLexicalSegmentation,
+  selectLexicalProcessingProfile,
+  type LexicalSegmentationQuality,
+  type SupportedWordTiming,
+} from "./lexicalSegmentationQuality";
 
 export const SEGMENTATION_SAMPLE_RATE = 16_000;
 
@@ -13,7 +23,7 @@ export type ImportedMediaSegmentationResult = {
 };
 
 export type WordSegmentationManifest = {
-  readonly schemaVersion: "voice.word_segmentation.v1";
+  readonly schemaVersion: "voice.word_segmentation.v2";
   readonly createdAt: string;
   readonly source: {
     readonly fileName: string;
@@ -27,13 +37,24 @@ export type WordSegmentationManifest = {
     readonly bitDepth: 24;
     readonly channels: 1;
     readonly format: "WAVE_PCM";
+    readonly clipContextMs: 60;
+    readonly edgeFadeMs: 5;
+  };
+  readonly processing: {
+    readonly localOnly: true;
+    readonly profile: LocalProcessingProfile;
+    readonly executionProvider: "wasm";
+    readonly modelAssets: "same-origin-cache-first";
+    readonly sourceSeparation: "not_available";
   };
   readonly transcription: {
-    readonly engine: "whisper-tiny";
+    readonly engine: "whisper-tiny-secondary";
     readonly language: string;
     readonly transcript: string;
+    readonly rawHypothesis: string;
     readonly wordCount: number;
     readonly timingSource: "whisper_attention_timestamp";
+    readonly quality: LexicalSegmentationQuality;
   };
   readonly words: readonly WordAudioSegment[];
 };
@@ -44,6 +65,9 @@ export type WordAudioSegment = {
   readonly startMs: number;
   readonly endMs: number;
   readonly durationMs: number;
+  readonly clipStartMs: number;
+  readonly clipEndMs: number;
+  readonly acousticSupport: number;
   readonly audioPath: string;
 };
 
@@ -64,23 +88,31 @@ export async function segmentImportedMedia(input: {
   const durationMs = Math.round(
     (audio.length / SEGMENTATION_SAMPLE_RATE) * 1000,
   );
+  const processingProfile = detectProcessingProfile(durationMs);
   const analysis = await analyzeDecodedAudio({
     audio: audio.slice(),
     expectedText: "",
     language: input.language,
+    processingProfile,
     onProgress: input.onProgress,
   });
+  input.onProgress({ stage: "validating-result" });
+  const { acceptedTimings, quality } = assessLexicalSegmentation({
+    timings: analysis.whisperWords,
+    speechSegments: analysis.speechSegments,
+  });
 
-  if (analysis.whisperWords.length === 0) {
+  if (quality.status === "insufficient") {
     throw new Error(
-      "Aucun mot n'a pu être horodaté dans ce média. Vérifie la langue ou la présence d'une voix nette.",
+      "Le signal ne permet pas de confirmer des mots assez fiables. Aucun faux découpage n'a été produit.",
     );
   }
 
-  const words = createWordAudioSegments(analysis.whisperWords);
+  const words = createWordAudioSegments(acceptedTimings, durationMs);
+  const supportedTranscript = words.map((word) => word.word).join(" ");
   const createdAt = (input.now ?? new Date()).toISOString();
   const manifest: WordSegmentationManifest = {
-    schemaVersion: "voice.word_segmentation.v1",
+    schemaVersion: "voice.word_segmentation.v2",
     createdAt,
     source: {
       fileName: input.file.name,
@@ -94,13 +126,24 @@ export async function segmentImportedMedia(input: {
       bitDepth: 24,
       channels: 1,
       format: "WAVE_PCM",
+      clipContextMs: 60,
+      edgeFadeMs: 5,
+    },
+    processing: {
+      localOnly: true,
+      profile: processingProfile,
+      executionProvider: "wasm",
+      modelAssets: "same-origin-cache-first",
+      sourceSeparation: "not_available",
     },
     transcription: {
-      engine: "whisper-tiny",
+      engine: "whisper-tiny-secondary",
       language: input.language,
-      transcript: analysis.transcript,
+      transcript: supportedTranscript,
+      rawHypothesis: analysis.transcript,
       wordCount: words.length,
       timingSource: "whisper_attention_timestamp",
+      quality,
     },
     words,
   };
@@ -111,7 +154,7 @@ export async function segmentImportedMedia(input: {
     },
     {
       path: "transcript.txt",
-      data: new Blob([`${analysis.transcript.trim()}\n`], {
+      data: new Blob([`${supportedTranscript}\n`], {
         type: "text/plain;charset=utf-8",
       }),
     },
@@ -135,7 +178,8 @@ export async function segmentImportedMedia(input: {
 }
 
 export function createWordAudioSegments(
-  timings: readonly WhisperWordTiming[],
+  timings: readonly (WhisperWordTiming | SupportedWordTiming)[],
+  totalDurationMs = Number.POSITIVE_INFINITY,
 ): readonly WordAudioSegment[] {
   return timings.map((timing, index) => {
     const sequence = String(index + 1).padStart(4, "0");
@@ -147,6 +191,9 @@ export function createWordAudioSegments(
       startMs: timing.startMs,
       endMs: timing.endMs,
       durationMs: timing.endMs - timing.startMs,
+      clipStartMs: Math.max(0, timing.startMs - 60),
+      clipEndMs: Math.min(totalDurationMs, timing.endMs + 60),
+      acousticSupport: "acousticSupport" in timing ? timing.acousticSupport : 1,
       audioPath: `audio/mots/${sequence}_${word}.wav`,
     };
   });
@@ -158,17 +205,30 @@ function encodeWordSegment(
 ): Blob {
   const startSample = Math.max(
     0,
-    Math.floor((segment.startMs / 1000) * SEGMENTATION_SAMPLE_RATE),
+    Math.floor((segment.clipStartMs / 1000) * SEGMENTATION_SAMPLE_RATE),
   );
   const endSample = Math.min(
     audio.length,
-    Math.ceil((segment.endMs / 1000) * SEGMENTATION_SAMPLE_RATE),
+    Math.ceil((segment.clipEndMs / 1000) * SEGMENTATION_SAMPLE_RATE),
   );
 
-  return encodeWav24(
-    audio.slice(startSample, endSample),
-    SEGMENTATION_SAMPLE_RATE,
+  const samples = audio.slice(startSample, endSample);
+  applyEdgeFade(samples, Math.round(SEGMENTATION_SAMPLE_RATE * 0.005));
+
+  return encodeWav24(samples, SEGMENTATION_SAMPLE_RATE);
+}
+
+function applyEdgeFade(samples: Float32Array, requestedFadeSamples: number) {
+  const fadeSamples = Math.min(
+    requestedFadeSamples,
+    Math.floor(samples.length / 2),
   );
+
+  for (let index = 0; index < fadeSamples; index += 1) {
+    const gain = (index + 1) / (fadeSamples + 1);
+    samples[index] *= gain;
+    samples[samples.length - 1 - index] *= gain;
+  }
 }
 
 function createTimelineCsv(words: readonly WordAudioSegment[]): string {
@@ -179,15 +239,30 @@ function createTimelineCsv(words: readonly WordAudioSegment[]): string {
       word.startMs,
       word.endMs,
       word.durationMs,
+      word.clipStartMs,
+      word.clipEndMs,
+      word.acousticSupport,
       csvCell(word.audioPath),
     ].join(","),
   );
 
   return [
-    "index,word,start_ms,end_ms,duration_ms,audio_path",
+    "index,word,start_ms,end_ms,duration_ms,clip_start_ms,clip_end_ms,acoustic_support,audio_path",
     ...rows,
     "",
   ].join("\n");
+}
+
+function detectProcessingProfile(durationMs: number): LocalProcessingProfile {
+  const navigatorWithGpu = navigator as Navigator & { gpu?: unknown };
+
+  return selectLexicalProcessingProfile({
+    durationMs,
+    webGpuAvailable: navigatorWithGpu.gpu !== undefined,
+    wasmThreadsAvailable:
+      typeof SharedArrayBuffer !== "undefined" &&
+      globalThis.crossOriginIsolated,
+  });
 }
 
 function csvCell(value: string): string {

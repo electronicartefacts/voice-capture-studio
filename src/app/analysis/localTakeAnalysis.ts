@@ -5,6 +5,7 @@ import { summarizeSpeechSegments } from "./speechSegments";
 import type {
   AnalysisWorkerRequest,
   AnalysisWorkerResponse,
+  LocalProcessingProfile,
   LocalAnalysisProgress,
   LocalTakeAnalysis,
 } from "./types";
@@ -52,6 +53,7 @@ export async function analyzeDecodedAudio(input: {
   readonly audio: Float32Array;
   readonly expectedText: string;
   readonly language: string;
+  readonly processingProfile?: LocalProcessingProfile;
   readonly onProgress: (progress: LocalAnalysisProgress) => void;
 }): Promise<LocalTakeAnalysis> {
   const audio = input.audio;
@@ -103,6 +105,7 @@ export async function analyzeDecodedAudio(input: {
       audio,
       sampleRate: ANALYSIS_SAMPLE_RATE,
       language: input.language,
+      processingProfile: input.processingProfile ?? "balanced",
       assetsBaseUrl: getAssetsBaseUrl(),
     };
 

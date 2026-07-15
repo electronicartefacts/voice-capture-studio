@@ -17,10 +17,13 @@ export type WhisperWordTiming = {
   readonly source: "whisper_attention_timestamp";
 };
 
+export type LocalProcessingProfile = "balanced" | "compatible";
+
 export type LocalAnalysisProgress =
   | { readonly stage: "loading-model"; readonly progressPercent: number }
   | { readonly stage: "transcribing" }
-  | { readonly stage: "detecting-speech" };
+  | { readonly stage: "detecting-speech" }
+  | { readonly stage: "validating-result" };
 
 export type LocalTakeAnalysis = {
   readonly transcript: string;
@@ -37,6 +40,7 @@ export type AnalysisWorkerRequest = {
   readonly audio: Float32Array;
   readonly sampleRate: number;
   readonly language: string;
+  readonly processingProfile: LocalProcessingProfile;
   readonly assetsBaseUrl: string;
 };
 

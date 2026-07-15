@@ -81,6 +81,7 @@ async function loadTranscriber(
 
       env.allowRemoteModels = false;
       env.allowLocalModels = true;
+      env.useBrowserCache = true;
       env.localModelPath = `${assetsBaseUrl}models/`;
 
       if (env.backends.onnx?.wasm !== undefined) {
@@ -264,7 +265,9 @@ async function analyze(request: AnalysisWorkerRequest): Promise<void> {
     const transcription = await transcriber(request.audio, {
       language: request.language,
       task: "transcribe",
-      chunk_length_s: 30,
+      // Smaller chunks bound peak memory on long files and constrained
+      // browsers. The overlap remains inside the pipeline implementation.
+      chunk_length_s: request.processingProfile === "compatible" ? 15 : 30,
       return_timestamps: "word",
     });
     const result = Array.isArray(transcription)

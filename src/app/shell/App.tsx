@@ -2142,7 +2142,7 @@ export function App() {
       lexicalSegmentationUrlRef.current = downloadUrl;
       setLexicalSegmentationState({ status: "done", result, downloadUrl });
       setMessage(
-        `${result.manifest.words.length} mot${result.manifest.words.length > 1 ? "s" : ""} détecté${result.manifest.words.length > 1 ? "s" : ""}, horodaté${result.manifest.words.length > 1 ? "s" : ""} et découpé${result.manifest.words.length > 1 ? "s" : ""}.`,
+        `${result.manifest.words.length} mot${result.manifest.words.length > 1 ? "s" : ""} acoustiquement soutenu${result.manifest.words.length > 1 ? "s" : ""} et découpé${result.manifest.words.length > 1 ? "s" : ""}. Vérification humaine recommandée.`,
       );
     } catch (error) {
       const failureMessage =
