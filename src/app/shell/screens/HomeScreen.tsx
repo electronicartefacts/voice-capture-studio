@@ -57,6 +57,10 @@ import {
 import type { BackingTrack, CaptureMode } from "../types";
 import type { DubbingMediaSource } from "../types";
 import {
+  LexicalSegmentationPanel,
+  type LexicalSegmentationState,
+} from "./LexicalSegmentationPanel";
+import {
   formatCaptureDurationLimit,
   FREE_CAPTURE_MAX_DURATION_MS,
 } from "../../recording/captureLimits";
@@ -80,6 +84,8 @@ export function HomeScreen(input: {
   readonly folderName: string | null;
   readonly language: LanguageCode;
   readonly localCorpusSummary: LocalTextCorpusSummary | null;
+  readonly lexicalSegmentationFile: File | null;
+  readonly lexicalSegmentationState: LexicalSegmentationState;
   readonly message: string;
   readonly isDirectCaptureStarting: boolean;
   readonly onBackingTrackChange: (file: File) => void;
@@ -97,6 +103,8 @@ export function HomeScreen(input: {
   readonly onDubbingVideoChange: (file: File) => void;
   readonly onDubbingYouTubeUrl: (url: string) => void;
   readonly onLanguageChange: (language: LanguageCode) => void;
+  readonly onLexicalSegmentationClear: () => void;
+  readonly onLexicalSegmentationFile: (file: File) => void;
   readonly onProfileChange: (profile: CaptureProfile) => void;
   readonly onRefreshDiagnostics: () => void;
   readonly onSpeakerChange: (speakerId: SpeakerId) => void;
@@ -113,18 +121,29 @@ export function HomeScreen(input: {
   const modeContent = getCaptureModeContent(input.captureMode);
   const exportStorageRef = useRef<HTMLElement>(null);
   const localCorpusReady =
+    input.captureMode === "lexical-segmentation" ||
     input.captureMode === "free" ||
     input.captureMode === "training" ||
     input.localCorpusSummary !== null;
-  const recordingReady = input.diagnostics.canRecord && localCorpusReady;
+  const recordingReady =
+    input.captureMode === "lexical-segmentation"
+      ? input.lexicalSegmentationFile !== null
+      : input.diagnostics.canRecord && localCorpusReady;
   const folderSelected = input.folderName !== null;
-  const setupLabel = !input.diagnostics.canRecord
-    ? "Micro à corriger"
-    : !localCorpusReady
-      ? "Texte attendu"
-      : folderSelected
-        ? "Prêt"
-        : "Export manuel";
+  const setupLabel =
+    input.captureMode === "lexical-segmentation"
+      ? input.lexicalSegmentationFile === null
+        ? "Média attendu"
+        : input.lexicalSegmentationState.status === "running"
+          ? "Analyse locale"
+          : "Prêt"
+      : !input.diagnostics.canRecord
+        ? "Micro à corriger"
+        : !localCorpusReady
+          ? "Texte attendu"
+          : folderSelected
+            ? "Prêt"
+            : "Export manuel";
   const setupTone = recordingReady
     ? folderSelected
       ? "ready"
@@ -134,34 +153,38 @@ export function HomeScreen(input: {
   const readiness = formatDatasetReadiness(input.coverage?.datasetReadiness);
   const storageStatus = input.folderName ?? "Exports à télécharger";
   const corpusStatus =
-    input.captureMode === "free"
-      ? "Prise continue"
-      : input.captureMode === "training"
-        ? readiness
-        : input.localCorpusSummary === null
-          ? "Texte local attendu"
-          : `${input.localCorpusSummary.promptCount} segment${
-              input.localCorpusSummary.promptCount > 1 ? "s" : ""
-            }`;
+    input.captureMode === "lexical-segmentation"
+      ? (input.lexicalSegmentationFile?.name ?? "Média attendu")
+      : input.captureMode === "free"
+        ? "Prise continue"
+        : input.captureMode === "training"
+          ? readiness
+          : input.localCorpusSummary === null
+            ? "Texte local attendu"
+            : `${input.localCorpusSummary.promptCount} segment${
+                input.localCorpusSummary.promptCount > 1 ? "s" : ""
+              }`;
   const corpusRecommendation =
-    input.captureMode === "free"
-      ? `Aucun corpus : une prise continue peut durer jusqu'à ${formatCaptureDurationLimit(FREE_CAPTURE_MAX_DURATION_MS)}.`
-      : input.captureMode === "training"
-        ? (input.coverage?.nextRecommendation ??
-          "Commence par un silence de pièce, puis deux prises neutres.")
-        : input.localCorpusSummary === null
-          ? "Colle un script ou charge un fichier texte."
-          : input.captureMode === "dubbing"
-            ? `${input.localCorpusSummary.wordCount} mots · ${
-                input.localCorpusSummary.timedPromptCount > 0
-                  ? `${input.localCorpusSummary.timedPromptCount} repère${input.localCorpusSummary.timedPromptCount > 1 ? "s" : ""} synchronisé${input.localCorpusSummary.timedPromptCount > 1 ? "s" : ""}`
-                  : "départ manuel ou repère global"
-              }.`
-            : `${input.localCorpusSummary.wordCount} mots${
-                input.backingTrack === null
-                  ? " · support audio optionnel"
-                  : ` · retour ${input.backingTrack.name}`
-              }.`;
+    input.captureMode === "lexical-segmentation"
+      ? "La piste audio est transcrite et découpée localement, sans conserver l'image."
+      : input.captureMode === "free"
+        ? `Aucun corpus : une prise continue peut durer jusqu'à ${formatCaptureDurationLimit(FREE_CAPTURE_MAX_DURATION_MS)}.`
+        : input.captureMode === "training"
+          ? (input.coverage?.nextRecommendation ??
+            "Commence par un silence de pièce, puis deux prises neutres.")
+          : input.localCorpusSummary === null
+            ? "Colle un script ou charge un fichier texte."
+            : input.captureMode === "dubbing"
+              ? `${input.localCorpusSummary.wordCount} mots · ${
+                  input.localCorpusSummary.timedPromptCount > 0
+                    ? `${input.localCorpusSummary.timedPromptCount} repère${input.localCorpusSummary.timedPromptCount > 1 ? "s" : ""} synchronisé${input.localCorpusSummary.timedPromptCount > 1 ? "s" : ""}`
+                    : "départ manuel ou repère global"
+                }.`
+              : `${input.localCorpusSummary.wordCount} mots${
+                  input.backingTrack === null
+                    ? " · support audio optionnel"
+                    : ` · retour ${input.backingTrack.name}`
+                }.`;
 
   function revealExportStorage() {
     const section = exportStorageRef.current;
@@ -200,8 +223,12 @@ export function HomeScreen(input: {
           <button
             className="launch-button is-hero"
             disabled={
-              !input.diagnostics.canRecord ||
+              (input.captureMode !== "lexical-segmentation" &&
+                !input.diagnostics.canRecord) ||
               !localCorpusReady ||
+              (input.captureMode === "lexical-segmentation" &&
+                input.lexicalSegmentationFile === null) ||
+              input.lexicalSegmentationState.status === "running" ||
               input.isDirectCaptureStarting
             }
             onClick={input.onStart}
@@ -211,11 +238,14 @@ export function HomeScreen(input: {
             <span>
               {input.isDirectCaptureStarting
                 ? "La capture démarre…"
-                : !input.diagnostics.canRecord
-                  ? "Enregistrement indisponible"
-                  : !localCorpusReady
-                    ? "Ajouter un texte"
-                    : modeContent.cta}
+                : input.lexicalSegmentationState.status === "running"
+                  ? "Découpe en cours…"
+                  : input.captureMode !== "lexical-segmentation" &&
+                      !input.diagnostics.canRecord
+                    ? "Enregistrement indisponible"
+                    : !localCorpusReady
+                      ? "Ajouter un texte"
+                      : modeContent.cta}
             </span>
           </button>
         </div>
@@ -290,21 +320,36 @@ export function HomeScreen(input: {
             <span>
               {input.captureMode === "free"
                 ? "Capture libre"
-                : input.captureMode === "training"
-                  ? `${formatPercent(coveragePercent)} couvert`
-                  : corpusStatus}
+                : input.captureMode === "lexical-segmentation"
+                  ? `${input.lexicalSegmentationState.status === "done" ? input.lexicalSegmentationState.result.manifest.words.length : 0} mots découpés`
+                  : input.captureMode === "training"
+                    ? `${formatPercent(coveragePercent)} couvert`
+                    : corpusStatus}
             </span>
           </div>
         </div>
 
-        {input.captureMode !== "training" && input.captureMode !== "free" && (
-          <LocalCorpusEditor
-            mode={input.captureMode}
-            onFile={input.onCustomCorpusFile}
-            onTextChange={input.onCustomCorpusTextChange}
-            sourceName={input.customCorpusSourceName}
-            summary={input.localCorpusSummary}
-            text={input.customCorpusText}
+        {input.captureMode !== "training" &&
+          input.captureMode !== "free" &&
+          input.captureMode !== "lexical-segmentation" && (
+            <LocalCorpusEditor
+              mode={input.captureMode}
+              onFile={input.onCustomCorpusFile}
+              onTextChange={input.onCustomCorpusTextChange}
+              sourceName={input.customCorpusSourceName}
+              summary={input.localCorpusSummary}
+              text={input.customCorpusText}
+            />
+          )}
+
+        {input.captureMode === "lexical-segmentation" && (
+          <LexicalSegmentationPanel
+            file={input.lexicalSegmentationFile}
+            language={input.language}
+            onClear={input.onLexicalSegmentationClear}
+            onFile={input.onLexicalSegmentationFile}
+            onLanguageChange={input.onLanguageChange}
+            state={input.lexicalSegmentationState}
           />
         )}
 
@@ -351,22 +396,25 @@ export function HomeScreen(input: {
           </>
         )}
 
-        <VoiceManager
-          language={input.language}
-          onLanguageChange={input.onLanguageChange}
-          onSpeakerChange={input.onSpeakerChange}
-          onSpeakerCreate={input.onSpeakerCreate}
-          selectedSpeaker={input.selectedSpeaker}
-          selectedSpeakerId={input.selectedSpeakerId}
-          speakers={input.speakers}
-        />
-
-        {input.diagnostics.status !== "ready" && (
-          <SystemHealthPanel
-            diagnostics={input.diagnostics}
-            onRefresh={input.onRefreshDiagnostics}
+        {input.captureMode !== "lexical-segmentation" && (
+          <VoiceManager
+            language={input.language}
+            onLanguageChange={input.onLanguageChange}
+            onSpeakerChange={input.onSpeakerChange}
+            onSpeakerCreate={input.onSpeakerCreate}
+            selectedSpeaker={input.selectedSpeaker}
+            selectedSpeakerId={input.selectedSpeakerId}
+            speakers={input.speakers}
           />
         )}
+
+        {input.captureMode !== "lexical-segmentation" &&
+          input.diagnostics.status !== "ready" && (
+            <SystemHealthPanel
+              diagnostics={input.diagnostics}
+              onRefresh={input.onRefreshDiagnostics}
+            />
+          )}
 
         {input.workspaceDurability === "memory-only" &&
           input.workspaceBackupUrl !== null &&
@@ -387,46 +435,49 @@ export function HomeScreen(input: {
             </div>
           )}
 
-        {input.captureProfile !== undefined && (
-          <details className="capture-profile-details">
-            <summary>
-              <span>
-                <SlidersHorizontal aria-hidden="true" size={18} />
-                <strong>Profil audio</strong>
-              </span>
-              <em>{formatCaptureProfileStatus(input.captureProfile)}</em>
-            </summary>
-            <CaptureProfileEditor
-              onChange={input.onProfileChange}
-              profile={input.captureProfile}
-            />
-          </details>
-        )}
+        {input.captureMode !== "lexical-segmentation" &&
+          input.captureProfile !== undefined && (
+            <details className="capture-profile-details">
+              <summary>
+                <span>
+                  <SlidersHorizontal aria-hidden="true" size={18} />
+                  <strong>Profil audio</strong>
+                </span>
+                <em>{formatCaptureProfileStatus(input.captureProfile)}</em>
+              </summary>
+              <CaptureProfileEditor
+                onChange={input.onProfileChange}
+                profile={input.captureProfile}
+              />
+            </details>
+          )}
 
-        <section
-          aria-labelledby="export-storage-title"
-          className="voice-manager"
-          id="export-storage"
-          ref={exportStorageRef}
-          tabIndex={-1}
-        >
-          <h2 id="export-storage-title">Export et stockage</h2>
-          <div className="primary-actions">
-            <button
-              className="folder-button"
-              onClick={input.onChooseFolder}
-              type="button"
-            >
-              <FolderOpen aria-hidden="true" size={19} />
-              <span>{input.folderName ?? "Choisir un dossier d'export"}</span>
-            </button>
-          </div>
-          <p className={`action-hint${folderSelected ? " is-ready" : ""}`}>
-            {folderSelected
-              ? `Les WAV et JSON seront enregistrés dans ${input.folderName}.`
-              : "Sans dossier local, garde les boutons WAV et JSON après chaque prise."}
-          </p>
-        </section>
+        {input.captureMode !== "lexical-segmentation" && (
+          <section
+            aria-labelledby="export-storage-title"
+            className="voice-manager"
+            id="export-storage"
+            ref={exportStorageRef}
+            tabIndex={-1}
+          >
+            <h2 id="export-storage-title">Export et stockage</h2>
+            <div className="primary-actions">
+              <button
+                className="folder-button"
+                onClick={input.onChooseFolder}
+                type="button"
+              >
+                <FolderOpen aria-hidden="true" size={19} />
+                <span>{input.folderName ?? "Choisir un dossier d'export"}</span>
+              </button>
+            </div>
+            <p className={`action-hint${folderSelected ? " is-ready" : ""}`}>
+              {folderSelected
+                ? `Les WAV et JSON seront enregistrés dans ${input.folderName}.`
+                : "Sans dossier local, garde les boutons WAV et JSON après chaque prise."}
+            </p>
+          </section>
+        )}
       </section>
     </div>
   );

@@ -1,4 +1,4 @@
-import { Clapperboard, Headphones, Mic, Radio } from "lucide-react";
+import { Clapperboard, Headphones, Mic, Radio, Scissors } from "lucide-react";
 import { canonicalCorpus, type PromptDefinition } from "@domains/corpus";
 import type { CoverageSummary } from "@domains/coverage";
 import type { RecordedTake } from "@domains/sessions";
@@ -26,6 +26,9 @@ export function formatMeterScale(value: number): string {
   return Math.max(0.035, clampUnit(value)).toFixed(3);
 }
 export function createModeMessage(mode: CaptureMode): string {
+  if (mode === "lexical-segmentation") {
+    return "Découpe lexicale : importe une vidéo ou un audio, puis extrais localement un WAV horodaté pour chaque mot détecté.";
+  }
   if (mode === "free") {
     return `Capture libre : enregistre sans corpus jusqu'à ${formatCaptureDurationLimit(FREE_CAPTURE_MAX_DURATION_MS)}, avec WAV et métadonnées locales complètes.`;
   }
@@ -41,6 +44,9 @@ export function createModeMessage(mode: CaptureMode): string {
 }
 
 export function createSessionPreparationMessage(mode: CaptureMode): string {
+  if (mode === "lexical-segmentation") {
+    return "Média prêt pour la découpe lexicale locale.";
+  }
   if (mode === "free") {
     return "Capture libre prête. Le WAV et ses mesures locales seront conservés jusqu'à l'arrêt manuel.";
   }
@@ -146,6 +152,9 @@ export function formatSaveTarget(
 }
 
 export function formatCaptureMode(mode: CaptureMode): string {
+  if (mode === "lexical-segmentation") {
+    return "Découpe lexicale";
+  }
   if (mode === "free") {
     return "Capture libre";
   }
@@ -348,6 +357,19 @@ export const captureModeOptions: readonly {
     workbenchTitle: "Console de capture libre",
     summary:
       "WAV PCM, mesures acoustiques et métadonnées de provenance à l'arrêt manuel.",
+  },
+  {
+    mode: "lexical-segmentation",
+    icon: Scissors,
+    title: "Découpe lexicale",
+    pill: "Audio ou vidéo",
+    kicker: "Atelier de segmentation",
+    cta: "Découper l'audio",
+    headlineLead: "Transforme une piste parlée en mots isolés.",
+    headlineDetail:
+      "La vidéo est écartée, chaque mot détecté reçoit son extrait audio et ses repères temporels.",
+    workbenchTitle: "Console de découpe lexicale",
+    summary: "WAV mot par mot, timeline CSV et manifeste JSON horodaté.",
   },
   {
     mode: "training",

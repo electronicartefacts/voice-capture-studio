@@ -168,6 +168,7 @@ import {
 } from "./screens/CaptureScreens";
 import { HomeScreen } from "./screens/HomeScreen";
 import { PermissionScreen } from "./screens/PermissionScreen";
+import type { LexicalSegmentationState } from "./screens/LexicalSegmentationPanel";
 import {
   AmbientBackdrop,
   OpeningRitual,
@@ -328,6 +329,10 @@ export function App() {
   );
   const [dubbingCueSeconds, setDubbingCueSeconds] = useState(0);
   const [dubbingMediaMuted, setDubbingMediaMuted] = useState(true);
+  const [lexicalSegmentationFile, setLexicalSegmentationFile] =
+    useState<File | null>(null);
+  const [lexicalSegmentationState, setLexicalSegmentationState] =
+    useState<LexicalSegmentationState>({ status: "idle" });
   const [selectedSpeakerId, setSelectedSpeakerId] = useState<SpeakerId>(
     initialSpeakers[0].id,
   );
@@ -424,6 +429,7 @@ export function App() {
   const storedRecordingUrlsRef = useRef<readonly string[]>([]);
   const datasetZipUrlRef = useRef<string | null>(null);
   const workspaceArchiveUrlRef = useRef<string | null>(null);
+  const lexicalSegmentationUrlRef = useRef<string | null>(null);
   const ambientMonitorRef = useRef<AmbientMicrophoneMonitor | null>(null);
   const isPersistingRef = useRef(false);
   const roomToneCaptureTimerRef = useRef<number | null>(null);
@@ -524,7 +530,11 @@ export function App() {
     (speaker) => speaker.id === selectedSpeakerId,
   );
   const localCorpus = useMemo<LocalTextCorpus | null>(() => {
-    if (captureMode === "training" || captureMode === "free") {
+    if (
+      captureMode === "training" ||
+      captureMode === "free" ||
+      captureMode === "lexical-segmentation"
+    ) {
       return null;
     }
 
@@ -763,6 +773,7 @@ export function App() {
       revokeObjectUrl(dubbingMediaUrlRef.current);
       revokeObjectUrl(datasetZipUrlRef.current);
       revokeObjectUrl(workspaceArchiveUrlRef.current);
+      revokeObjectUrl(lexicalSegmentationUrlRef.current);
       revokeStoredRecordingUrls();
     };
   }, []);
@@ -994,6 +1005,14 @@ export function App() {
     } finally {
       microphoneRequestPendingRef.current = false;
     }
+  }
+
+  function enterMediaStudio() {
+    stopAmbientMicrophoneMonitor();
+    setStudioAwake(true);
+    setRitualStatus("idle");
+    setCaptureMode("lexical-segmentation");
+    setMessage(createModeMessage("lexical-segmentation"));
   }
 
   async function createAmbientMicrophoneMonitor(): Promise<AmbientMicrophoneMonitor> {
@@ -1502,6 +1521,7 @@ export function App() {
     if (
       mode !== "training" &&
       mode !== "free" &&
+      mode !== "lexical-segmentation" &&
       customCorpusText.trim().length > 0
     ) {
       const generatedCorpus = createLocalTextCorpus({
@@ -1531,6 +1551,7 @@ export function App() {
     if (
       captureMode === "training" ||
       captureMode === "free" ||
+      captureMode === "lexical-segmentation" ||
       customCorpusText.trim().length === 0
     ) {
       return;
@@ -1557,7 +1578,9 @@ export function App() {
   function updateCustomCorpusText(
     text: string,
     sourceName = customCorpusSourceName,
-    mode: LocalCorpusMode = captureMode === "training" || captureMode === "free"
+    mode: LocalCorpusMode = captureMode === "training" ||
+    captureMode === "free" ||
+    captureMode === "lexical-segmentation"
       ? "dubbing"
       : captureMode,
   ) {
@@ -1601,11 +1624,17 @@ export function App() {
       }
 
       const mode =
-        captureMode === "training" || captureMode === "free"
+        captureMode === "training" ||
+        captureMode === "free" ||
+        captureMode === "lexical-segmentation"
           ? "dubbing"
           : captureMode;
 
-      if (captureMode === "training" || captureMode === "free") {
+      if (
+        captureMode === "training" ||
+        captureMode === "free" ||
+        captureMode === "lexical-segmentation"
+      ) {
         setCaptureMode(mode);
       }
 
@@ -1973,6 +2002,11 @@ export function App() {
   }
 
   async function prepareSession() {
+    if (captureMode === "lexical-segmentation") {
+      await runLexicalSegmentation();
+      return;
+    }
+
     const captureBlocker = getCaptureBlocker(diagnostics);
 
     if (captureBlocker !== null) {
@@ -2052,6 +2086,75 @@ export function App() {
     resetTakeOutputState();
     setScreen("permission");
     setMessage(createSessionPreparationMessage(captureMode));
+  }
+
+  function loadLexicalSegmentationFile(file: File) {
+    if (!isSupportedAudioFile(file) && !isSupportedVideoFile(file)) {
+      setLexicalSegmentationState({
+        status: "error",
+        message: "Charge un fichier audio ou vidéo lisible par le navigateur.",
+      });
+      return;
+    }
+
+    revokeObjectUrl(lexicalSegmentationUrlRef.current);
+    lexicalSegmentationUrlRef.current = null;
+    setLexicalSegmentationFile(file);
+    setLexicalSegmentationState({ status: "idle" });
+    setMessage(
+      `${file.name} prêt. La vidéo sera ignorée et seule sa piste audio sera découpée.`,
+    );
+  }
+
+  function clearLexicalSegmentation() {
+    revokeObjectUrl(lexicalSegmentationUrlRef.current);
+    lexicalSegmentationUrlRef.current = null;
+    setLexicalSegmentationFile(null);
+    setLexicalSegmentationState({ status: "idle" });
+    setMessage(createModeMessage("lexical-segmentation"));
+  }
+
+  async function runLexicalSegmentation() {
+    const file = lexicalSegmentationFile;
+    if (file === null) {
+      setMessage("Importe d'abord une vidéo ou un fichier audio.");
+      return;
+    }
+
+    revokeObjectUrl(lexicalSegmentationUrlRef.current);
+    lexicalSegmentationUrlRef.current = null;
+    setLexicalSegmentationState({
+      status: "running",
+      progress: { stage: "loading-model", progressPercent: 0 },
+    });
+    setMessage("Découpe lexicale en cours, entièrement sur cet appareil…");
+
+    try {
+      const { segmentImportedMedia } =
+        await import("../analysis/importedMediaSegmentation");
+      const result = await segmentImportedMedia({
+        file,
+        language: selectedLanguage,
+        onProgress: (progress) =>
+          setLexicalSegmentationState({ status: "running", progress }),
+      });
+      const downloadUrl = URL.createObjectURL(result.archive);
+      lexicalSegmentationUrlRef.current = downloadUrl;
+      setLexicalSegmentationState({ status: "done", result, downloadUrl });
+      setMessage(
+        `${result.manifest.words.length} mot${result.manifest.words.length > 1 ? "s" : ""} détecté${result.manifest.words.length > 1 ? "s" : ""}, horodaté${result.manifest.words.length > 1 ? "s" : ""} et découpé${result.manifest.words.length > 1 ? "s" : ""}.`,
+      );
+    } catch (error) {
+      const failureMessage =
+        error instanceof Error
+          ? error.message
+          : "La piste audio n'a pas pu être découpée.";
+      setLexicalSegmentationState({
+        status: "error",
+        message: failureMessage,
+      });
+      setMessage(failureMessage);
+    }
   }
 
   async function updateCaptureProfile(profile: CaptureProfile) {
@@ -3638,6 +3741,7 @@ export function App() {
       {!studioAwake ? (
         <OpeningRitual
           onAwaken={() => void awakenStudio()}
+          onEnterMediaStudio={enterMediaStudio}
           requiresDeviceRevalidation={requiresDeviceRevalidation}
           status={ritualStatus}
         />
@@ -3752,6 +3856,8 @@ export function App() {
                   folderName={folderName}
                   language={selectedLanguage}
                   localCorpusSummary={localCorpus?.summary ?? null}
+                  lexicalSegmentationFile={lexicalSegmentationFile}
+                  lexicalSegmentationState={lexicalSegmentationState}
                   onBackingTrackChange={loadBackingTrackFile}
                   onBackingTrackClear={clearBackingTrack}
                   onBackingTrackLoopChange={setBackingTrackLoop}
@@ -3774,6 +3880,8 @@ export function App() {
                   onDubbingVideoChange={loadDubbingVideoFile}
                   onDubbingYouTubeUrl={loadDubbingYouTubeUrl}
                   onLanguageChange={selectLanguage}
+                  onLexicalSegmentationClear={clearLexicalSegmentation}
+                  onLexicalSegmentationFile={loadLexicalSegmentationFile}
                   onProfileChange={updateCaptureProfile}
                   onRefreshDiagnostics={() => void refreshDiagnostics()}
                   onSpeakerChange={selectSpeaker}

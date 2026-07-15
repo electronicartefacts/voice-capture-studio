@@ -1,4 +1,4 @@
-import { Mic } from "lucide-react";
+import { FileAudio, Mic } from "lucide-react";
 import type { RitualStatus } from "../types";
 
 export function SiteFooter() {
@@ -44,6 +44,7 @@ export function SiteFooter() {
 
 export function OpeningRitual(input: {
   readonly onAwaken: () => void;
+  readonly onEnterMediaStudio: () => void;
   readonly requiresDeviceRevalidation?: boolean;
   readonly status: RitualStatus;
 }) {
@@ -80,6 +81,16 @@ export function OpeningRitual(input: {
           <Mic aria-hidden="true" size={18} />
           <span>{buttonLabel}</span>
         </button>
+        {input.status !== "requesting" && (
+          <button
+            className="quiet-button"
+            onClick={input.onEnterMediaStudio}
+            type="button"
+          >
+            <FileAudio aria-hidden="true" size={17} />
+            <span>Traiter un média sans microphone</span>
+          </button>
+        )}
         {input.status === "idle" && input.requiresDeviceRevalidation && (
           <p className="ritual-reassurance">
             Le microphone a été coupé lorsque tu as quitté la page.

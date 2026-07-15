@@ -4,6 +4,15 @@ All notable changes to Voice Capture Studio will be documented in this file.
 
 This project follows semantic versioning for public releases.
 
+## [Unreleased]
+
+### Added
+
+- Fifth mode, **Découpe lexicale**, for local audio/video import, on-device
+  Whisper word timing, and ZIP export with one WAV per detected word, a JSON
+  manifest, a CSV timeline, and the transcript.
+- Direct entry into media processing without requesting microphone access.
+
 ## [0.1.0] - 2026-07-09
 
 ### Added

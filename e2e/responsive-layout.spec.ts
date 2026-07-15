@@ -68,6 +68,7 @@ for (const [name, viewport] of VIEWPORTS) {
 
     for (const mode of [
       "Capture libre",
+      "Découpe lexicale",
       "Dataset ML",
       "Doublage",
       "Interprétation",

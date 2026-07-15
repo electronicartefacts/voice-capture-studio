@@ -3,7 +3,8 @@ import type { VoiceWaveformScreen } from "../rendering/VoiceWaveformSurface";
 import type { StoredRecording } from "../storage/browserRecordingStorage";
 
 export type Screen = VoiceWaveformScreen;
-export type CaptureMode = "free" | "training" | LocalCorpusMode;
+export type CaptureMode =
+  "free" | "training" | "lexical-segmentation" | LocalCorpusMode;
 export type DownloadableRecording = StoredRecording & {
   readonly url: string;
 };

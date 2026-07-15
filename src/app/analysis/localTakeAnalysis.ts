@@ -39,7 +39,22 @@ export async function analyzeTakeAudio(input: {
   readonly language: string;
   readonly onProgress: (progress: LocalAnalysisProgress) => void;
 }): Promise<LocalTakeAnalysis> {
-  const audio = await decodeToMono16k(input.audioBlob);
+  const audio = await decodeAudioToMono16k(input.audioBlob);
+  return analyzeDecodedAudio({
+    audio,
+    expectedText: input.expectedText,
+    language: input.language,
+    onProgress: input.onProgress,
+  });
+}
+
+export async function analyzeDecodedAudio(input: {
+  readonly audio: Float32Array;
+  readonly expectedText: string;
+  readonly language: string;
+  readonly onProgress: (progress: LocalAnalysisProgress) => void;
+}): Promise<LocalTakeAnalysis> {
+  const audio = input.audio;
   // `postMessage` transfers the backing buffer to the worker below. Keep the
   // duration while this side still owns the samples, otherwise the detached
   // typed array reports a zero length after inference completes.
@@ -137,7 +152,7 @@ function getAssetsBaseUrl(): string {
   return new URL(import.meta.env.BASE_URL, window.location.origin).href;
 }
 
-async function decodeToMono16k(blob: Blob): Promise<Float32Array> {
+export async function decodeAudioToMono16k(blob: Blob): Promise<Float32Array> {
   const AudioContextConstructor = getAudioContextConstructor();
   const OfflineAudioContextConstructor = getOfflineAudioContextConstructor();
 

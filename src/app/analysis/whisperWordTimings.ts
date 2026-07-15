@@ -8,6 +8,7 @@ export function normalizeWhisperWordTimings(
   durationMs: number,
 ): readonly WhisperWordTiming[] {
   const timings: WhisperWordTiming[] = [];
+  const boundedDurationMs = Math.max(0, Math.round(durationMs));
   let previousEndMs = 0;
 
   for (const chunk of chunks) {
@@ -27,11 +28,11 @@ export function normalizeWhisperWordTimings(
 
     const startMs = Math.max(
       previousEndMs,
-      Math.min(durationMs, Math.round(rawStart * 1000)),
+      Math.min(boundedDurationMs, Math.round(rawStart * 1000)),
     );
     const endMs = Math.max(
       startMs,
-      Math.min(durationMs, Math.round(rawEnd * 1000)),
+      Math.min(boundedDurationMs, Math.round(rawEnd * 1000)),
     );
 
     if (endMs <= startMs) {
