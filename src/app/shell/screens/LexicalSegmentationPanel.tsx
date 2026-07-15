@@ -138,7 +138,10 @@ export function LexicalSegmentationPanel(input: {
             <div>
               <dt>Fiabilité</dt>
               <dd>
-                Contrôle humain recommandé ·{" "}
+                {formatReliability(
+                  input.state.result.manifest.transcription.quality.status,
+                )}{" "}
+                ·{" "}
                 {Math.round(
                   input.state.result.manifest.transcription.quality
                     .speechOverlapRate * 100,
@@ -191,6 +194,12 @@ function formatProgress(progress: LocalAnalysisProgress): string {
 
 function formatProfile(profile: "balanced" | "compatible"): string {
   return profile === "balanced" ? "équilibré" : "compatible";
+}
+
+function formatReliability(status: "review" | "insufficient"): string {
+  return status === "review"
+    ? "Contrôle humain recommandé"
+    : "Résultat candidat, non confirmé";
 }
 
 function formatFileSize(size: number): string {

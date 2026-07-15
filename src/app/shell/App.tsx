@@ -2142,7 +2142,9 @@ export function App() {
       lexicalSegmentationUrlRef.current = downloadUrl;
       setLexicalSegmentationState({ status: "done", result, downloadUrl });
       setMessage(
-        `${result.manifest.words.length} mot${result.manifest.words.length > 1 ? "s" : ""} acoustiquement soutenu${result.manifest.words.length > 1 ? "s" : ""} et découpé${result.manifest.words.length > 1 ? "s" : ""}. Vérification humaine recommandée.`,
+        result.manifest.transcription.quality.status === "insufficient"
+          ? `${result.manifest.words.length} segment${result.manifest.words.length > 1 ? "s" : ""} candidat${result.manifest.words.length > 1 ? "s" : ""} produit${result.manifest.words.length > 1 ? "s" : ""}. La voix chantée n'a pas été confirmée par le détecteur de parole.`
+          : `${result.manifest.words.length} mot${result.manifest.words.length > 1 ? "s" : ""} acoustiquement soutenu${result.manifest.words.length > 1 ? "s" : ""} et découpé${result.manifest.words.length > 1 ? "s" : ""}. Vérification humaine recommandée.`,
       );
     } catch (error) {
       const failureMessage =

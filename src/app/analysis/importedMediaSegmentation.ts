@@ -68,6 +68,7 @@ export type WordAudioSegment = {
   readonly clipStartMs: number;
   readonly clipEndMs: number;
   readonly acousticSupport: number;
+  readonly evidence: "speech_vad" | "transcriber_only";
   readonly audioPath: string;
 };
 
@@ -102,9 +103,9 @@ export async function segmentImportedMedia(input: {
     speechSegments: analysis.speechSegments,
   });
 
-  if (quality.status === "insufficient") {
+  if (acceptedTimings.length === 0) {
     throw new Error(
-      "Le signal ne permet pas de confirmer des mots assez fiables. Aucun faux découpage n'a été produit.",
+      "Aucun mot exploitable n'a été proposé. Vérifie la langue ou essaie un passage où la voix est plus présente.",
     );
   }
 
@@ -194,6 +195,7 @@ export function createWordAudioSegments(
       clipStartMs: Math.max(0, timing.startMs - 60),
       clipEndMs: Math.min(totalDurationMs, timing.endMs + 60),
       acousticSupport: "acousticSupport" in timing ? timing.acousticSupport : 1,
+      evidence: "evidence" in timing ? timing.evidence : "speech_vad",
       audioPath: `audio/mots/${sequence}_${word}.wav`,
     };
   });
@@ -242,12 +244,13 @@ function createTimelineCsv(words: readonly WordAudioSegment[]): string {
       word.clipStartMs,
       word.clipEndMs,
       word.acousticSupport,
+      word.evidence,
       csvCell(word.audioPath),
     ].join(","),
   );
 
   return [
-    "index,word,start_ms,end_ms,duration_ms,clip_start_ms,clip_end_ms,acoustic_support,audio_path",
+    "index,word,start_ms,end_ms,duration_ms,clip_start_ms,clip_end_ms,acoustic_support,evidence,audio_path",
     ...rows,
     "",
   ].join("\n");

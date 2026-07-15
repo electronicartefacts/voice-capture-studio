@@ -7,6 +7,7 @@ import type {
 export type LexicalSegmentationQuality = {
   readonly status: "review" | "insufficient";
   readonly reviewRequired: true;
+  readonly evidenceMode: "speech_vad" | "transcriber_only";
   readonly acceptedWordCount: number;
   readonly rejectedWordCount: number;
   readonly timingAcceptanceRate: number;
@@ -17,6 +18,7 @@ export type LexicalSegmentationQuality = {
 
 export type SupportedWordTiming = WhisperWordTiming & {
   readonly acousticSupport: number;
+  readonly evidence: "speech_vad" | "transcriber_only";
 };
 
 const MIN_WORD_DURATION_MS = 60;
@@ -50,7 +52,7 @@ export function assessLexicalSegmentation(input: {
   readonly acceptedTimings: readonly SupportedWordTiming[];
   readonly quality: LexicalSegmentationQuality;
 } {
-  const acceptedTimings: SupportedWordTiming[] = [];
+  const plausibleTimings: SupportedWordTiming[] = [];
 
   for (const timing of input.timings) {
     const durationMs = timing.endMs - timing.startMs;
@@ -62,14 +64,36 @@ export function assessLexicalSegmentation(input: {
     if (
       durationMs < MIN_WORD_DURATION_MS ||
       durationMs > MAX_WORD_DURATION_MS ||
-      acousticSupport < MIN_WORD_SPEECH_OVERLAP ||
       !containsLexicalContent(timing.word)
     ) {
       continue;
     }
 
-    acceptedTimings.push({ ...timing, acousticSupport });
+    plausibleTimings.push({
+      ...timing,
+      acousticSupport,
+      evidence:
+        acousticSupport >= MIN_WORD_SPEECH_OVERLAP
+          ? "speech_vad"
+          : "transcriber_only",
+    });
   }
+
+  const vadSupportedTimingCount = plausibleTimings.filter(
+    (timing) => timing.evidence === "speech_vad",
+  ).length;
+  // A speech VAD is not a singing activity detector. Use it as a strict gate
+  // only when it agrees with at least half of the otherwise plausible timing
+  // hypotheses. Otherwise retain candidates and expose the weaker provenance.
+  const vadIsUsable =
+    input.speechSegments.length > 0 &&
+    ratio(vadSupportedTimingCount, plausibleTimings.length) >= 0.5;
+  const acceptedTimings = vadIsUsable
+    ? plausibleTimings.filter((timing) => timing.evidence === "speech_vad")
+    : plausibleTimings.map((timing) => ({
+        ...timing,
+        evidence: "transcriber_only" as const,
+      }));
 
   const speechDurationMs = input.speechSegments.reduce(
     (sum, segment) => sum + Math.max(0, segment.endMs - segment.startMs),
@@ -93,7 +117,13 @@ export function assessLexicalSegmentation(input: {
   const warnings: string[] = [];
 
   if (input.speechSegments.length === 0) {
-    warnings.push("Aucune activité vocale indépendante n'a été confirmée.");
+    warnings.push(
+      "Le détecteur de parole ne confirme pas cette voix chantée; les segments restent des candidats.",
+    );
+  } else if (!vadIsUsable) {
+    warnings.push(
+      "Le détecteur de parole couvre trop peu des mots proposés pour servir de filtre au chant.",
+    );
   }
   if (timingAcceptanceRate < 0.7) {
     warnings.push(
@@ -108,7 +138,7 @@ export function assessLexicalSegmentation(input: {
   }
 
   const insufficient =
-    input.speechSegments.length === 0 ||
+    !vadIsUsable ||
     acceptedTimings.length === 0 ||
     timingAcceptanceRate < 0.5 ||
     speechOverlapRate < 0.5 ||
@@ -119,6 +149,7 @@ export function assessLexicalSegmentation(input: {
     quality: {
       status: insufficient ? "insufficient" : "review",
       reviewRequired: true,
+      evidenceMode: vadIsUsable ? "speech_vad" : "transcriber_only",
       acceptedWordCount: acceptedTimings.length,
       rejectedWordCount: input.timings.length - acceptedTimings.length,
       timingAcceptanceRate: roundRate(timingAcceptanceRate),

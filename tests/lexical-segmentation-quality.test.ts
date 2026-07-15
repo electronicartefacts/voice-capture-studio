@@ -25,14 +25,21 @@ test("rejects hallucinated timings outside independently detected voice", () => 
   assert.equal(result.quality.rejectedWordCount, 1);
 });
 
-test("refuses a transcript when no independent voice is detected", () => {
+test("keeps an explicit candidate transcript when speech VAD misses singing", () => {
   const result = assessLexicalSegmentation({
     speechSegments: [],
     timings: [{ word: "inventé", startMs: 0, endMs: 500, source }],
   });
 
   assert.equal(result.quality.status, "insufficient");
-  assert.deepEqual(result.acceptedTimings, []);
+  assert.equal(result.quality.evidenceMode, "transcriber_only");
+  assert.deepEqual(
+    result.acceptedTimings.map((timing) => ({
+      evidence: timing.evidence,
+      word: timing.word,
+    })),
+    [{ evidence: "transcriber_only", word: "inventé" }],
+  );
 });
 
 test("filters implausible word durations and punctuation-only chunks", () => {
@@ -51,6 +58,24 @@ test("filters implausible word durations and punctuation-only chunks", () => {
     ["chant"],
   );
   assert.equal(result.quality.status, "insufficient");
+});
+
+test("falls back to candidates when speech VAD only covers a minority of lyrics", () => {
+  const result = assessLexicalSegmentation({
+    speechSegments: [{ startMs: 1_000, endMs: 1_500 }],
+    timings: [
+      { word: "un", startMs: 100, endMs: 400, source },
+      { word: "refrain", startMs: 1_050, endMs: 1_400, source },
+      { word: "chanté", startMs: 2_000, endMs: 2_500, source },
+    ],
+  });
+
+  assert.equal(result.quality.status, "insufficient");
+  assert.equal(result.quality.evidenceMode, "transcriber_only");
+  assert.deepEqual(
+    result.acceptedTimings.map((timing) => timing.word),
+    ["un", "refrain", "chanté"],
+  );
 });
 
 test("selects an inclusive compatible profile for long or constrained runs", () => {
