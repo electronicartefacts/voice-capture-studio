@@ -1,7 +1,10 @@
 import { encodeWav24 } from "../audio/pcmAudio";
 import { createZipBlobOffThread } from "../export/zipService";
 import type { ZipEntryInput } from "../export/zipWriter";
-import { analyzeDecodedAudio, decodeAudioToMono16k } from "./localTakeAnalysis";
+import {
+  analyzeDecodedAudio,
+  decodeAudioToVocalSignals16k,
+} from "./localTakeAnalysis";
 import type {
   LocalAnalysisProgress,
   LocalProcessingProfile,
@@ -48,13 +51,15 @@ export type WordSegmentationManifest = {
     readonly executionProvider: "wasm";
     readonly modelAssets: "same-origin-cache-first";
     readonly sourceSeparation: "not_available";
+    readonly vocalIsolation:
+      "mono_vocal_band" | "stereo_center_transient_reduction";
     readonly transcriptionPasses: 1 | 2;
     readonly selectedSignal: "original" | "vocal_focus";
     readonly vocalFocus:
       "not_needed" | "selected" | "not_selected" | "skipped_for_length";
   };
   readonly transcription: {
-    readonly engine: "whisper-tiny-secondary";
+    readonly engine: "whisper-tiny-secondary" | "whisper-base-music";
     readonly language: string;
     readonly transcript: string;
     readonly rawHypothesis: string;
@@ -97,8 +102,13 @@ export async function segmentImportedMedia(input: {
   });
 
   let audio: Float32Array;
+  let vocalFocusSignal: Float32Array;
+  let stereoCenterUsed: boolean;
   try {
-    audio = await decodeAudioToMono16k(input.file);
+    const signals = await decodeAudioToVocalSignals16k(input.file);
+    audio = signals.mono;
+    vocalFocusSignal = signals.vocalFocus;
+    stereoCenterUsed = signals.stereoCenterUsed;
   } catch {
     throw new Error(
       "La piste audio de ce média n'est pas décodable ici. Essaie un WAV, MP3, M4A, MP4 ou WebM compatible avec ce navigateur.",
@@ -128,6 +138,7 @@ export async function segmentImportedMedia(input: {
   });
   let transcriptionPasses: 1 | 2 = 1;
   let selectedSignal: "original" | "vocal_focus" = "original";
+  let selectedTranscriptionModel: "tiny" | "base" = "tiny";
   let vocalFocus:
     "not_needed" | "selected" | "not_selected" | "skipped_for_length" =
     assessment.quality.status === "insufficient"
@@ -141,10 +152,11 @@ export async function segmentImportedMedia(input: {
     transcriptionPasses = 2;
     input.onProgress({ stage: "enhancing-vocals" });
     const vocalFocusAnalysis = await analyzeDecodedAudio({
-      audio: createVocalFocusSignal(audio),
+      audio: vocalFocusSignal,
       expectedText: "",
       language: input.language,
       processingProfile,
+      transcriptionModel: "base",
       onProgress: input.onProgress,
       signal: input.signal,
     });
@@ -158,6 +170,7 @@ export async function segmentImportedMedia(input: {
       analysis = vocalFocusAnalysis;
       assessment = vocalFocusAssessment;
       selectedSignal = "vocal_focus";
+      selectedTranscriptionModel = "base";
       vocalFocus = "selected";
     } else {
       vocalFocus = "not_selected";
@@ -199,12 +212,18 @@ export async function segmentImportedMedia(input: {
       executionProvider: "wasm",
       modelAssets: "same-origin-cache-first",
       sourceSeparation: "not_available",
+      vocalIsolation: stereoCenterUsed
+        ? "stereo_center_transient_reduction"
+        : "mono_vocal_band",
       transcriptionPasses,
       selectedSignal,
       vocalFocus,
     },
     transcription: {
-      engine: "whisper-tiny-secondary",
+      engine:
+        selectedTranscriptionModel === "base"
+          ? "whisper-base-music"
+          : "whisper-tiny-secondary",
       language: input.language,
       transcript: supportedTranscript,
       rawHypothesis: analysis.transcript,
@@ -248,42 +267,6 @@ export async function segmentImportedMedia(input: {
   };
 }
 
-export function createVocalFocusSignal(
-  input: Float32Array,
-  sampleRate = SEGMENTATION_SAMPLE_RATE,
-): Float32Array {
-  const output = new Float32Array(input.length);
-  const highPassCutoffHz = 120;
-  const lowPassCutoffHz = Math.min(6_500, sampleRate * 0.45);
-  const timeStep = 1 / sampleRate;
-  const highPassRc = 1 / (2 * Math.PI * highPassCutoffHz);
-  const highPassAlpha = highPassRc / (highPassRc + timeStep);
-  const lowPassRc = 1 / (2 * Math.PI * lowPassCutoffHz);
-  const lowPassAlpha = timeStep / (lowPassRc + timeStep);
-  let previousInput = 0;
-  let highPassed = 0;
-  let lowPassed = 0;
-  let peak = 0;
-
-  for (let index = 0; index < input.length; index += 1) {
-    const sample = Number.isFinite(input[index]) ? input[index] : 0;
-    highPassed = highPassAlpha * (highPassed + sample - previousInput);
-    previousInput = sample;
-    lowPassed += lowPassAlpha * (highPassed - lowPassed);
-    output[index] = lowPassed;
-    peak = Math.max(peak, Math.abs(lowPassed));
-  }
-
-  if (peak >= 0.01) {
-    const gain = Math.min(4, 0.92 / peak);
-    for (let index = 0; index < output.length; index += 1) {
-      output[index] = Math.max(-1, Math.min(1, output[index] * gain));
-    }
-  }
-
-  return output;
-}
-
 export function shouldPreferLexicalAssessment(
   candidate: ReturnType<typeof assessLexicalSegmentation>,
   current: ReturnType<typeof assessLexicalSegmentation>,
@@ -302,6 +285,24 @@ export function shouldPreferLexicalAssessment(
     current.quality.evidenceMode === "transcriber_only"
   ) {
     return true;
+  }
+
+  if (
+    candidate.quality.evidenceMode === "transcriber_only" &&
+    current.quality.evidenceMode === "transcriber_only"
+  ) {
+    const minimumUsefulGain =
+      current.quality.acceptedWordCount === 0
+        ? 1
+        : Math.max(2, Math.ceil(current.quality.acceptedWordCount * 0.15));
+
+    return (
+      candidate.quality.acceptedWordCount >=
+        current.quality.acceptedWordCount + minimumUsefulGain &&
+      candidate.quality.timingAcceptanceRate >=
+        current.quality.timingAcceptanceRate - 0.05 &&
+      candidate.quality.wordsPerSpeechMinute <= 360
+    );
   }
 
   return (

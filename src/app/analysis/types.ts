@@ -18,6 +18,7 @@ export type WhisperWordTiming = {
 };
 
 export type LocalProcessingProfile = "balanced" | "compatible";
+export type LocalTranscriptionModel = "tiny" | "base";
 
 export type LocalAnalysisProgress =
   | { readonly stage: "loading-model"; readonly progressPercent: number }
@@ -42,6 +43,7 @@ export type AnalysisWorkerRequest = {
   readonly sampleRate: number;
   readonly language: string;
   readonly processingProfile: LocalProcessingProfile;
+  readonly transcriptionModel: LocalTranscriptionModel;
   readonly assetsBaseUrl: string;
 };
 

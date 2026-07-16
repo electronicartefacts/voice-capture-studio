@@ -1,8 +1,8 @@
 // Bump these revisions whenever the application shell or shipped ML models
 // change. Keeping application and model caches separate avoids retaining a
 // previous release's modules after an offline restart.
-const CACHE_NAME = "voice-capture-studio-app-v4";
-const MODEL_CACHE_NAME = "voice-capture-studio-models-v2";
+const CACHE_NAME = "voice-capture-studio-app-v5";
+const MODEL_CACHE_NAME = "voice-capture-studio-models-v3";
 
 function isModelAsset(requestUrl) {
   const scopePath = new URL(self.registration.scope).pathname;

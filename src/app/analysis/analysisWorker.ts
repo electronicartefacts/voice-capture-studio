@@ -2,6 +2,7 @@ import { segmentSpeechProbabilities } from "./speechSegments";
 import type {
   AnalysisWorkerRequest,
   AnalysisWorkerResponse,
+  LocalTranscriptionModel,
   SpeechSegment,
 } from "./types";
 import { normalizeWhisperWordTimings } from "./whisperWordTimings";
@@ -30,6 +31,9 @@ type Transcriber = (
   audio: Float32Array,
   options: Record<string, unknown>,
 ) => Promise<Transcription | Transcription[]>;
+type DisposableTranscriber = Transcriber & {
+  dispose?: () => Promise<void> | void;
+};
 
 type VadSession = {
   readonly inputNames: readonly string[];
@@ -61,16 +65,23 @@ type OrtModule = {
 
 const workerScope = globalThis as unknown as WorkerScope;
 
-let transcriberPromise: Promise<Transcriber> | null = null;
+const transcriberPromises = new Map<
+  LocalTranscriptionModel,
+  Promise<DisposableTranscriber>
+>();
 let vadPromise: Promise<{ ort: OrtModule; session: VadSession }> | null = null;
 let analysisQueue = Promise.resolve();
 
 async function loadTranscriber(
   assetsBaseUrl: string,
+  transcriptionModel: LocalTranscriptionModel,
   onProgress: (progressPercent: number) => void,
-): Promise<Transcriber> {
-  if (transcriberPromise === null) {
+): Promise<DisposableTranscriber> {
+  let transcriberPromise = transcriberPromises.get(transcriptionModel);
+
+  if (transcriberPromise === undefined) {
     transcriberPromise = (async () => {
+      await disposeOtherTranscribers(transcriptionModel);
       const {
         env,
         AutoModelForSpeechSeq2Seq,
@@ -104,7 +115,10 @@ async function loadTranscriber(
         }
       };
 
-      const modelId = "Xenova/whisper-tiny";
+      const modelId =
+        transcriptionModel === "base"
+          ? "Xenova/whisper-base"
+          : "Xenova/whisper-tiny";
       const progress_callback = (event: {
         status: string;
         file?: string;
@@ -154,15 +168,32 @@ async function loadTranscriber(
         tokenizer,
       });
 
-      return transcriber as unknown as Transcriber;
+      return transcriber as unknown as DisposableTranscriber;
     })();
+    transcriberPromises.set(transcriptionModel, transcriberPromise);
 
     transcriberPromise.catch(() => {
-      transcriberPromise = null;
+      transcriberPromises.delete(transcriptionModel);
     });
   }
 
   return transcriberPromise;
+}
+
+async function disposeOtherTranscribers(
+  keep: LocalTranscriptionModel,
+): Promise<void> {
+  for (const [model, promise] of transcriberPromises) {
+    if (model === keep) continue;
+
+    transcriberPromises.delete(model);
+    try {
+      const transcriber = await promise;
+      await transcriber.dispose?.();
+    } catch {
+      // A failed model load has no live session to release.
+    }
+  }
 }
 
 async function loadVad(
@@ -249,6 +280,7 @@ async function analyze(request: AnalysisWorkerRequest): Promise<void> {
   try {
     const transcriber = await loadTranscriber(
       request.assetsBaseUrl,
+      request.transcriptionModel,
       (progressPercent) =>
         post({
           id: request.id,
@@ -269,6 +301,8 @@ async function analyze(request: AnalysisWorkerRequest): Promise<void> {
       // Smaller chunks bound peak memory on long files and constrained
       // browsers. The overlap remains inside the pipeline implementation.
       chunk_length_s: request.processingProfile === "compatible" ? 15 : 30,
+      stride_length_s: request.processingProfile === "compatible" ? 3 : 5,
+      force_full_sequences: false,
       return_timestamps: "word",
     });
     const result = Array.isArray(transcription)

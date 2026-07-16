@@ -59,9 +59,10 @@ export function LexicalSegmentationPanel(input: {
         <p>
           Importe une vidéo ou un son, parlé ou chanté. L'analyse compare
           localement les mots proposés aux zones vocales avant de préparer les
-          extraits WAV. Si le premier passage échoue, un filtre vocal local peut
-          lancer une seconde lecture sans modifier l'audio exporté. Les
-          résultats incertains restent signalés et rien ne quitte cet appareil.
+          extraits WAV. Si le premier passage est fragile, l'app isole la voix
+          centrale et relance automatiquement une écoute plus précise, sans
+          modifier l'audio exporté. Les résultats incertains restent signalés et
+          rien ne quitte cet appareil.
         </p>
       </div>
 
@@ -216,7 +217,7 @@ function formatPasses(result: ImportedMediaSegmentationResult): string {
 
   if (processing.transcriptionPasses === 1) return "1 passage local";
   return processing.selectedSignal === "vocal_focus"
-    ? "2 passages locaux · filtre vocal retenu"
+    ? "2 passages locaux · isolation vocale et modèle renforcé retenus"
     : "2 passages locaux · original conservé";
 }
 

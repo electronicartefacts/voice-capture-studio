@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  createVocalFocusSignal,
   createWordAudioSegments,
   shouldPreferLexicalAssessment,
 } from "../src/app/analysis/importedMediaSegmentation";
+import {
+  createStereoVocalFocusSignal,
+  createVocalFocusSignal,
+} from "../src/app/analysis/vocalFocus";
 import { assessLexicalSegmentation } from "../src/app/analysis/lexicalSegmentationQuality";
 import {
   assertImportedMediaWithinLimits,
@@ -111,6 +114,25 @@ test("vocal focus sanitizes samples and removes sustained low-frequency offset",
   assert.ok(tailPeak < 0.001);
 });
 
+test("stereo vocal focus attenuates side-only accompaniment", () => {
+  const left = new Float32Array(16_000);
+  const right = new Float32Array(16_000);
+
+  for (let index = 0; index < left.length; index += 1) {
+    const voice = Math.sin((index / 16_000) * Math.PI * 2 * 220) * 0.2;
+    const wideInstrument =
+      Math.sin((index / 16_000) * Math.PI * 2 * 440) * 0.35;
+    left[index] = voice + wideInstrument;
+    right[index] = voice - wideInstrument;
+  }
+
+  const focused = createStereoVocalFocusSignal(left, right);
+
+  assert.equal(focused.stereoCenterUsed, true);
+  assert.equal(focused.signal.every(Number.isFinite), true);
+  assert.ok(Math.max(...focused.signal) > 0.1);
+});
+
 test("adaptive retry is selected only when acoustic evidence improves", () => {
   const source = "whisper_attention_timestamp" as const;
   const timing = [{ word: "refrain", startMs: 100, endMs: 800, source }];
@@ -125,4 +147,23 @@ test("adaptive retry is selected only when acoustic evidence improves", () => {
 
   assert.equal(shouldPreferLexicalAssessment(supported, unsupported), true);
   assert.equal(shouldPreferLexicalAssessment(unsupported, supported), false);
+});
+
+test("a richer base-model lyric hypothesis can replace a weak music pass", () => {
+  const source = "whisper_attention_timestamp" as const;
+  const tiny = assessLexicalSegmentation({
+    timings: [{ word: "nuit", startMs: 100, endMs: 600, source }],
+    speechSegments: [],
+  });
+  const base = assessLexicalSegmentation({
+    timings: [
+      { word: "dans", startMs: 100, endMs: 350, source },
+      { word: "la", startMs: 360, endMs: 540, source },
+      { word: "nuit", startMs: 550, endMs: 900, source },
+    ],
+    speechSegments: [],
+  });
+
+  assert.equal(shouldPreferLexicalAssessment(base, tiny), true);
+  assert.equal(shouldPreferLexicalAssessment(tiny, base), false);
 });

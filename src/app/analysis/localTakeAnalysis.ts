@@ -8,7 +8,9 @@ import type {
   LocalProcessingProfile,
   LocalAnalysisProgress,
   LocalTakeAnalysis,
+  LocalTranscriptionModel,
 } from "./types";
+import { createStereoVocalFocusSignal } from "./vocalFocus";
 
 const ANALYSIS_SAMPLE_RATE = 16_000;
 
@@ -59,6 +61,7 @@ export async function analyzeDecodedAudio(input: {
   readonly expectedText: string;
   readonly language: string;
   readonly processingProfile?: LocalProcessingProfile;
+  readonly transcriptionModel?: LocalTranscriptionModel;
   readonly onProgress: (progress: LocalAnalysisProgress) => void;
   readonly signal?: AbortSignal;
 }): Promise<LocalTakeAnalysis> {
@@ -137,6 +140,7 @@ export async function analyzeDecodedAudio(input: {
       sampleRate: ANALYSIS_SAMPLE_RATE,
       language: input.language,
       processingProfile: input.processingProfile ?? "balanced",
+      transcriptionModel: input.transcriptionModel ?? "tiny",
       assetsBaseUrl: getAssetsBaseUrl(),
     };
 
@@ -220,6 +224,26 @@ function getAssetsBaseUrl(): string {
 }
 
 export async function decodeAudioToMono16k(blob: Blob): Promise<Float32Array> {
+  const signals = await decodeAudioSignals16k(blob, false);
+  return signals.mono;
+}
+
+export async function decodeAudioToVocalSignals16k(blob: Blob): Promise<{
+  readonly mono: Float32Array;
+  readonly vocalFocus: Float32Array;
+  readonly stereoCenterUsed: boolean;
+}> {
+  return decodeAudioSignals16k(blob, true);
+}
+
+async function decodeAudioSignals16k(
+  blob: Blob,
+  includeVocalFocus: boolean,
+): Promise<{
+  readonly mono: Float32Array;
+  readonly vocalFocus: Float32Array;
+  readonly stereoCenterUsed: boolean;
+}> {
   const AudioContextConstructor = getAudioContextConstructor();
   const OfflineAudioContextConstructor = getOfflineAudioContextConstructor();
 
@@ -242,8 +266,11 @@ export async function decodeAudioToMono16k(blob: Blob): Promise<Float32Array> {
       1,
       Math.ceil(decoded.duration * ANALYSIS_SAMPLE_RATE),
     );
+    const renderedChannelCount = includeVocalFocus
+      ? Math.min(2, decoded.numberOfChannels)
+      : 1;
     const offlineContext = new OfflineAudioContextConstructor(
-      1,
+      renderedChannelCount,
       frameCount,
       ANALYSIS_SAMPLE_RATE,
     );
@@ -255,7 +282,26 @@ export async function decodeAudioToMono16k(blob: Blob): Promise<Float32Array> {
 
     const rendered = await offlineContext.startRendering();
 
-    return rendered.getChannelData(0).slice();
+    const left = rendered.getChannelData(0);
+    const right =
+      rendered.numberOfChannels > 1 ? rendered.getChannelData(1) : null;
+    const mono = new Float32Array(rendered.length);
+
+    for (let index = 0; index < mono.length; index += 1) {
+      mono[index] =
+        right === null ? left[index] : (left[index] + right[index]) * 0.5;
+    }
+
+    if (!includeVocalFocus) {
+      return { mono, vocalFocus: mono, stereoCenterUsed: false };
+    }
+
+    const focused = createStereoVocalFocusSignal(left, right);
+    return {
+      mono,
+      vocalFocus: focused.signal,
+      stereoCenterUsed: focused.stereoCenterUsed,
+    };
   } finally {
     if (decodeContext.state !== "closed") {
       await decodeContext.close().catch(() => undefined);

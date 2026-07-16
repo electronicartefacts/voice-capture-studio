@@ -342,10 +342,11 @@ export function TechnicalPage(input: {
       <section className="forced-alignment-panel">
         <div>
           <p className="soft-label">Modèles d'analyse</p>
-          <strong>Whisper et détection de parole</strong>
+          <strong>Reconnaissance vocale adaptative</strong>
           <span>
-            Supprime les modèles locaux pour récupérer de l'espace ou forcer
-            leur rechargement après une mise à jour.
+            Le modèle léger traite la parole; une écoute renforcée se charge à
+            la demande pour la musique. Supprime-les pour récupérer de l'espace
+            ou forcer leur rechargement après une mise à jour.
           </span>
         </div>
         <button
