@@ -1,6 +1,16 @@
-import { useEffect, useRef, type ChangeEvent, type DragEvent } from "react";
-import { AudioLines, Download, FileAudio, Upload, X } from "lucide-react";
-import type { ImportedMediaSegmentationResult } from "../../analysis/importedMediaSegmentation";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type DragEvent,
+  type SyntheticEvent,
+} from "react";
+import { AudioLines, Download, FileAudio, Play, Upload, X } from "lucide-react";
+import type {
+  ImportedMediaSegmentationResult,
+  WordAudioSegment,
+} from "../../analysis/importedMediaSegmentation";
 import { LEXICAL_SEGMENTATION_MAX_DURATION_MS } from "../../analysis/lexicalSegmentationPolicy";
 import type { LocalAnalysisProgress } from "../../analysis/types";
 import {
@@ -8,6 +18,9 @@ import {
   supportedLanguages,
   type LanguageCode,
 } from "@shared/index";
+import "./lexical-segmentation.css";
+
+const WORD_REVIEW_PAGE_SIZE = 40;
 
 export type LexicalSegmentationState =
   | { readonly status: "idle" }
@@ -222,6 +235,13 @@ export function LexicalSegmentationPanel(input: {
               </dd>
             </div>
           </dl>
+          {input.file !== null && (
+            <LexicalWordReview
+              file={input.file}
+              key={`${input.file.name}:${input.file.lastModified}`}
+              words={input.state.result.manifest.words}
+            />
+          )}
           <a
             className="download-action"
             download={input.state.result.fileName}
@@ -243,6 +263,184 @@ export function LexicalSegmentationPanel(input: {
       )}
     </section>
   );
+}
+
+function LexicalWordReview(input: {
+  readonly file: File;
+  readonly words: readonly WordAudioSegment[];
+}) {
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const previewRequestRef = useRef(0);
+  const [page, setPage] = useState(0);
+  const [previewEndSeconds, setPreviewEndSeconds] = useState<number | null>(
+    null,
+  );
+  const [sourceUrl, setSourceUrl] = useState<string | null>(null);
+  const [status, setStatus] = useState(
+    "Choisis un mot pour l'écouter dans son contexte.",
+  );
+  const pageCount = Math.max(
+    1,
+    Math.ceil(input.words.length / WORD_REVIEW_PAGE_SIZE),
+  );
+  const visibleWords = input.words.slice(
+    page * WORD_REVIEW_PAGE_SIZE,
+    (page + 1) * WORD_REVIEW_PAGE_SIZE,
+  );
+
+  useEffect(
+    () => () => {
+      if (sourceUrl !== null) URL.revokeObjectURL(sourceUrl);
+    },
+    [sourceUrl],
+  );
+
+  function handleToggle(event: SyntheticEvent<HTMLDetailsElement>) {
+    if (event.currentTarget.open && sourceUrl === null) {
+      setSourceUrl(URL.createObjectURL(input.file));
+    } else if (!event.currentTarget.open) {
+      previewRequestRef.current += 1;
+      audioRef.current?.pause();
+      setPreviewEndSeconds(null);
+      setSourceUrl(null);
+      setStatus("Choisis un mot pour l'écouter dans son contexte.");
+    }
+  }
+
+  function changePage(nextPage: number) {
+    previewRequestRef.current += 1;
+    audioRef.current?.pause();
+    setPreviewEndSeconds(null);
+    setPage(Math.max(0, Math.min(pageCount - 1, nextPage)));
+  }
+
+  function previewWord(word: WordAudioSegment) {
+    const audio = audioRef.current;
+    if (audio === null) return;
+
+    previewRequestRef.current += 1;
+    const requestId = previewRequestRef.current;
+    const startSeconds = word.clipStartMs / 1_000;
+    const endSeconds = word.clipEndMs / 1_000;
+    const startPlayback = () => {
+      if (previewRequestRef.current !== requestId) return;
+
+      audio.pause();
+      audio.currentTime = startSeconds;
+      setPreviewEndSeconds(endSeconds);
+      setStatus(`Lecture de « ${word.word} » avec son contexte.`);
+      void audio.play().catch(() => {
+        setPreviewEndSeconds(null);
+        setStatus(
+          "L'aperçu du média n'est pas lisible ici. Les WAV restent disponibles dans le ZIP.",
+        );
+      });
+    };
+
+    if (audio.readyState >= HTMLMediaElement.HAVE_METADATA) {
+      startPlayback();
+    } else {
+      setStatus("Préparation de l'aperçu local…");
+      audio.addEventListener("loadedmetadata", startPlayback, { once: true });
+      audio.load();
+    }
+  }
+
+  function stopAtPreviewBoundary() {
+    const audio = audioRef.current;
+    if (
+      audio !== null &&
+      previewEndSeconds !== null &&
+      audio.currentTime >= previewEndSeconds
+    ) {
+      audio.pause();
+      setPreviewEndSeconds(null);
+    }
+  }
+
+  return (
+    <details className="lexical-word-review" onToggle={handleToggle}>
+      <summary>
+        Vérifier et écouter les {input.words.length} mots détectés
+      </summary>
+      {sourceUrl !== null && (
+        <div className="lexical-word-review-content">
+          <p aria-live="polite" className="action-hint">
+            {status}
+          </p>
+          <audio
+            aria-label="Aperçu du média original"
+            controls
+            onEnded={() => setPreviewEndSeconds(null)}
+            onTimeUpdate={stopAtPreviewBoundary}
+            preload="metadata"
+            ref={audioRef}
+            src={sourceUrl}
+          >
+            Ce navigateur ne peut pas lire l'aperçu du média.
+          </audio>
+          <div className="lexical-word-grid">
+            {visibleWords.map((word) => (
+              <button
+                aria-label={`Écouter ${word.word}, de ${formatTimestamp(word.startMs)} à ${formatTimestamp(word.endMs)}`}
+                className="lexical-word-preview"
+                key={`${word.index}:${word.startMs}:${word.word}`}
+                onClick={() => previewWord(word)}
+                type="button"
+              >
+                <Play aria-hidden="true" size={15} />
+                <span>
+                  <strong>{word.word}</strong>
+                  <small>
+                    {formatTimestamp(word.startMs)}–
+                    {formatTimestamp(word.endMs)} · {formatEvidence(word)}
+                  </small>
+                </span>
+              </button>
+            ))}
+          </div>
+          {pageCount > 1 && (
+            <nav className="lexical-word-pages" aria-label="Pages de mots">
+              <button
+                className="quiet-button standalone"
+                disabled={page === 0}
+                onClick={() => changePage(page - 1)}
+                type="button"
+              >
+                Précédents
+              </button>
+              <span>
+                Page {page + 1} sur {pageCount}
+              </span>
+              <button
+                className="quiet-button standalone"
+                disabled={page + 1 >= pageCount}
+                onClick={() => changePage(page + 1)}
+                type="button"
+              >
+                Suivants
+              </button>
+            </nav>
+          )}
+        </div>
+      )}
+    </details>
+  );
+}
+
+function formatTimestamp(milliseconds: number): string {
+  const totalSeconds = Math.max(0, milliseconds) / 1_000;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds - minutes * 60;
+  return `${minutes}:${seconds.toFixed(2).padStart(5, "0")}`;
+}
+
+function formatEvidence(word: WordAudioSegment): string {
+  if (word.evidence === "multi_pass_consensus") {
+    return `${word.consensusVotes} écoutes concordantes`;
+  }
+  if (word.evidence === "speech_vad") return "zone vocale confirmée";
+  return "candidat à contrôler";
 }
 
 function formatProgress(progress: LocalAnalysisProgress): string {

@@ -219,11 +219,27 @@ export function HomeScreen(input: {
   return (
     <div className="home-card">
       <section className="instrument-face" aria-labelledby="home-title">
-        <CaptureModeSelector
-          disabled={input.lexicalSegmentationState.status === "running"}
-          mode={input.captureMode}
-          onChange={input.onCaptureModeChange}
-        />
+        <div
+          style={{
+            display: "inline-grid",
+            gap: 8,
+            justifyItems: "start",
+          }}
+        >
+          <CaptureModeSelector
+            disabled={input.lexicalSegmentationState.status === "running"}
+            mode={input.captureMode}
+            onChange={input.onCaptureModeChange}
+          />
+          <p
+            aria-live="polite"
+            className="soft-label"
+            data-testid="active-mode-label"
+            style={{ margin: 0 }}
+          >
+            {modeContent.title} · {modeContent.pill}
+          </p>
+        </div>
         <button
           aria-controls="export-storage"
           className="setup-pill is-ready storage-jump"

@@ -22,6 +22,9 @@ async function enterStudio(page: Page): Promise<void> {
   }).toPass({ timeout: 30_000 });
 
   await expect(page.locator("main.screen-home")).toBeVisible();
+  await expect(page.getByTestId("active-mode-label")).toContainText(
+    "Dataset ML · Corpus intégré",
+  );
 }
 
 test("studio boots to the home screen with recording available", async ({
@@ -102,6 +105,9 @@ test("ML session tracking and export storage have distinct home regions", async 
   await expect(storage).toBeFocused();
 
   await page.getByRole("button", { name: /Capture libre/ }).click();
+  await expect(page.getByTestId("active-mode-label")).toContainText(
+    "Capture libre · Sans corpus",
+  );
   await expect(page.getByLabel("Suivi de session ML")).toHaveCount(0);
   await expect(storage).toBeVisible();
 });

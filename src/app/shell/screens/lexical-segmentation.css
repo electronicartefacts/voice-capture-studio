@@ -1,0 +1,63 @@
+.lexical-word-review {
+  width: 100%;
+}
+
+.lexical-word-review-content {
+  display: grid;
+  gap: 12px;
+  padding-top: 12px;
+}
+
+.lexical-word-review audio {
+  min-height: 44px;
+  width: 100%;
+}
+
+.lexical-word-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  width: 100%;
+}
+
+.lexical-word-preview {
+  align-items: center;
+  background: color-mix(in srgb, var(--panel-solid) 7%, transparent);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  color: var(--text);
+  display: flex;
+  gap: 9px;
+  min-height: 48px;
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.lexical-word-preview:hover {
+  border-color: var(--line-strong);
+}
+
+.lexical-word-preview > span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.lexical-word-preview strong,
+.lexical-word-preview small {
+  overflow-wrap: anywhere;
+}
+
+.lexical-word-preview small,
+.lexical-word-pages {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.lexical-word-pages {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: space-between;
+}

@@ -24,6 +24,8 @@ open-source foundation for privacy-preserving voice capture workflows.
   or ambiguous material receives a stronger second hypothesis and evidence-based arbitration.
 - Multi-hypothesis music analysis that can compare the original, a centered vocal focus, spectral
   separation, speech/singing activity, and temporally aligned consensus without altering exports.
+- Paginated word-by-word review on the untouched local media, with exact timecodes and evidence,
+  before downloading a lexical segmentation archive.
 - Transcript, timing, intent, prosody, and quality metadata for each take.
 - Browser-estimated word-to-phoneme alignment for every new take, with explicit forced-alignment
   handoff metadata.

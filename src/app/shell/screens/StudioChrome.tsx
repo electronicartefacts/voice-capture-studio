@@ -55,7 +55,7 @@ export function OpeningRitual(input: {
         ? "Réessayer le microphone"
         : input.requiresDeviceRevalidation
           ? "Revalider l’appareil"
-          : "Activer le microphone";
+          : "Activer le microphone pour enregistrer";
 
   return (
     <section className="opening-ritual" aria-live="polite">
@@ -66,7 +66,8 @@ export function OpeningRitual(input: {
               "materialize 620ms var(--ease-emphasized) 100ms backwards",
           }}
         >
-          Bienvenue dans Voice Capture Studio.
+          Capture, organise ou découpe une voix — directement dans le
+          navigateur.
         </h1>
         <button
           className={`ritual-button is-${input.status}`}
