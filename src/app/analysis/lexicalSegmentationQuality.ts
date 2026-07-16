@@ -13,12 +13,16 @@ export type LexicalSegmentationQuality = {
   readonly timingAcceptanceRate: number;
   readonly speechOverlapRate: number;
   readonly wordsPerSpeechMinute: number;
+  readonly meanWordConfidence: number;
+  readonly multiPassAgreementRate: number;
   readonly warnings: readonly string[];
 };
 
 export type SupportedWordTiming = WhisperWordTiming & {
   readonly acousticSupport: number;
-  readonly evidence: "speech_vad" | "transcriber_only";
+  readonly evidence: "speech_vad" | "transcriber_only" | "multi_pass_consensus";
+  readonly confidence?: number;
+  readonly consensusVotes?: number;
 };
 
 const MIN_WORD_DURATION_MS = 60;
@@ -155,6 +159,8 @@ export function assessLexicalSegmentation(input: {
       timingAcceptanceRate: roundRate(timingAcceptanceRate),
       speechOverlapRate: roundRate(speechOverlapRate),
       wordsPerSpeechMinute: Math.round(wordsPerSpeechMinute),
+      meanWordConfidence: 0,
+      multiPassAgreementRate: 0,
       warnings,
     },
   };

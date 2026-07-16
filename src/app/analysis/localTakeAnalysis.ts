@@ -5,6 +5,7 @@ import { summarizeSpeechSegments } from "./speechSegments";
 import type {
   AnalysisWorkerRequest,
   AnalysisWorkerResponse,
+  LocalExecutionPreference,
   LocalProcessingProfile,
   LocalAnalysisProgress,
   LocalTakeAnalysis,
@@ -16,6 +17,7 @@ const ANALYSIS_SAMPLE_RATE = 16_000;
 
 let sharedWorker: Worker | null = null;
 let nextRequestId = 1;
+let webGpuTranscriptionDisabled = false;
 const pendingAnalysisRequests = new Map<number, (reason: Error) => void>();
 
 type WindowWithAudioConstructors = Window & {
@@ -62,6 +64,7 @@ export async function analyzeDecodedAudio(input: {
   readonly language: string;
   readonly processingProfile?: LocalProcessingProfile;
   readonly transcriptionModel?: LocalTranscriptionModel;
+  readonly executionPreference?: LocalExecutionPreference;
   readonly onProgress: (progress: LocalAnalysisProgress) => void;
   readonly signal?: AbortSignal;
 }): Promise<LocalTakeAnalysis> {
@@ -73,79 +76,110 @@ export async function analyzeDecodedAudio(input: {
   const totalDurationMs = getAnalysisDurationMs(audio);
   const worker = getAnalysisWorker();
   const id = nextRequestId;
+  const transcriptionModel = input.transcriptionModel ?? "tiny";
+  const executionPreference =
+    input.executionPreference ??
+    (webGpuTranscriptionDisabled ? "wasm" : "auto");
+  const wasmFallbackAudio =
+    transcriptionModel === "base" &&
+    executionPreference === "auto" &&
+    "gpu" in navigator
+      ? audio.slice()
+      : null;
 
   nextRequestId += 1;
 
-  const { transcript, speechSegments, whisperWords } = await new Promise<
-    Extract<AnalysisWorkerResponse, { kind: "result" }>
-  >((resolve, reject) => {
-    let settled = false;
-    const cleanup = () => {
-      worker.removeEventListener("message", onMessage);
-      worker.removeEventListener("error", onError);
-      input.signal?.removeEventListener("abort", onAbort);
-      pendingAnalysisRequests.delete(id);
-    };
-    const fail = (reason: Error) => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      reject(reason);
-    };
-    const onMessage = (event: MessageEvent<AnalysisWorkerResponse>) => {
-      if (event.data.id !== id) {
+  let workerResult: Extract<AnalysisWorkerResponse, { kind: "result" }>;
+  try {
+    workerResult = await new Promise<
+      Extract<AnalysisWorkerResponse, { kind: "result" }>
+    >((resolve, reject) => {
+      let settled = false;
+      const cleanup = () => {
+        worker.removeEventListener("message", onMessage);
+        worker.removeEventListener("error", onError);
+        input.signal?.removeEventListener("abort", onAbort);
+        pendingAnalysisRequests.delete(id);
+      };
+      const fail = (reason: Error) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(reason);
+      };
+      const onMessage = (event: MessageEvent<AnalysisWorkerResponse>) => {
+        if (event.data.id !== id) {
+          return;
+        }
+
+        if (event.data.kind === "progress") {
+          input.onProgress(event.data.progress);
+          return;
+        }
+
+        settled = true;
+        cleanup();
+
+        if (event.data.kind === "result") {
+          resolve(event.data);
+        } else {
+          reject(new Error(event.data.message));
+        }
+      };
+
+      const onError = () => {
+        terminateLocalAnalysisWorker(
+          new Error("Le worker d'analyse locale a échoué."),
+          worker,
+        );
+      };
+      const onAbort = () =>
+        terminateLocalAnalysisWorker(
+          getAnalysisAbortReason(input.signal),
+          worker,
+        );
+
+      worker.addEventListener("message", onMessage);
+      worker.addEventListener("error", onError, { once: true });
+      input.signal?.addEventListener("abort", onAbort, { once: true });
+      pendingAnalysisRequests.set(id, fail);
+
+      if (input.signal?.aborted) {
+        onAbort();
         return;
       }
 
-      if (event.data.kind === "progress") {
-        input.onProgress(event.data.progress);
-        return;
-      }
+      const request: AnalysisWorkerRequest = {
+        id,
+        audio,
+        sampleRate: ANALYSIS_SAMPLE_RATE,
+        language: input.language,
+        processingProfile: input.processingProfile ?? "balanced",
+        transcriptionModel,
+        executionPreference,
+        assetsBaseUrl: getAssetsBaseUrl(),
+      };
 
-      settled = true;
-      cleanup();
-
-      if (event.data.kind === "result") {
-        resolve(event.data);
-      } else {
-        reject(new Error(event.data.message));
-      }
-    };
-
-    const onError = () => {
-      terminateLocalAnalysisWorker(
-        new Error("Le worker d'analyse locale a échoué."),
-        worker,
-      );
-    };
-    const onAbort = () =>
-      terminateLocalAnalysisWorker(
-        getAnalysisAbortReason(input.signal),
-        worker,
-      );
-
-    worker.addEventListener("message", onMessage);
-    worker.addEventListener("error", onError, { once: true });
-    input.signal?.addEventListener("abort", onAbort, { once: true });
-    pendingAnalysisRequests.set(id, fail);
-
-    if (input.signal?.aborted) {
-      onAbort();
-      return;
+      worker.postMessage(request, [audio.buffer]);
+    });
+  } catch (error) {
+    if (
+      wasmFallbackAudio !== null &&
+      error instanceof Error &&
+      error.message.startsWith("WEBGPU_RETRY_WASM:")
+    ) {
+      webGpuTranscriptionDisabled = true;
+      terminateLocalAnalysisWorker(error, worker);
+      return analyzeDecodedAudio({
+        ...input,
+        audio: wasmFallbackAudio,
+        executionPreference: "wasm",
+      });
     }
-
-    const request: AnalysisWorkerRequest = {
-      id,
-      audio,
-      sampleRate: ANALYSIS_SAMPLE_RATE,
-      language: input.language,
-      processingProfile: input.processingProfile ?? "balanced",
-      transcriptionModel: input.transcriptionModel ?? "tiny",
-      assetsBaseUrl: getAssetsBaseUrl(),
-    };
-
-    worker.postMessage(request, [audio.buffer]);
-  });
+    throw error;
+  }
+  const { transcript, speechSegments, whisperWords, executionProvider } =
+    workerResult;
 
   const expectedWords = tokenizeSpeech(input.expectedText);
   const estimatedAlignment = alignPromptToPhonemes({
@@ -163,6 +197,7 @@ export async function analyzeDecodedAudio(input: {
     expectedWordCount: expectedWords.length,
     speechSegments,
     whisperWords,
+    executionProvider,
     alignmentComparison: compareLocalWordAlignments({
       estimatedWords: estimatedAlignment.words,
       whisperWords,
@@ -232,6 +267,10 @@ export async function decodeAudioToVocalSignals16k(blob: Blob): Promise<{
   readonly mono: Float32Array;
   readonly vocalFocus: Float32Array;
   readonly stereoCenterUsed: boolean;
+  readonly spectralInput: {
+    readonly left: Float32Array;
+    readonly right: Float32Array | null;
+  } | null;
 }> {
   return decodeAudioSignals16k(blob, true);
 }
@@ -243,6 +282,10 @@ async function decodeAudioSignals16k(
   readonly mono: Float32Array;
   readonly vocalFocus: Float32Array;
   readonly stereoCenterUsed: boolean;
+  readonly spectralInput: {
+    readonly left: Float32Array;
+    readonly right: Float32Array | null;
+  } | null;
 }> {
   const AudioContextConstructor = getAudioContextConstructor();
   const OfflineAudioContextConstructor = getOfflineAudioContextConstructor();
@@ -293,7 +336,12 @@ async function decodeAudioSignals16k(
     }
 
     if (!includeVocalFocus) {
-      return { mono, vocalFocus: mono, stereoCenterUsed: false };
+      return {
+        mono,
+        vocalFocus: mono,
+        stereoCenterUsed: false,
+        spectralInput: null,
+      };
     }
 
     const focused = createStereoVocalFocusSignal(left, right);
@@ -301,6 +349,13 @@ async function decodeAudioSignals16k(
       mono,
       vocalFocus: focused.signal,
       stereoCenterUsed: focused.stereoCenterUsed,
+      spectralInput:
+        rendered.duration <= 5 * 60
+          ? {
+              left: Float32Array.from(left),
+              right: right === null ? null : Float32Array.from(right),
+            }
+          : null,
     };
   } finally {
     if (decodeContext.state !== "closed") {

@@ -2,6 +2,7 @@ import { segmentSpeechProbabilities } from "./speechSegments";
 import type {
   AnalysisWorkerRequest,
   AnalysisWorkerResponse,
+  LocalExecutionProvider,
   LocalTranscriptionModel,
   SpeechSegment,
 } from "./types";
@@ -65,10 +66,12 @@ type OrtModule = {
 
 const workerScope = globalThis as unknown as WorkerScope;
 
-const transcriberPromises = new Map<
-  LocalTranscriptionModel,
-  Promise<DisposableTranscriber>
->();
+type LoadedTranscriber = {
+  readonly transcriber: DisposableTranscriber;
+  readonly provider: LocalExecutionProvider;
+};
+
+const transcriberPromises = new Map<string, Promise<LoadedTranscriber>>();
 let vadPromise: Promise<{ ort: OrtModule; session: VadSession }> | null = null;
 let analysisQueue = Promise.resolve();
 
@@ -76,124 +79,146 @@ async function loadTranscriber(
   assetsBaseUrl: string,
   transcriptionModel: LocalTranscriptionModel,
   onProgress: (progressPercent: number) => void,
-): Promise<DisposableTranscriber> {
-  let transcriberPromise = transcriberPromises.get(transcriptionModel);
+  forceProvider?: LocalExecutionProvider,
+): Promise<LoadedTranscriber> {
+  const preferredProvider =
+    forceProvider ??
+    (transcriptionModel === "base" && webGpuAvailable() ? "webgpu" : "wasm");
+  const cacheKey = `${transcriptionModel}:${preferredProvider}`;
+  let transcriberPromise = transcriberPromises.get(cacheKey);
 
   if (transcriberPromise === undefined) {
     transcriberPromise = (async () => {
-      await disposeOtherTranscribers(transcriptionModel);
-      const {
-        env,
-        AutoModelForSpeechSeq2Seq,
-        AutomaticSpeechRecognitionPipeline,
-        WhisperFeatureExtractor,
-        WhisperProcessor,
-        WhisperTokenizer,
-      } = await import("@huggingface/transformers");
-
-      env.allowRemoteModels = false;
-      env.allowLocalModels = true;
-      env.useBrowserCache = true;
-      env.localModelPath = `${assetsBaseUrl}models/`;
-
-      if (env.backends.onnx?.wasm !== undefined) {
-        env.backends.onnx.wasm.wasmPaths = createWasmPaths(assetsBaseUrl);
-      }
-
-      const fileProgress = new Map<string, { loaded: number; total: number }>();
-      const reportProgress = () => {
-        let loaded = 0;
-        let total = 0;
-
-        for (const file of fileProgress.values()) {
-          loaded += file.loaded;
-          total += file.total;
-        }
-
-        if (total > 0) {
-          onProgress(Math.min(100, Math.round((loaded / total) * 100)));
-        }
-      };
-
-      const modelId =
-        transcriptionModel === "base"
-          ? "Xenova/whisper-base"
-          : "Xenova/whisper-tiny";
-      const progress_callback = (event: {
-        status: string;
-        file?: string;
-        loaded?: number;
-        total?: number;
-      }) => {
-        if (
-          event.status === "progress" &&
-          event.file !== undefined &&
-          event.total !== undefined
-        ) {
-          fileProgress.set(event.file, {
-            loaded: event.loaded ?? 0,
-            total: event.total,
-          });
-          reportProgress();
-        }
-      };
-      const modelBaseUrl = `${assetsBaseUrl}models/${modelId}/`;
-      const [model, tokenizerJson, tokenizerConfig, preprocessorConfig] =
-        await Promise.all([
-          AutoModelForSpeechSeq2Seq.from_pretrained(modelId, {
-            dtype: "q8",
-            device: "wasm",
-            // ORT's N-bit QDQ transpose optimization currently rejects the
-            // bundled Whisper q8 decoder graph. The unoptimized graph is valid
-            // and deterministic; inference is post-capture, so correctness wins
-            // over a speculative load-time rewrite.
-            session_options: { graphOptimizationLevel: "disabled" },
-            progress_callback,
-          }),
-          fetchJson(`${modelBaseUrl}tokenizer.json`),
-          fetchJson(`${modelBaseUrl}tokenizer_config.json`),
-          fetchJson(`${modelBaseUrl}preprocessor_config.json`),
-        ]);
-      const tokenizer = new WhisperTokenizer(tokenizerJson, tokenizerConfig);
-      const featureExtractor = new WhisperFeatureExtractor(preprocessorConfig);
-      const processor = new WhisperProcessor(
-        {},
-        { tokenizer, feature_extractor: featureExtractor },
-        "",
+      await disposeOtherTranscribers(cacheKey);
+      return createTranscriber(
+        assetsBaseUrl,
+        transcriptionModel,
+        preferredProvider,
+        onProgress,
       );
-      const transcriber = new AutomaticSpeechRecognitionPipeline({
-        task: "automatic-speech-recognition",
-        model,
-        processor,
-        tokenizer,
-      });
-
-      return transcriber as unknown as DisposableTranscriber;
     })();
-    transcriberPromises.set(transcriptionModel, transcriberPromise);
+    transcriberPromises.set(cacheKey, transcriberPromise);
 
     transcriberPromise.catch(() => {
-      transcriberPromises.delete(transcriptionModel);
+      transcriberPromises.delete(cacheKey);
     });
   }
 
   return transcriberPromise;
 }
 
-async function disposeOtherTranscribers(
-  keep: LocalTranscriptionModel,
-): Promise<void> {
-  for (const [model, promise] of transcriberPromises) {
-    if (model === keep) continue;
+async function createTranscriber(
+  assetsBaseUrl: string,
+  transcriptionModel: LocalTranscriptionModel,
+  provider: LocalExecutionProvider,
+  onProgress: (progressPercent: number) => void,
+): Promise<LoadedTranscriber> {
+  const {
+    env,
+    AutoModelForSpeechSeq2Seq,
+    AutomaticSpeechRecognitionPipeline,
+    WhisperFeatureExtractor,
+    WhisperProcessor,
+    WhisperTokenizer,
+  } = await import("@huggingface/transformers");
 
-    transcriberPromises.delete(model);
+  env.allowRemoteModels = false;
+  env.allowLocalModels = true;
+  env.useBrowserCache = true;
+  env.localModelPath = `${assetsBaseUrl}models/`;
+
+  if (env.backends.onnx?.wasm !== undefined) {
+    env.backends.onnx.wasm.wasmPaths = createWasmPaths(assetsBaseUrl);
+  }
+
+  const fileProgress = new Map<string, { loaded: number; total: number }>();
+  const reportProgress = () => {
+    let loaded = 0;
+    let total = 0;
+
+    for (const file of fileProgress.values()) {
+      loaded += file.loaded;
+      total += file.total;
+    }
+
+    if (total > 0) {
+      onProgress(Math.min(100, Math.round((loaded / total) * 100)));
+    }
+  };
+
+  const modelId =
+    transcriptionModel === "base"
+      ? "Xenova/whisper-base"
+      : "Xenova/whisper-tiny";
+  const progress_callback = (event: {
+    status: string;
+    file?: string;
+    loaded?: number;
+    total?: number;
+  }) => {
+    if (
+      event.status === "progress" &&
+      event.file !== undefined &&
+      event.total !== undefined
+    ) {
+      fileProgress.set(event.file, {
+        loaded: event.loaded ?? 0,
+        total: event.total,
+      });
+      reportProgress();
+    }
+  };
+  const modelBaseUrl = `${assetsBaseUrl}models/${modelId}/`;
+  const [model, tokenizerJson, tokenizerConfig, preprocessorConfig] =
+    await Promise.all([
+      AutoModelForSpeechSeq2Seq.from_pretrained(modelId, {
+        dtype: "q8",
+        device: provider,
+        // The q8 decoder graph needs this setting on WASM. Keeping it for
+        // WebGPU also makes provider fallback deterministic across engines.
+        session_options: { graphOptimizationLevel: "disabled" },
+        progress_callback,
+      }),
+      fetchJson(`${modelBaseUrl}tokenizer.json`),
+      fetchJson(`${modelBaseUrl}tokenizer_config.json`),
+      fetchJson(`${modelBaseUrl}preprocessor_config.json`),
+    ]);
+  const tokenizer = new WhisperTokenizer(tokenizerJson, tokenizerConfig);
+  const featureExtractor = new WhisperFeatureExtractor(preprocessorConfig);
+  const processor = new WhisperProcessor(
+    {},
+    { tokenizer, feature_extractor: featureExtractor },
+    "",
+  );
+  const transcriber = new AutomaticSpeechRecognitionPipeline({
+    task: "automatic-speech-recognition",
+    model,
+    processor,
+    tokenizer,
+  });
+
+  return {
+    transcriber: transcriber as unknown as DisposableTranscriber,
+    provider,
+  };
+}
+
+async function disposeOtherTranscribers(keep: string): Promise<void> {
+  for (const [key, promise] of transcriberPromises) {
+    if (key === keep) continue;
+
+    transcriberPromises.delete(key);
     try {
-      const transcriber = await promise;
+      const { transcriber } = await promise;
       await transcriber.dispose?.();
     } catch {
       // A failed model load has no live session to release.
     }
   }
+}
+
+function webGpuAvailable(): boolean {
+  return "gpu" in (globalThis.navigator ?? {});
 }
 
 async function loadVad(
@@ -278,16 +303,25 @@ async function analyze(request: AnalysisWorkerRequest): Promise<void> {
     workerScope.postMessage(message);
 
   try {
-    const transcriber = await loadTranscriber(
-      request.assetsBaseUrl,
-      request.transcriptionModel,
-      (progressPercent) =>
-        post({
-          id: request.id,
-          kind: "progress",
-          progress: { stage: "loading-model", progressPercent },
-        }),
-    );
+    let loadedTranscriber: LoadedTranscriber;
+    try {
+      loadedTranscriber = await loadTranscriber(
+        request.assetsBaseUrl,
+        request.transcriptionModel,
+        (progressPercent) =>
+          post({
+            id: request.id,
+            kind: "progress",
+            progress: { stage: "loading-model", progressPercent },
+          }),
+        request.executionPreference === "wasm" ? "wasm" : undefined,
+      );
+    } catch (error) {
+      if (request.executionPreference === "auto" && webGpuAvailable()) {
+        throw webGpuFallbackError(error);
+      }
+      throw error;
+    }
 
     post({
       id: request.id,
@@ -295,7 +329,7 @@ async function analyze(request: AnalysisWorkerRequest): Promise<void> {
       progress: { stage: "transcribing" },
     });
 
-    const transcription = await transcriber(request.audio, {
+    const transcriberOptions = {
       language: request.language,
       task: "transcribe",
       // Smaller chunks bound peak memory on long files and constrained
@@ -304,7 +338,17 @@ async function analyze(request: AnalysisWorkerRequest): Promise<void> {
       stride_length_s: request.processingProfile === "compatible" ? 3 : 5,
       force_full_sequences: false,
       return_timestamps: "word",
-    });
+    };
+    let transcription: Transcription | Transcription[];
+    try {
+      transcription = await loadedTranscriber.transcriber(
+        request.audio,
+        transcriberOptions,
+      );
+    } catch (error) {
+      if (loadedTranscriber.provider !== "webgpu") throw error;
+      throw webGpuFallbackError(error);
+    }
     const result = Array.isArray(transcription)
       ? transcription[0]
       : transcription;
@@ -331,6 +375,7 @@ async function analyze(request: AnalysisWorkerRequest): Promise<void> {
       transcript,
       speechSegments,
       whisperWords,
+      executionProvider: loadedTranscriber.provider,
     });
   } catch (error) {
     post({
@@ -342,6 +387,12 @@ async function analyze(request: AnalysisWorkerRequest): Promise<void> {
           : "L'analyse locale a échoué dans le worker.",
     });
   }
+}
+
+function webGpuFallbackError(error: unknown): Error {
+  const detail =
+    error instanceof Error ? error.message : "backend indisponible";
+  return new Error(`WEBGPU_RETRY_WASM:${detail}`);
 }
 
 workerScope.addEventListener("message", (event) => {

@@ -188,6 +188,9 @@ export function mapLocalAnalysisToLoadingProgress(
   }
   if (progress.stage === "transcribing") return 0.52;
   if (progress.stage === "detecting-speech") return 0.76;
+  if (progress.stage === "separating-vocals") {
+    return 0.56 + clampUnit(progress.progressPercent / 100) * 0.24;
+  }
   if (progress.stage === "enhancing-vocals") return 0.82;
   return 0.94;
 }

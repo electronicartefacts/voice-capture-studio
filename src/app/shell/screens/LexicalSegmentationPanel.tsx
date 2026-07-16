@@ -59,10 +59,11 @@ export function LexicalSegmentationPanel(input: {
         <p>
           Importe une vidéo ou un son, parlé ou chanté. L'analyse compare
           localement les mots proposés aux zones vocales avant de préparer les
-          extraits WAV. Si le premier passage est fragile, l'app isole la voix
-          centrale et relance automatiquement une écoute plus précise, sans
-          modifier l'audio exporté. Les résultats incertains restent signalés et
-          rien ne quitte cet appareil.
+          extraits WAV. L'app compare automatiquement plusieurs écoutes lorsque
+          le mix est complexe : original, voix centrale et séparation spectrale.
+          Les mots concordants sont recalés ensemble, sans modifier l'audio
+          exporté. Les résultats incertains restent signalés et rien ne quitte
+          cet appareil.
         </p>
       </div>
 
@@ -163,6 +164,12 @@ export function LexicalSegmentationPanel(input: {
                 )}
                 % de soutien vocal · profil{" "}
                 {formatProfile(input.state.result.manifest.processing.profile)}
+                {" · "}
+                {Math.round(
+                  input.state.result.manifest.transcription.quality
+                    .meanWordConfidence * 100,
+                )}
+                % de confiance croisée
               </dd>
             </div>
             <div>
@@ -207,18 +214,24 @@ function formatProgress(progress: LocalAnalysisProgress): string {
     ? "Détection et horodatage des mots…"
     : progress.stage === "detecting-speech"
       ? "Vérification des zones vocales…"
-      : progress.stage === "enhancing-vocals"
-        ? "Premier résultat fragile · préparation d'un second passage vocal…"
-        : "Contrôle de fiabilité avant export…";
+      : progress.stage === "separating-vocals"
+        ? `Séparation spectrale voix / accompagnement… ${progress.progressPercent}%`
+        : progress.stage === "enhancing-vocals"
+          ? "Comparaison des écoutes locale et musicale…"
+          : "Contrôle de fiabilité avant export…";
 }
 
 function formatPasses(result: ImportedMediaSegmentationResult): string {
   const processing = result.manifest.processing;
 
-  if (processing.transcriptionPasses === 1) return "1 passage local";
-  return processing.selectedSignal === "vocal_focus"
-    ? "2 passages locaux · isolation vocale et modèle renforcé retenus"
-    : "2 passages locaux · original conservé";
+  const passes = `${processing.transcriptionPasses} passages locaux`;
+  if (processing.selectedSignal === "spectral_vocal") {
+    return `${passes} · séparation spectrale retenue`;
+  }
+  if (processing.selectedSignal === "vocal_focus") {
+    return `${passes} · isolation centrale retenue`;
+  }
+  return `${passes} · consensus sur l'original`;
 }
 
 function formatProfile(profile: "balanced" | "compatible"): string {

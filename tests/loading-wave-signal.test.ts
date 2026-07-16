@@ -58,6 +58,13 @@ test("local model stages map onto the complete left-to-right journey", () => {
     mapLocalAnalysisToLoadingProgress({ stage: "validating-result" }),
     0.94,
   );
+  assert.equal(
+    mapLocalAnalysisToLoadingProgress({
+      stage: "separating-vocals",
+      progressPercent: 50,
+    }),
+    0.68,
+  );
 });
 
 test("indeterminate loading moves without pretending to reach completion", () => {

@@ -344,9 +344,11 @@ export function TechnicalPage(input: {
           <p className="soft-label">Modèles d'analyse</p>
           <strong>Reconnaissance vocale adaptative</strong>
           <span>
-            Le modèle léger traite la parole; une écoute renforcée se charge à
-            la demande pour la musique. Supprime-les pour récupérer de l'espace
-            ou forcer leur rechargement après une mise à jour.
+            Le modèle léger ouvre l'analyse. Sur un mix complexe, le studio
+            compare ensuite l'original, la voix centrale et une séparation
+            spectrale avec le modèle renforcé. WebGPU est utilisé quand il est
+            fiable, avec repli automatique sur le mode compatible. Supprime les
+            modèles pour récupérer de l'espace ou forcer leur rechargement.
           </span>
         </div>
         <button

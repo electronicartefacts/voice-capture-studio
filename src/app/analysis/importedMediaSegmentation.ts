@@ -1,10 +1,18 @@
 import { encodeWav24 } from "../audio/pcmAudio";
 import { createZipBlobOffThread } from "../export/zipService";
 import type { ZipEntryInput } from "../export/zipWriter";
+import { detectFocusedVocalActivity } from "./focusedVocalActivity";
 import {
   analyzeDecodedAudio,
   decodeAudioToVocalSignals16k,
 } from "./localTakeAnalysis";
+import { separateVocalsOffThread } from "./localSpectralVocalSeparation";
+import {
+  buildLexicalConsensus,
+  transcriptAgreement,
+  type LexicalHypothesis,
+  type LexicalHypothesisKind,
+} from "./lexicalConsensus";
 import type {
   LocalAnalysisProgress,
   LocalProcessingProfile,
@@ -28,7 +36,7 @@ export type ImportedMediaSegmentationResult = {
 };
 
 export type WordSegmentationManifest = {
-  readonly schemaVersion: "voice.word_segmentation.v2";
+  readonly schemaVersion: "voice.word_segmentation.v3";
   readonly createdAt: string;
   readonly source: {
     readonly fileName: string;
@@ -48,15 +56,29 @@ export type WordSegmentationManifest = {
   readonly processing: {
     readonly localOnly: true;
     readonly profile: LocalProcessingProfile;
-    readonly executionProvider: "wasm";
+    readonly executionProvider: "wasm" | "webgpu" | "mixed";
     readonly modelAssets: "same-origin-cache-first";
-    readonly sourceSeparation: "not_available";
+    readonly sourceSeparation:
+      "not_needed" | "spectral_mid_side_residual" | "skipped_for_length";
+    readonly separationMetrics: {
+      readonly centerEnergyRatio: number;
+      readonly residualEnergyRatio: number;
+    } | null;
     readonly vocalIsolation:
-      "mono_vocal_band" | "stereo_center_transient_reduction";
-    readonly transcriptionPasses: 1 | 2;
-    readonly selectedSignal: "original" | "vocal_focus";
+      | "mono_vocal_band"
+      | "stereo_center_transient_reduction"
+      | "spectral_mid_side_residual";
+    readonly transcriptionPasses: 1 | 2 | 3 | 4;
+    readonly selectedSignal: "original" | "vocal_focus" | "spectral_vocal";
     readonly vocalFocus:
       "not_needed" | "selected" | "not_selected" | "skipped_for_length";
+    readonly hypotheses: readonly {
+      readonly kind: LexicalHypothesisKind;
+      readonly model: "tiny" | "base";
+      readonly signal: "original" | "vocal_focus" | "spectral_vocal";
+      readonly wordCount: number;
+      readonly provider: "wasm" | "webgpu";
+    }[];
   };
   readonly transcription: {
     readonly engine: "whisper-tiny-secondary" | "whisper-base-music";
@@ -79,7 +101,9 @@ export type WordAudioSegment = {
   readonly clipStartMs: number;
   readonly clipEndMs: number;
   readonly acousticSupport: number;
-  readonly evidence: "speech_vad" | "transcriber_only";
+  readonly evidence: "speech_vad" | "transcriber_only" | "multi_pass_consensus";
+  readonly confidence: number;
+  readonly consensusVotes: number;
   readonly audioPath: string;
 };
 
@@ -104,11 +128,16 @@ export async function segmentImportedMedia(input: {
   let audio: Float32Array;
   let vocalFocusSignal: Float32Array;
   let stereoCenterUsed: boolean;
+  let spectralInput: {
+    readonly left: Float32Array;
+    readonly right: Float32Array | null;
+  } | null;
   try {
     const signals = await decodeAudioToVocalSignals16k(input.file);
     audio = signals.mono;
     vocalFocusSignal = signals.vocalFocus;
     stereoCenterUsed = signals.stereoCenterUsed;
+    spectralInput = signals.spectralInput;
   } catch {
     throw new Error(
       "La piste audio de ce média n'est pas décodable ici. Essaie un WAV, MP3, M4A, MP4 ou WebM compatible avec ce navigateur.",
@@ -123,7 +152,7 @@ export async function segmentImportedMedia(input: {
     durationMs,
   });
   const processingProfile = detectProcessingProfile(durationMs);
-  let analysis = await analyzeDecodedAudio({
+  const tinyAnalysis = await analyzeDecodedAudio({
     audio: audio.slice(),
     expectedText: "",
     language: input.language,
@@ -132,27 +161,38 @@ export async function segmentImportedMedia(input: {
     signal: input.signal,
   });
   input.onProgress({ stage: "validating-result" });
-  let assessment = assessLexicalSegmentation({
-    timings: analysis.whisperWords,
-    speechSegments: analysis.speechSegments,
+  const tinyAssessment = assessLexicalSegmentation({
+    timings: tinyAnalysis.whisperWords,
+    speechSegments: tinyAnalysis.speechSegments,
   });
-  let transcriptionPasses: 1 | 2 = 1;
-  let selectedSignal: "original" | "vocal_focus" = "original";
-  let selectedTranscriptionModel: "tiny" | "base" = "tiny";
+  const hypotheses: LexicalHypothesis[] = [
+    {
+      kind: "original_tiny",
+      model: "tiny",
+      signal: "original",
+      analysis: tinyAnalysis,
+      assessment: tinyAssessment,
+    },
+  ];
+  let sourceSeparation:
+    "not_needed" | "spectral_mid_side_residual" | "skipped_for_length" =
+    durationMs <= ADAPTIVE_VOCAL_RETRY_MAX_DURATION_MS
+      ? "not_needed"
+      : "skipped_for_length";
+  let separationMetrics: {
+    readonly centerEnergyRatio: number;
+    readonly residualEnergyRatio: number;
+  } | null = null;
   let vocalFocus:
     "not_needed" | "selected" | "not_selected" | "skipped_for_length" =
-    assessment.quality.status === "insufficient"
+    durationMs > ADAPTIVE_VOCAL_RETRY_MAX_DURATION_MS
       ? "skipped_for_length"
       : "not_needed";
 
-  if (
-    assessment.quality.status === "insufficient" &&
-    durationMs <= ADAPTIVE_VOCAL_RETRY_MAX_DURATION_MS
-  ) {
-    transcriptionPasses = 2;
+  if (durationMs <= ADAPTIVE_VOCAL_RETRY_MAX_DURATION_MS) {
     input.onProgress({ stage: "enhancing-vocals" });
-    const vocalFocusAnalysis = await analyzeDecodedAudio({
-      audio: vocalFocusSignal,
+    const baseOriginalAnalysis = await analyzeDecodedAudio({
+      audio: audio.slice(),
       expectedText: "",
       language: input.language,
       processingProfile,
@@ -161,23 +201,124 @@ export async function segmentImportedMedia(input: {
       signal: input.signal,
     });
     input.onProgress({ stage: "validating-result" });
-    const vocalFocusAssessment = assessLexicalSegmentation({
-      timings: vocalFocusAnalysis.whisperWords,
-      speechSegments: vocalFocusAnalysis.speechSegments,
+    const baseOriginalAssessment = assessLexicalSegmentation({
+      timings: baseOriginalAnalysis.whisperWords,
+      speechSegments: baseOriginalAnalysis.speechSegments,
+    });
+    hypotheses.push({
+      kind: "original_base",
+      model: "base",
+      signal: "original",
+      analysis: baseOriginalAnalysis,
+      assessment: baseOriginalAssessment,
     });
 
-    if (shouldPreferLexicalAssessment(vocalFocusAssessment, assessment)) {
-      analysis = vocalFocusAnalysis;
-      assessment = vocalFocusAssessment;
-      selectedSignal = "vocal_focus";
-      selectedTranscriptionModel = "base";
-      vocalFocus = "selected";
-    } else {
+    const focusDifference = normalizedSignalDifference(audio, vocalFocusSignal);
+    const needsMusicalEnsemble =
+      tinyAssessment.quality.status === "insufficient" ||
+      baseOriginalAssessment.quality.status === "insufficient" ||
+      transcriptAgreement(
+        tinyAnalysis.transcript,
+        baseOriginalAnalysis.transcript,
+      ) < 0.9 ||
+      focusDifference > 0.08;
+
+    if (needsMusicalEnsemble && focusDifference > 0.015) {
+      input.onProgress({ stage: "enhancing-vocals" });
+      const focusedActivity = detectFocusedVocalActivity(vocalFocusSignal);
+      const vocalFocusAnalysis = await analyzeDecodedAudio({
+        audio: vocalFocusSignal,
+        expectedText: "",
+        language: input.language,
+        processingProfile,
+        transcriptionModel: "base",
+        onProgress: input.onProgress,
+        signal: input.signal,
+      });
+      const vocalFocusAssessment = assessLexicalSegmentation({
+        timings: vocalFocusAnalysis.whisperWords,
+        speechSegments: chooseMusicActivitySegments(
+          vocalFocusAnalysis.speechSegments,
+          focusedActivity,
+        ),
+      });
+      hypotheses.push({
+        kind: "vocal_focus_base",
+        model: "base",
+        signal: "vocal_focus",
+        analysis: vocalFocusAnalysis,
+        assessment: vocalFocusAssessment,
+      });
       vocalFocus = "not_selected";
+    }
+
+    if (needsMusicalEnsemble && spectralInput !== null) {
+      input.onProgress({ stage: "separating-vocals", progressPercent: 0 });
+      try {
+        const separated = await separateVocalsOffThread({
+          ...spectralInput,
+          signal: input.signal,
+          onProgress: (progressPercent) =>
+            input.onProgress({ stage: "separating-vocals", progressPercent }),
+        });
+        sourceSeparation = "spectral_mid_side_residual";
+        separationMetrics = {
+          centerEnergyRatio: separated.centerEnergyRatio,
+          residualEnergyRatio: separated.residualEnergyRatio,
+        };
+        if (normalizedSignalDifference(audio, separated.signal) > 0.015) {
+          const spectralActivity = detectFocusedVocalActivity(separated.signal);
+          const spectralAnalysis = await analyzeDecodedAudio({
+            audio: separated.signal,
+            expectedText: "",
+            language: input.language,
+            processingProfile,
+            transcriptionModel: "base",
+            onProgress: input.onProgress,
+            signal: input.signal,
+          });
+          const spectralAssessment = assessLexicalSegmentation({
+            timings: spectralAnalysis.whisperWords,
+            speechSegments: chooseMusicActivitySegments(
+              spectralAnalysis.speechSegments,
+              spectralActivity,
+            ),
+          });
+          hypotheses.push({
+            kind: "spectral_vocal_base",
+            model: "base",
+            signal: "spectral_vocal",
+            analysis: spectralAnalysis,
+            assessment: spectralAssessment,
+          });
+        }
+      } catch (error) {
+        if (input.signal?.aborted) throw error;
+        sourceSeparation = "not_needed";
+        separationMetrics = null;
+      }
     }
   }
 
-  const { acceptedTimings, quality } = assessment;
+  input.onProgress({ stage: "validating-result" });
+  const consensus = buildLexicalConsensus(hypotheses);
+  const analysis = consensus.selected.analysis;
+  const acceptedTimings = consensus.acceptedTimings;
+  const quality: LexicalSegmentationQuality = {
+    ...consensus.selected.assessment.quality,
+    meanWordConfidence: consensus.meanConfidence,
+    multiPassAgreementRate: consensus.agreementRate,
+    warnings:
+      consensus.agreementRate < 0.5 && hypotheses.length > 1
+        ? [
+            ...consensus.selected.assessment.quality.warnings,
+            "Les différentes écoutes locales s'accordent peu; vérifie attentivement les paroles.",
+          ]
+        : consensus.selected.assessment.quality.warnings,
+  };
+  const selectedSignal = consensus.selected.signal;
+  const selectedTranscriptionModel = consensus.selected.model;
+  if (selectedSignal === "vocal_focus") vocalFocus = "selected";
 
   if (acceptedTimings.length === 0) {
     throw new Error(
@@ -189,7 +330,7 @@ export async function segmentImportedMedia(input: {
   const supportedTranscript = words.map((word) => word.word).join(" ");
   const createdAt = (input.now ?? new Date()).toISOString();
   const manifest: WordSegmentationManifest = {
-    schemaVersion: "voice.word_segmentation.v2",
+    schemaVersion: "voice.word_segmentation.v3",
     createdAt,
     source: {
       fileName: input.file.name,
@@ -209,15 +350,29 @@ export async function segmentImportedMedia(input: {
     processing: {
       localOnly: true,
       profile: processingProfile,
-      executionProvider: "wasm",
+      executionProvider:
+        consensus.executionProviders.length > 1
+          ? "mixed"
+          : consensus.executionProviders[0],
       modelAssets: "same-origin-cache-first",
-      sourceSeparation: "not_available",
-      vocalIsolation: stereoCenterUsed
-        ? "stereo_center_transient_reduction"
-        : "mono_vocal_band",
-      transcriptionPasses,
+      sourceSeparation,
+      separationMetrics,
+      vocalIsolation:
+        selectedSignal === "spectral_vocal"
+          ? "spectral_mid_side_residual"
+          : stereoCenterUsed
+            ? "stereo_center_transient_reduction"
+            : "mono_vocal_band",
+      transcriptionPasses: asPassCount(hypotheses.length),
       selectedSignal,
       vocalFocus,
+      hypotheses: hypotheses.map((hypothesis) => ({
+        kind: hypothesis.kind,
+        model: hypothesis.model,
+        signal: hypothesis.signal,
+        wordCount: hypothesis.assessment.acceptedTimings.length,
+        provider: hypothesis.analysis.executionProvider,
+      })),
     },
     transcription: {
       engine:
@@ -331,6 +486,9 @@ export function createWordAudioSegments(
       clipEndMs: Math.min(totalDurationMs, timing.endMs + 60),
       acousticSupport: "acousticSupport" in timing ? timing.acousticSupport : 1,
       evidence: "evidence" in timing ? timing.evidence : "speech_vad",
+      confidence: "confidence" in timing ? (timing.confidence ?? 0.5) : 0.5,
+      consensusVotes:
+        "consensusVotes" in timing ? (timing.consensusVotes ?? 1) : 1,
       audioPath: `audio/mots/${sequence}_${word}.wav`,
     };
   });
@@ -380,12 +538,14 @@ function createTimelineCsv(words: readonly WordAudioSegment[]): string {
       word.clipEndMs,
       word.acousticSupport,
       word.evidence,
+      word.confidence,
+      word.consensusVotes,
       csvCell(word.audioPath),
     ].join(","),
   );
 
   return [
-    "index,word,start_ms,end_ms,duration_ms,clip_start_ms,clip_end_ms,acoustic_support,evidence,audio_path",
+    "index,word,start_ms,end_ms,duration_ms,clip_start_ms,clip_end_ms,acoustic_support,evidence,confidence,consensus_votes,audio_path",
     ...rows,
     "",
   ].join("\n");
@@ -495,6 +655,58 @@ function safePathPart(value: string): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 48);
+}
+
+function normalizedSignalDifference(
+  original: Float32Array,
+  candidate: Float32Array,
+): number {
+  if (original.length === 0 || original.length !== candidate.length) return 1;
+  const stride = Math.max(1, Math.floor(original.length / 48_000));
+  let originalEnergy = 0;
+  let candidateEnergy = 0;
+  let crossEnergy = 0;
+
+  for (let index = 0; index < original.length; index += stride) {
+    const source = Number.isFinite(original[index]) ? original[index] : 0;
+    const processed = Number.isFinite(candidate[index]) ? candidate[index] : 0;
+    originalEnergy += source ** 2;
+    candidateEnergy += processed ** 2;
+    crossEnergy += source * processed;
+  }
+
+  const correlation =
+    Math.abs(crossEnergy) /
+    Math.sqrt(Math.max(originalEnergy * candidateEnergy, 1e-8));
+  return Math.min(1, Math.max(0, 1 - correlation ** 2));
+}
+
+function asPassCount(value: number): 1 | 2 | 3 | 4 {
+  return Math.min(4, Math.max(1, value)) as 1 | 2 | 3 | 4;
+}
+
+function chooseMusicActivitySegments(
+  speechSegments: readonly {
+    readonly startMs: number;
+    readonly endMs: number;
+  }[],
+  focusedSegments: readonly {
+    readonly startMs: number;
+    readonly endMs: number;
+  }[],
+) {
+  if (focusedSegments.length === 0) return speechSegments;
+  const speechDuration = speechSegments.reduce(
+    (sum, segment) => sum + Math.max(0, segment.endMs - segment.startMs),
+    0,
+  );
+  const focusedDuration = focusedSegments.reduce(
+    (sum, segment) => sum + Math.max(0, segment.endMs - segment.startMs),
+    0,
+  );
+  return focusedDuration >= speechDuration * 0.65
+    ? focusedSegments
+    : speechSegments;
 }
 
 function fileStem(fileName: string): string {

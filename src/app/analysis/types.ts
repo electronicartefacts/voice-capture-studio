@@ -19,12 +19,18 @@ export type WhisperWordTiming = {
 
 export type LocalProcessingProfile = "balanced" | "compatible";
 export type LocalTranscriptionModel = "tiny" | "base";
+export type LocalExecutionProvider = "wasm" | "webgpu";
+export type LocalExecutionPreference = "auto" | "wasm";
 
 export type LocalAnalysisProgress =
   | { readonly stage: "loading-model"; readonly progressPercent: number }
   | { readonly stage: "transcribing" }
   | { readonly stage: "detecting-speech" }
   | { readonly stage: "enhancing-vocals" }
+  | {
+      readonly stage: "separating-vocals";
+      readonly progressPercent: number;
+    }
   | { readonly stage: "validating-result" };
 
 export type LocalTakeAnalysis = {
@@ -35,6 +41,7 @@ export type LocalTakeAnalysis = {
   readonly segmentSummary: SpeechSegmentSummary;
   readonly whisperWords: readonly WhisperWordTiming[];
   readonly alignmentComparison: LocalAlignmentComparison;
+  readonly executionProvider: LocalExecutionProvider;
 };
 
 export type AnalysisWorkerRequest = {
@@ -44,6 +51,7 @@ export type AnalysisWorkerRequest = {
   readonly language: string;
   readonly processingProfile: LocalProcessingProfile;
   readonly transcriptionModel: LocalTranscriptionModel;
+  readonly executionPreference: LocalExecutionPreference;
   readonly assetsBaseUrl: string;
 };
 
@@ -59,6 +67,7 @@ export type AnalysisWorkerResponse =
       readonly transcript: string;
       readonly speechSegments: readonly SpeechSegment[];
       readonly whisperWords: readonly WhisperWordTiming[];
+      readonly executionProvider: LocalExecutionProvider;
     }
   | {
       readonly id: number;
