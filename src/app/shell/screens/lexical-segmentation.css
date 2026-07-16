@@ -4,8 +4,8 @@
 
 .lexical-word-review-content {
   display: grid;
-  gap: 12px;
-  padding-top: 12px;
+  gap: var(--surface-gap);
+  padding-top: var(--surface-gap);
 }
 
 .lexical-word-review audio {
@@ -15,8 +15,11 @@
 
 .lexical-word-grid {
   display: grid;
-  gap: 8px;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: clamp(8px, 1.2cqi, 14px);
+  grid-template-columns: repeat(
+    auto-fit,
+    minmax(min(100%, clamp(148px, 24cqi, 210px)), 1fr)
+  );
   width: 100%;
 }
 
@@ -24,12 +27,12 @@
   align-items: center;
   background: color-mix(in srgb, var(--panel-solid) 7%, transparent);
   border: 1px solid var(--line);
-  border-radius: 14px;
+  border-radius: var(--radius-control);
   color: var(--text);
   display: flex;
   gap: 9px;
   min-height: 48px;
-  padding: 8px 10px;
+  padding: clamp(8px, 1.2cqi, 12px);
   text-align: left;
 }
 
