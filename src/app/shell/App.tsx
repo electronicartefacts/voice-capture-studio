@@ -1878,9 +1878,15 @@ export function App() {
                 ...take.timing,
                 localAcousticAnalysis: {
                   schemaVersion: "voice.local_acoustic_analysis.v1",
-                  engine: "whisper-tiny",
+                  engine:
+                    analysis.strategy === undefined
+                      ? "whisper-tiny"
+                      : "whisper-adaptive",
                   transcript: analysis.transcript,
                   analyzedAt: new Date().toISOString(),
+                  ...(analysis.strategy === undefined
+                    ? {}
+                    : { strategy: analysis.strategy }),
                   words: analysis.whisperWords,
                   speechSegments: analysis.speechSegments.map((segment) => ({
                     ...segment,

@@ -57,16 +57,20 @@ export function LexicalSegmentationPanel(input: {
       <div className="local-analysis-heading">
         <p className="soft-label">Découpe lexicale locale</p>
         <p>
-          Importe une vidéo ou un son, parlé ou chanté. L'analyse compare
-          localement les mots proposés aux zones vocales avant de préparer les
-          extraits WAV. L'app compare automatiquement plusieurs écoutes lorsque
-          le mix est complexe : original, voix centrale et séparation spectrale.
-          Les passages instrumentaux sont atténués uniquement pour l'écoute du
-          modèle, sans déplacer la timeline ni toucher aux WAV exportés. Les
-          variantes proches sont rapprochées, les mots entendus par plusieurs
-          passes sont récupérés et les propositions isolées sont écartées. Les
-          résultats incertains restent signalés et rien ne quitte cet appareil.
+          Importe une vidéo ou un son, parlé ou chanté. Le studio reconnaît la
+          scène et choisit automatiquement une analyse rapide, vérifiée ou
+          approfondie. Rien ne quitte cet appareil.
         </p>
+        <details>
+          <summary>Ce que l'analyse peut comparer</summary>
+          <p>
+            L'original reste toujours la référence. Sur un mix complexe, le
+            studio ajoute une voix centrale, une séparation spectrale et un
+            masque des passages instrumentaux, puis conserve seulement les mots
+            soutenus par plusieurs preuves. La timeline et les WAV exportés ne
+            sont jamais déplacés ni filtrés.
+          </p>
+        </details>
       </div>
 
       <input
@@ -182,6 +186,28 @@ export function LexicalSegmentationPanel(input: {
                 {formatPasses(input.state.result)}
               </dd>
             </div>
+            <div>
+              <dt>Stratégie automatique</dt>
+              <dd>
+                {formatScene(
+                  input.state.result.manifest.processing.adaptiveStrategy.scene,
+                )}{" "}
+                · profondeur{" "}
+                {formatDepth(
+                  input.state.result.manifest.processing.adaptiveStrategy.depth,
+                )}{" "}
+                · budget de{" "}
+                {
+                  input.state.result.manifest.processing.adaptiveStrategy
+                    .hypothesisBudget
+                }{" "}
+                hypothèse
+                {input.state.result.manifest.processing.adaptiveStrategy
+                  .hypothesisBudget > 1
+                  ? "s"
+                  : ""}
+              </dd>
+            </div>
           </dl>
           <a
             className="download-action"
@@ -226,7 +252,7 @@ function formatProgress(progress: LocalAnalysisProgress): string {
 function formatPasses(result: ImportedMediaSegmentationResult): string {
   const processing = result.manifest.processing;
 
-  const passes = `${processing.transcriptionPasses} passages locaux`;
+  const passes = `${processing.transcriptionPasses} passage${processing.transcriptionPasses > 1 ? "s" : ""} local${processing.transcriptionPasses > 1 ? "aux" : ""}`;
   const consensus = processing.consensus;
   const maskedPasses = processing.hypotheses.filter(
     ({ activityMaskApplied }) => activityMaskApplied,
@@ -243,6 +269,24 @@ function formatPasses(result: ImportedMediaSegmentationResult): string {
     return `${passes} · isolation centrale retenue${targeting}${arbitration}`;
   }
   return `${passes} · consensus sur l'original${targeting}${arbitration}`;
+}
+
+function formatScene(
+  scene: ImportedMediaSegmentationResult["manifest"]["processing"]["adaptiveStrategy"]["scene"],
+): string {
+  if (scene === "clean_voice") return "Voix nette";
+  if (scene === "constrained_voice") return "Voix sous contrainte";
+  if (scene === "sung_voice") return "Voix chantée";
+  if (scene === "music_mix") return "Mix musical";
+  return "Scène incertaine";
+}
+
+function formatDepth(
+  depth: ImportedMediaSegmentationResult["manifest"]["processing"]["adaptiveStrategy"]["depth"],
+): string {
+  if (depth === "fast") return "rapide";
+  if (depth === "verified") return "vérifiée";
+  return "approfondie";
 }
 
 function formatProfile(profile: "balanced" | "compatible"): string {

@@ -170,9 +170,31 @@ export type TakeTiming = {
 
 export type LocalAcousticAnalysis = {
   readonly schemaVersion: "voice.local_acoustic_analysis.v1";
-  readonly engine: "whisper-tiny";
+  readonly engine: "whisper-tiny" | "whisper-adaptive";
   readonly transcript: string;
   readonly analyzedAt: string;
+  readonly strategy?: {
+    readonly schemaVersion: "voice.adaptive_analysis.v1";
+    readonly scene:
+      | "clean_voice"
+      | "constrained_voice"
+      | "sung_voice"
+      | "music_mix"
+      | "uncertain";
+    readonly depth: "fast" | "verified" | "deep";
+    readonly selectedModel: "tiny" | "base";
+    readonly selectionReason:
+      "fast_path_sufficient" | "prompt_match" | "acoustic_support";
+    readonly hypotheses: readonly {
+      readonly model: "tiny" | "base";
+      readonly provider: "wasm" | "webgpu";
+      readonly decoding: "greedy" | "beam";
+      readonly transcript: string;
+      readonly wordCount: number;
+      readonly matchedWordCount: number;
+      readonly score: number;
+    }[];
+  };
   readonly words: readonly {
     readonly word: string;
     readonly startMs: number;

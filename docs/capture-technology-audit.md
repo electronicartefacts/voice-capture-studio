@@ -42,27 +42,59 @@ The pipeline does not manufacture unsupported jitter, shimmer, respiration, or
 emotion observations. Those capabilities stay explicit limitations until a
 validated signal method or replaceable model adapter exists.
 
-The optional local Whisper/Silero post-pass loads tokenizer, feature extractor,
-quantized model, VAD model, and an explicitly pinned ONNX WASM pair from this
-origin. It disables an incompatible N-bit graph rewrite for the bundled q8
-decoder. This avoids both remote fallback and runtime-dependent WASM filename
-selection while leaving the real-time recorder untouched.
+The optional local Whisper/Silero post-pass is now adaptive. A quantized Tiny
+model scouts every requested take. A scene classifier combines declared vocal
+performance, SNR, reverb, active-voice ratio, VAD, and first-pass coherence. It
+stops immediately on a clean, well-supported result, preserves confirmed
+non-speech instead of asking a second model to invent words, and escalates sung,
+noisy, reverberant, or incoherent takes to a quantized Base beam hypothesis.
+Prompt-led takes are arbitrated by prompt match and acoustic alignment; free
+captures are arbitrated by vocal support, density, repetition, and model
+strength. The selected hypothesis and every rejected alternative remain in the
+persisted strategy provenance.
+
+The post-pass loads tokenizer, feature extractor, quantized model, VAD model,
+and an explicitly pinned ONNX WASM pair from this origin. It disables an
+incompatible N-bit graph rewrite for the bundled q8 decoder. This avoids both
+remote fallback and runtime-dependent WASM filename selection while leaving the
+real-time recorder untouched.
 
 ### Imported music and lexical segmentation
 
-The media-import path remains deliberately honest about the browser ceiling:
-it does not claim source separation. Its first pass combines local Whisper word
-hypotheses with independent Silero activity evidence. When that pass is
-insufficient, files up to five minutes receive one bounded second pass through a
-deterministic vocal-focus filter (120 Hz high-pass, 6.5 kHz low-pass and bounded
-normalization). The result is selected only when its acoustic evidence improves;
-the exported word clips always come from the untouched decoded source.
+The media-import path starts with an original-signal Tiny scout and independent
+Silero evidence. Cheap signal analysis then classifies the scene as clean,
+constrained, musical, or uncertain and selects a one-to-four-hypothesis budget.
+Clear material on a compatible device can stop after one pass. A verified path
+adds Base on the original. Short complex mixes can add a centered vocal focus
+and a deterministic spectral mid/side residual. Speech VAD and sustained-singing
+activity are fused to mask instrumental-only intervals during inference without
+changing duration or timestamps.
+
+The result is a temporal fuzzy consensus, not blind trust in the most processed
+signal: close lexical variants are reconciled, omissions confirmed by two
+independent passes can be recovered, and isolated proposals are rejected when
+three or more hypotheses exist. The exported word clips always come from the
+untouched decoded source. This follows current automatic-lyrics findings that
+separated vocals help most when separation also informs vocal activity and
+segment boundaries, while retaining the original prevents enhancement artifacts
+from becoming the only evidence.
 
 Imports are preflighted before full decoding and are limited to 200 MB and ten
 minutes. This bounds the largest avoidable tab-memory failures on mobile while
-keeping a complete song practical. The manifest records the number of passes,
-the selected signal, the unresolved source-separation state, and whether the
-vocal-focus retry helped. These fields describe evidence, not certainty.
+keeping a complete song practical. The v6 manifest records the detected scene,
+planned hypothesis budget, actual depth, every model/signal/provider/decoder,
+activity-mask coverage, selected signal, consensus recovery/rejection counts,
+and whether isolation was skipped for length or device budget. These fields
+describe evidence, not certainty.
+
+Research and runtime references:
+
+- source separation and vocal-activity segmentation for lyrics transcription:
+  https://arxiv.org/abs/2506.15514
+- non-speech-induced Whisper hallucinations:
+  https://arxiv.org/abs/2501.11378
+- ONNX Runtime Web execution-provider guidance:
+  https://onnxruntime.ai/docs/tutorials/web/ep-webgpu.html
 
 The shared inference worker serializes requests so two panels cannot run the
 same ONNX sessions concurrently. Both post-capture analysis and lexical import

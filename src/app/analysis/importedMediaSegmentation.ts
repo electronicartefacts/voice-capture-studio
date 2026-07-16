@@ -29,6 +29,7 @@ import {
   type SupportedWordTiming,
 } from "./lexicalSegmentationQuality";
 import { assertImportedMediaWithinLimits } from "./lexicalSegmentationPolicy";
+import { createImportedAnalysisPlan } from "./adaptiveAnalysis";
 
 export const SEGMENTATION_SAMPLE_RATE = 16_000;
 const ADAPTIVE_VOCAL_RETRY_MAX_DURATION_MS = 5 * 60_000;
@@ -40,7 +41,7 @@ export type ImportedMediaSegmentationResult = {
 };
 
 export type WordSegmentationManifest = {
-  readonly schemaVersion: "voice.word_segmentation.v5";
+  readonly schemaVersion: "voice.word_segmentation.v6";
   readonly createdAt: string;
   readonly source: {
     readonly fileName: string;
@@ -63,7 +64,10 @@ export type WordSegmentationManifest = {
     readonly executionProvider: "wasm" | "webgpu" | "mixed";
     readonly modelAssets: "same-origin-cache-first";
     readonly sourceSeparation:
-      "not_needed" | "spectral_mid_side_residual" | "skipped_for_length";
+      | "not_needed"
+      | "spectral_mid_side_residual"
+      | "skipped_for_length"
+      | "skipped_for_budget";
     readonly separationMetrics: {
       readonly centerEnergyRatio: number;
       readonly residualEnergyRatio: number;
@@ -75,7 +79,21 @@ export type WordSegmentationManifest = {
     readonly transcriptionPasses: 1 | 2 | 3 | 4;
     readonly selectedSignal: "original" | "vocal_focus" | "spectral_vocal";
     readonly vocalFocus:
-      "not_needed" | "selected" | "not_selected" | "skipped_for_length";
+      | "not_needed"
+      | "selected"
+      | "not_selected"
+      | "skipped_for_length"
+      | "skipped_for_budget";
+    readonly adaptiveStrategy: {
+      readonly scene:
+        | "clean_voice"
+        | "constrained_voice"
+        | "sung_voice"
+        | "music_mix"
+        | "uncertain";
+      readonly depth: "fast" | "verified" | "deep";
+      readonly hypothesisBudget: 1 | 2 | 3 | 4;
+    };
     readonly hypotheses: readonly {
       readonly kind: LexicalHypothesisKind;
       readonly model: "tiny" | "base";
@@ -193,8 +211,22 @@ export async function segmentImportedMedia(input: {
       ),
     },
   ];
+  const focusDifference = normalizedSignalDifference(audio, vocalFocusSignal);
+  const focusedActivity = detectFocusedVocalActivity(vocalFocusSignal);
+  const adaptivePlan = createImportedAnalysisPlan({
+    durationMs,
+    profile: processingProfile,
+    initialStatus: tinyAssessment.quality.status,
+    speechCoverage: segmentCoverage(tinyAnalysis.speechSegments, durationMs),
+    focusedCoverage: segmentCoverage(focusedActivity, durationMs),
+    focusDifference,
+    stereoCenterUsed,
+  });
   let sourceSeparation:
-    "not_needed" | "spectral_mid_side_residual" | "skipped_for_length" =
+    | "not_needed"
+    | "spectral_mid_side_residual"
+    | "skipped_for_length"
+    | "skipped_for_budget" =
     durationMs <= ADAPTIVE_VOCAL_RETRY_MAX_DURATION_MS
       ? "not_needed"
       : "skipped_for_length";
@@ -203,12 +235,16 @@ export async function segmentImportedMedia(input: {
     readonly residualEnergyRatio: number;
   } | null = null;
   let vocalFocus:
-    "not_needed" | "selected" | "not_selected" | "skipped_for_length" =
+    | "not_needed"
+    | "selected"
+    | "not_selected"
+    | "skipped_for_length"
+    | "skipped_for_budget" =
     durationMs > ADAPTIVE_VOCAL_RETRY_MAX_DURATION_MS
       ? "skipped_for_length"
       : "not_needed";
 
-  if (durationMs <= ADAPTIVE_VOCAL_RETRY_MAX_DURATION_MS) {
+  if (adaptivePlan.runBaseOriginal) {
     input.onProgress({ stage: "enhancing-vocals" });
     const baseOriginalAnalysis = await analyzeDecodedAudio({
       audio: audio.slice(),
@@ -239,8 +275,8 @@ export async function segmentImportedMedia(input: {
       ),
     });
 
-    const focusDifference = normalizedSignalDifference(audio, vocalFocusSignal);
     const needsMusicalEnsemble =
+      adaptivePlan.scene === "music_mix" ||
       tinyAssessment.quality.status === "insufficient" ||
       baseOriginalAssessment.quality.status === "insufficient" ||
       transcriptAgreement(
@@ -249,9 +285,12 @@ export async function segmentImportedMedia(input: {
       ) < 0.9 ||
       focusDifference > 0.08;
 
-    if (needsMusicalEnsemble && focusDifference > 0.015) {
+    if (
+      needsMusicalEnsemble &&
+      adaptivePlan.allowVocalFocus &&
+      focusDifference > 0.015
+    ) {
       input.onProgress({ stage: "enhancing-vocals" });
-      const focusedActivity = detectFocusedVocalActivity(vocalFocusSignal);
       const combinedActivity = mergeVocalActivitySegments(
         [tinyAnalysis.speechSegments, focusedActivity],
         durationMs,
@@ -290,9 +329,15 @@ export async function segmentImportedMedia(input: {
         activityCoverage: vocalMask.retainedRatio,
       });
       vocalFocus = "not_selected";
+    } else if (needsMusicalEnsemble && !adaptivePlan.allowVocalFocus) {
+      vocalFocus = "skipped_for_budget";
     }
 
-    if (needsMusicalEnsemble && spectralInput !== null) {
+    if (
+      needsMusicalEnsemble &&
+      adaptivePlan.allowSpectralSeparation &&
+      spectralInput !== null
+    ) {
       input.onProgress({ stage: "separating-vocals", progressPercent: 0 });
       try {
         const separated = await separateVocalsOffThread({
@@ -351,6 +396,8 @@ export async function segmentImportedMedia(input: {
         sourceSeparation = "not_needed";
         separationMetrics = null;
       }
+    } else if (needsMusicalEnsemble && !adaptivePlan.allowSpectralSeparation) {
+      sourceSeparation = "skipped_for_budget";
     }
   }
 
@@ -384,7 +431,7 @@ export async function segmentImportedMedia(input: {
   const supportedTranscript = words.map((word) => word.word).join(" ");
   const createdAt = (input.now ?? new Date()).toISOString();
   const manifest: WordSegmentationManifest = {
-    schemaVersion: "voice.word_segmentation.v5",
+    schemaVersion: "voice.word_segmentation.v6",
     createdAt,
     source: {
       fileName: input.file.name,
@@ -420,6 +467,16 @@ export async function segmentImportedMedia(input: {
       transcriptionPasses: asPassCount(hypotheses.length),
       selectedSignal,
       vocalFocus,
+      adaptiveStrategy: {
+        scene: adaptivePlan.scene,
+        depth:
+          hypotheses.length >= 3
+            ? "deep"
+            : hypotheses.length === 2
+              ? "verified"
+              : "fast",
+        hypothesisBudget: adaptivePlan.maximumHypotheses,
+      },
       hypotheses: hypotheses.map((hypothesis) => ({
         kind: hypothesis.kind,
         model: hypothesis.model,

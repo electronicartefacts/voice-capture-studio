@@ -344,17 +344,17 @@ export function TechnicalPage(input: {
           <p className="soft-label">Modèles d'analyse</p>
           <strong>Reconnaissance vocale adaptative</strong>
           <span>
-            Le modèle léger ouvre l'analyse. Sur un mix complexe, le studio
-            compare ensuite l'original, la voix centrale et une séparation
-            spectrale avec le modèle renforcé. La détection de parole et
-            l'activité chantée sont fusionnées pour masquer les ponts
-            instrumentaux pendant l'inférence, tout en conservant la durée
-            originale. Un consensus temporel rapproche les petites variantes,
-            récupère les omissions confirmées et retire les mots isolés. Un
-            faisceau court affine le modèle renforcé sur les appareils
-            équilibrés. WebGPU est utilisé quand il est fiable, avec repli
-            automatique sur le mode compatible. Supprime les modèles pour
-            récupérer de l'espace ou forcer leur rechargement.
+            Le studio classe d'abord la scène : voix nette, chant, environnement
+            contraint, mix musical ou cas incertain. Le modèle léger ouvre
+            l'analyse et suffit aux prises nettes cohérentes. Sinon, un modèle
+            renforcé vérifie le résultat; sur un mix court et complexe, le
+            moteur peut aussi comparer l'original, la voix centrale et une
+            séparation spectrale. La détection de parole et l'activité chantée
+            masquent les ponts instrumentaux pendant l'inférence sans modifier
+            la durée ni les WAV. Chaque résultat conserve son budget, ses
+            hypothèses et la raison du choix final. WebGPU est utilisé quand il
+            est fiable, avec repli automatique sur WASM. Supprime les modèles
+            pour récupérer de l'espace ou forcer leur rechargement.
           </span>
         </div>
         <button

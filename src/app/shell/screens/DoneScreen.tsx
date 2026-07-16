@@ -35,6 +35,7 @@ import type {
   LocalAnalysisProgress,
   LocalTakeAnalysis,
 } from "../../analysis/types";
+import type { CaptureAnalysisContext } from "../../analysis/adaptiveAnalysis";
 import {
   beginLoadingWave,
   cancelLoadingWave,
@@ -1059,6 +1060,13 @@ export function DoneScreen(input: {
         isLocalAnalysisSupported() && (
           <LocalAnalysisPanel
             audioUrl={input.downloadUrl}
+            context={{
+              performanceKind:
+                input.take.captureContext?.vocalPerformance?.kind,
+              snrDb: input.take.quality.technical.snrDb,
+              reverbScore: input.take.quality.technical.reverbScore,
+              activeSpeechRatio: input.take.quality.technical.activeSpeechRatio,
+            }}
             expectedText={input.take.transcript.spokenText}
             language={input.language}
             onAnalysis={input.onLocalAnalysis}
@@ -1086,6 +1094,7 @@ type LocalAnalysisState =
 
 function LocalAnalysisPanel(input: {
   readonly audioUrl: string;
+  readonly context: CaptureAnalysisContext;
   readonly expectedText: string;
   readonly language: string;
   readonly takeId: string;
@@ -1121,6 +1130,7 @@ function LocalAnalysisPanel(input: {
       ).blob();
       const analysis = await analyzeTakeAudio({
         audioBlob,
+        context: input.context,
         expectedText: input.expectedText,
         language: input.language,
         onProgress: (progress) => {
@@ -1172,11 +1182,19 @@ function LocalAnalysisPanel(input: {
       <div className="local-analysis-heading">
         <p className="soft-label">Analyse locale (IA sur l'appareil)</p>
         <p>
-          Whisper vérifie le transcript et un détecteur de parole mesure les
-          silences, directement dans le navigateur. Aucune donnée ne quitte
-          l'appareil; les modèles (~45 Mo) se téléchargent depuis ce site à la
-          première utilisation puis restent en cache.
+          Le studio choisit automatiquement l'analyse la plus légère qui reste
+          fiable, puis vérifie avec un second modèle si la voix, la pièce ou le
+          premier résultat le demandent. Rien ne quitte cet appareil.
         </p>
+        <details>
+          <summary>Fonctionnement et téléchargement</summary>
+          <p>
+            Whisper Tiny sert d'éclaireur, Silero mesure les zones vocales et
+            Whisper Base arbitre les cas difficiles. Le premier modèle demande
+            environ 45 Mo; le renfort ajoute environ 75 Mo seulement lorsqu'il
+            est utile. Les fichiers viennent de ce site et restent en cache.
+          </p>
+        </details>
       </div>
 
       {state.status === "idle" && (
@@ -1221,6 +1239,21 @@ function LocalAnalysisPanel(input: {
 
       {state.status === "done" && (
         <dl data-testid="local-analysis-result">
+          {state.analysis.strategy !== undefined && (
+            <div>
+              <dt>Stratégie automatique</dt>
+              <dd>
+                {formatAcousticScene(state.analysis.strategy.scene)} ·{" "}
+                {state.analysis.strategy.hypotheses.length} hypothèse
+                {state.analysis.strategy.hypotheses.length > 1
+                  ? "s"
+                  : ""} ·{" "}
+                {state.analysis.strategy.selectedModel === "base"
+                  ? "modèle renforcé retenu"
+                  : "éclaireur suffisant"}
+              </dd>
+            </div>
+          )}
           <div>
             <dt>Transcript Whisper</dt>
             <dd>
@@ -1303,7 +1336,21 @@ function formatAnalysisProgress(progress: LocalAnalysisProgress): string {
     return "Transcription locale en cours…";
   }
 
+  if (progress.stage === "validating-result") {
+    return "Comparaison des hypothèses locales…";
+  }
+
   return "Mesure des segments de parole…";
+}
+
+function formatAcousticScene(
+  scene: NonNullable<LocalTakeAnalysis["strategy"]>["scene"],
+): string {
+  if (scene === "clean_voice") return "Voix nette";
+  if (scene === "constrained_voice") return "Environnement complexe";
+  if (scene === "sung_voice") return "Voix chantée";
+  if (scene === "music_mix") return "Mix musical";
+  return "Scène incertaine";
 }
 
 function formatAnalysisSeconds(durationMs: number): string {

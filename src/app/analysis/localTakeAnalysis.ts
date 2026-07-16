@@ -13,6 +13,10 @@ import type {
   LocalTranscriptionModel,
 } from "./types";
 import { createStereoVocalFocusSignal } from "./vocalFocus";
+import {
+  runAdaptiveTakeAnalysis,
+  type CaptureAnalysisContext,
+} from "./adaptiveAnalysis";
 
 const ANALYSIS_SAMPLE_RATE = 16_000;
 
@@ -36,26 +40,36 @@ export function isLocalAnalysisSupported(): boolean {
 }
 
 /**
- * Transcribes a finished take with whisper-tiny and measures speech bounds
- * with Silero VAD, entirely on-device. Model weights are served from this
- * origin (`public/models/`), so no third-party request ever leaves the app.
+ * Transcribes a finished take with an adaptive Whisper Tiny/Base strategy and
+ * measures speech bounds with Silero VAD, entirely on-device. Model weights
+ * are served from this origin (`public/models/`), so no third-party request
+ * ever leaves the app.
  */
 export async function analyzeTakeAudio(input: {
   readonly audioBlob: Blob;
   readonly expectedText: string;
   readonly language: string;
+  readonly context?: CaptureAnalysisContext;
   readonly onProgress: (progress: LocalAnalysisProgress) => void;
   readonly signal?: AbortSignal;
 }): Promise<LocalTakeAnalysis> {
   throwIfAnalysisAborted(input.signal);
   const audio = await decodeAudioToMono16k(input.audioBlob);
   throwIfAnalysisAborted(input.signal);
-  return analyzeDecodedAudio({
+  return runAdaptiveTakeAnalysis({
     audio,
-    expectedText: input.expectedText,
-    language: input.language,
+    context: input.context,
     onProgress: input.onProgress,
-    signal: input.signal,
+    analyze: ({ audio: candidateAudio, model, decoding }) =>
+      analyzeDecodedAudio({
+        audio: candidateAudio,
+        expectedText: input.expectedText,
+        language: input.language,
+        transcriptionModel: model,
+        decodingStrategy: decoding,
+        onProgress: input.onProgress,
+        signal: input.signal,
+      }),
   });
 }
 

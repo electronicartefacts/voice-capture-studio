@@ -1,4 +1,6 @@
 import {
+  lazy,
+  Suspense,
   useEffect,
   useRef,
   useState,
@@ -56,15 +58,26 @@ import {
 } from "../speakerProfiles";
 import type { BackingTrack, CaptureMode } from "../types";
 import type { DubbingMediaSource } from "../types";
-import {
-  LexicalSegmentationPanel,
-  type LexicalSegmentationState,
-} from "./LexicalSegmentationPanel";
+import type { LexicalSegmentationState } from "./LexicalSegmentationPanel";
 import {
   formatCaptureDurationLimit,
   FREE_CAPTURE_MAX_DURATION_MS,
 } from "../../recording/captureLimits";
-import { DubbingMediaPanel } from "./DubbingMediaPanel";
+import {
+  beginLoadingWave,
+  finishLoadingWave,
+} from "../../rendering/loadingWaveSignal";
+
+const LexicalSegmentationPanel = lazy(() =>
+  import("./LexicalSegmentationPanel").then((module) => ({
+    default: module.LexicalSegmentationPanel,
+  })),
+);
+const DubbingMediaPanel = lazy(() =>
+  import("./DubbingMediaPanel").then((module) => ({
+    default: module.DubbingMediaPanel,
+  })),
+);
 
 export function HomeScreen(input: {
   readonly backingAudioRef: RefObject<HTMLAudioElement | null>;
@@ -345,28 +358,46 @@ export function HomeScreen(input: {
           )}
 
         {input.captureMode === "lexical-segmentation" && (
-          <LexicalSegmentationPanel
-            file={input.lexicalSegmentationFile}
-            language={input.language}
-            onClear={input.onLexicalSegmentationClear}
-            onCancel={input.onLexicalSegmentationCancel}
-            onFile={input.onLexicalSegmentationFile}
-            onLanguageChange={input.onLanguageChange}
-            state={input.lexicalSegmentationState}
-          />
+          <Suspense
+            fallback={
+              <ModePanelLoading
+                id="mode-panel:lexical"
+                label="Préparation de la découpe lexicale"
+              />
+            }
+          >
+            <LexicalSegmentationPanel
+              file={input.lexicalSegmentationFile}
+              language={input.language}
+              onClear={input.onLexicalSegmentationClear}
+              onCancel={input.onLexicalSegmentationCancel}
+              onFile={input.onLexicalSegmentationFile}
+              onLanguageChange={input.onLanguageChange}
+              state={input.lexicalSegmentationState}
+            />
+          </Suspense>
         )}
 
         {input.captureMode === "dubbing" && (
-          <DubbingMediaPanel
-            cueSeconds={input.dubbingCueSeconds}
-            muted={input.dubbingMediaMuted}
-            onClear={input.onDubbingMediaClear}
-            onCueSecondsChange={input.onDubbingCueSecondsChange}
-            onLocalVideo={input.onDubbingVideoChange}
-            onMutedChange={input.onDubbingMediaMutedChange}
-            onYouTubeUrl={input.onDubbingYouTubeUrl}
-            source={input.dubbingMedia}
-          />
+          <Suspense
+            fallback={
+              <ModePanelLoading
+                id="mode-panel:dubbing"
+                label="Préparation du doublage"
+              />
+            }
+          >
+            <DubbingMediaPanel
+              cueSeconds={input.dubbingCueSeconds}
+              muted={input.dubbingMediaMuted}
+              onClear={input.onDubbingMediaClear}
+              onCueSecondsChange={input.onDubbingCueSecondsChange}
+              onLocalVideo={input.onDubbingVideoChange}
+              onMutedChange={input.onDubbingMediaMutedChange}
+              onYouTubeUrl={input.onDubbingYouTubeUrl}
+              source={input.dubbingMedia}
+            />
+          </Suspense>
         )}
 
         {input.captureMode === "mastering" && (
@@ -482,6 +513,22 @@ export function HomeScreen(input: {
           </section>
         )}
       </section>
+    </div>
+  );
+}
+
+function ModePanelLoading(input: {
+  readonly id: string;
+  readonly label: string;
+}) {
+  useEffect(() => {
+    beginLoadingWave(input.id, input.label);
+    return () => finishLoadingWave(input.id);
+  }, [input.id, input.label]);
+
+  return (
+    <div className="local-analysis-panel" role="status">
+      <p className="local-analysis-progress">{input.label}…</p>
     </div>
   );
 }

@@ -13,13 +13,17 @@ open-source foundation for privacy-preserving voice capture workflows.
 ## Features
 
 - Guided prompt sessions for French and English starter corpora.
-- Four outcome-specific capture modes: free capture, ML dataset, video dubbing, and interpreted
-  performance with optional headphone return.
+- Five outcome-specific modes: free capture, ML dataset, video dubbing, interpreted performance
+  with optional headphone return, and microphone-free lexical segmentation for local audio/video.
 - Local-video or privacy-enhanced YouTube reference for dubbing, with SRT/VTT cue timing preserved
   for scene playback.
 - Local microphone capture through Web Audio.
 - WAV PCM mono export at 48 kHz / 24-bit where browser support allows it.
 - Room-tone calibration and first-pass technical quality checks.
+- Adaptive local analysis: a lightweight scout handles clear takes, while difficult, sung, noisy,
+  or ambiguous material receives a stronger second hypothesis and evidence-based arbitration.
+- Multi-hypothesis music analysis that can compare the original, a centered vocal focus, spectral
+  separation, speech/singing activity, and temporally aligned consensus without altering exports.
 - Transcript, timing, intent, prosody, and quality metadata for each take.
 - Browser-estimated word-to-phoneme alignment for every new take, with explicit forced-alignment
   handoff metadata.
