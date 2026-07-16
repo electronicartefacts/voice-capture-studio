@@ -30,3 +30,9 @@ hallucinations musicales et garde une erreur moyenne de frontière inférieure �
 120 ms sur les mots correctement reconnus. Il faut également relever le temps
 réel de traitement, le pic mémoire, le poids téléchargé et les échecs par
 navigateur/appareil.
+
+Le rapport doit distinguer les mots confirmés par plusieurs passes, les petites
+variantes rapprochées, les omissions récupérées et les propositions isolées
+rejetées. Une hausse de couverture n'est acceptée que si elle ne réintroduit pas
+d'insertions : sur un consensus de trois passes ou plus, un mot exporté doit être
+confirmé par au moins deux écoutes locales.

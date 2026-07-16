@@ -6,6 +6,7 @@ import type {
   AnalysisWorkerRequest,
   AnalysisWorkerResponse,
   LocalExecutionPreference,
+  LocalDecodingStrategy,
   LocalProcessingProfile,
   LocalAnalysisProgress,
   LocalTakeAnalysis,
@@ -64,6 +65,7 @@ export async function analyzeDecodedAudio(input: {
   readonly language: string;
   readonly processingProfile?: LocalProcessingProfile;
   readonly transcriptionModel?: LocalTranscriptionModel;
+  readonly decodingStrategy?: LocalDecodingStrategy;
   readonly executionPreference?: LocalExecutionPreference;
   readonly onProgress: (progress: LocalAnalysisProgress) => void;
   readonly signal?: AbortSignal;
@@ -156,6 +158,7 @@ export async function analyzeDecodedAudio(input: {
         language: input.language,
         processingProfile: input.processingProfile ?? "balanced",
         transcriptionModel,
+        decodingStrategy: input.decodingStrategy ?? "greedy",
         executionPreference,
         assetsBaseUrl: getAssetsBaseUrl(),
       };

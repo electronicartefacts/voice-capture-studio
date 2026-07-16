@@ -21,6 +21,7 @@ export type LocalProcessingProfile = "balanced" | "compatible";
 export type LocalTranscriptionModel = "tiny" | "base";
 export type LocalExecutionProvider = "wasm" | "webgpu";
 export type LocalExecutionPreference = "auto" | "wasm";
+export type LocalDecodingStrategy = "greedy" | "beam";
 
 export type LocalAnalysisProgress =
   | { readonly stage: "loading-model"; readonly progressPercent: number }
@@ -51,6 +52,7 @@ export type AnalysisWorkerRequest = {
   readonly language: string;
   readonly processingProfile: LocalProcessingProfile;
   readonly transcriptionModel: LocalTranscriptionModel;
+  readonly decodingStrategy: LocalDecodingStrategy;
   readonly executionPreference: LocalExecutionPreference;
   readonly assetsBaseUrl: string;
 };

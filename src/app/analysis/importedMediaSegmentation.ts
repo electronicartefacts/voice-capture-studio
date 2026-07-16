@@ -36,7 +36,7 @@ export type ImportedMediaSegmentationResult = {
 };
 
 export type WordSegmentationManifest = {
-  readonly schemaVersion: "voice.word_segmentation.v3";
+  readonly schemaVersion: "voice.word_segmentation.v4";
   readonly createdAt: string;
   readonly source: {
     readonly fileName: string;
@@ -78,7 +78,14 @@ export type WordSegmentationManifest = {
       readonly signal: "original" | "vocal_focus" | "spectral_vocal";
       readonly wordCount: number;
       readonly provider: "wasm" | "webgpu";
+      readonly decoding: "greedy" | "beam";
     }[];
+    readonly consensus: {
+      readonly strategy: "temporal_fuzzy_majority";
+      readonly recoveredWordCount: number;
+      readonly rejectedSingletonCount: number;
+      readonly fuzzyMatchedWordCount: number;
+    };
   };
   readonly transcription: {
     readonly engine: "whisper-tiny-secondary" | "whisper-base-music";
@@ -172,6 +179,7 @@ export async function segmentImportedMedia(input: {
       signal: "original",
       analysis: tinyAnalysis,
       assessment: tinyAssessment,
+      decodingStrategy: "greedy",
     },
   ];
   let sourceSeparation:
@@ -197,6 +205,7 @@ export async function segmentImportedMedia(input: {
       language: input.language,
       processingProfile,
       transcriptionModel: "base",
+      decodingStrategy: processingProfile === "balanced" ? "beam" : "greedy",
       onProgress: input.onProgress,
       signal: input.signal,
     });
@@ -211,6 +220,7 @@ export async function segmentImportedMedia(input: {
       signal: "original",
       analysis: baseOriginalAnalysis,
       assessment: baseOriginalAssessment,
+      decodingStrategy: processingProfile === "balanced" ? "beam" : "greedy",
     });
 
     const focusDifference = normalizedSignalDifference(audio, vocalFocusSignal);
@@ -232,6 +242,7 @@ export async function segmentImportedMedia(input: {
         language: input.language,
         processingProfile,
         transcriptionModel: "base",
+        decodingStrategy: "greedy",
         onProgress: input.onProgress,
         signal: input.signal,
       });
@@ -248,6 +259,7 @@ export async function segmentImportedMedia(input: {
         signal: "vocal_focus",
         analysis: vocalFocusAnalysis,
         assessment: vocalFocusAssessment,
+        decodingStrategy: "greedy",
       });
       vocalFocus = "not_selected";
     }
@@ -274,6 +286,7 @@ export async function segmentImportedMedia(input: {
             language: input.language,
             processingProfile,
             transcriptionModel: "base",
+            decodingStrategy: "greedy",
             onProgress: input.onProgress,
             signal: input.signal,
           });
@@ -290,6 +303,7 @@ export async function segmentImportedMedia(input: {
             signal: "spectral_vocal",
             analysis: spectralAnalysis,
             assessment: spectralAssessment,
+            decodingStrategy: "greedy",
           });
         }
       } catch (error) {
@@ -330,7 +344,7 @@ export async function segmentImportedMedia(input: {
   const supportedTranscript = words.map((word) => word.word).join(" ");
   const createdAt = (input.now ?? new Date()).toISOString();
   const manifest: WordSegmentationManifest = {
-    schemaVersion: "voice.word_segmentation.v3",
+    schemaVersion: "voice.word_segmentation.v4",
     createdAt,
     source: {
       fileName: input.file.name,
@@ -372,7 +386,14 @@ export async function segmentImportedMedia(input: {
         signal: hypothesis.signal,
         wordCount: hypothesis.assessment.acceptedTimings.length,
         provider: hypothesis.analysis.executionProvider,
+        decoding: hypothesis.decodingStrategy,
       })),
+      consensus: {
+        strategy: "temporal_fuzzy_majority",
+        recoveredWordCount: consensus.recoveredWordCount,
+        rejectedSingletonCount: consensus.rejectedSingletonCount,
+        fuzzyMatchedWordCount: consensus.fuzzyMatchedWordCount,
+      },
     },
     transcription: {
       engine:

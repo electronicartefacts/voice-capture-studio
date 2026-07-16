@@ -306,7 +306,89 @@ test("multi-pass consensus prefers repeated lyrics and median word boundaries", 
   assert.equal(consensus.acceptedTimings[0].consensusVotes, 2);
   assert.equal(consensus.acceptedTimings[0].evidence, "multi_pass_consensus");
   assert.ok(consensus.meanConfidence > 0.6);
+  assert.equal(consensus.acceptedTimings.length, 3);
+  assert.equal(consensus.rejectedSingletonCount, 0);
   assert.equal(transcriptAgreement("Dans, la nuit", "dans la nuit !"), 1);
+});
+
+test("lexical consensus handles missing and single-pass evidence explicitly", () => {
+  assert.throws(() => buildLexicalConsensus([]), /Aucune hypothèse lexicale/);
+  const single = createHypothesis("original_tiny", "tiny", "original", [
+    timing("seule", 120, 520),
+  ]);
+  const consensus = buildLexicalConsensus([single]);
+
+  assert.equal(consensus.acceptedTimings.length, 1);
+  assert.equal(consensus.acceptedTimings[0].consensusVotes, 1);
+  assert.equal(consensus.agreementRate, 0);
+  assert.equal(transcriptAgreement("", "seule"), 0);
+});
+
+test("temporal consensus accepts close sung variants and rejects isolated hallucinations", () => {
+  const tiny = createHypothesis("original_tiny", "tiny", "original", [
+    timing("lumière", 100, 430),
+    timing("fragile", 450, 820),
+  ]);
+  const originalBase = createHypothesis("original_base", "base", "original", [
+    timing("lumières", 120, 450),
+    timing("fragile", 470, 840),
+  ]);
+  const spectralBase = createHypothesis(
+    "spectral_vocal_base",
+    "base",
+    "spectral_vocal",
+    [
+      timing("lumière", 110, 440),
+      timing("fragile", 460, 830),
+      timing("fantôme", 850, 980),
+    ],
+  );
+
+  const consensus = buildLexicalConsensus([tiny, originalBase, spectralBase]);
+
+  assert.deepEqual(
+    consensus.acceptedTimings.map(({ word }) =>
+      word
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase(),
+    ),
+    ["lumiere", "fragile"],
+  );
+  assert.ok(consensus.fuzzyMatchedWordCount > 0);
+  assert.ok(
+    !consensus.acceptedTimings.some(({ word }) => /fantôme/i.test(word)),
+  );
+});
+
+test("temporal consensus recovers a word confirmed by two non-anchor passes", () => {
+  const tiny = createHypothesis("original_tiny", "tiny", "original", [
+    timing("dans", 100, 250),
+    timing("douce", 270, 440),
+    timing("nuit", 460, 700),
+    timing("bleue", 720, 920),
+  ]);
+  const originalBase = createHypothesis("original_base", "base", "original", [
+    timing("dans", 110, 260),
+    timing("douce", 280, 450),
+    timing("nuit", 470, 710),
+    timing("claire", 730, 930),
+  ]);
+  const spectralBase = createHypothesis(
+    "spectral_vocal_base",
+    "base",
+    "spectral_vocal",
+    [timing("dans", 120, 270), timing("nuit", 480, 720)],
+  );
+
+  const consensus = buildLexicalConsensus([tiny, originalBase, spectralBase]);
+
+  assert.ok(consensus.acceptedTimings.some(({ word }) => word === "douce"));
+  assert.ok(
+    consensus.acceptedTimings.every(
+      ({ word }) => word !== "bleue" && word !== "claire",
+    ),
+  );
 });
 
 test("music benchmark reports lexical errors and temporal boundary drift", () => {
@@ -373,5 +455,12 @@ function createHypothesis(
     },
   };
 
-  return { kind, model, signal, analysis, assessment };
+  return {
+    kind,
+    model,
+    signal,
+    analysis,
+    assessment,
+    decodingStrategy: "greedy",
+  };
 }

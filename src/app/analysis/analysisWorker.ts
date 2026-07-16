@@ -338,6 +338,12 @@ async function analyze(request: AnalysisWorkerRequest): Promise<void> {
       stride_length_s: request.processingProfile === "compatible" ? 3 : 5,
       force_full_sequences: false,
       return_timestamps: "word",
+      // A small beam improves ambiguous sung syllables without multiplying
+      // browser work as aggressively as desktop ASR defaults (often 5 beams).
+      // Compatible/mobile paths and the tiny scout remain greedy.
+      ...(request.decodingStrategy === "beam"
+        ? { num_beams: 2, early_stopping: true }
+        : {}),
     };
     let transcription: Transcription | Transcription[];
     try {

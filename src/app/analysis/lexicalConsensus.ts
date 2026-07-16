@@ -4,6 +4,7 @@ import type {
 } from "./lexicalSegmentationQuality";
 import type {
   LocalExecutionProvider,
+  LocalDecodingStrategy,
   LocalTakeAnalysis,
   LocalTranscriptionModel,
 } from "./types";
@@ -18,6 +19,7 @@ export type LexicalHypothesis = {
   readonly kind: LexicalHypothesisKind;
   readonly model: LocalTranscriptionModel;
   readonly signal: "original" | "vocal_focus" | "spectral_vocal";
+  readonly decodingStrategy: LocalDecodingStrategy;
   readonly analysis: LocalTakeAnalysis;
   readonly assessment: ReturnType<typeof assessLexicalSegmentation>;
 };
@@ -27,7 +29,18 @@ export type LexicalConsensus = {
   readonly acceptedTimings: readonly SupportedWordTiming[];
   readonly meanConfidence: number;
   readonly agreementRate: number;
+  readonly recoveredWordCount: number;
+  readonly rejectedSingletonCount: number;
+  readonly fuzzyMatchedWordCount: number;
   readonly executionProviders: readonly LocalExecutionProvider[];
+};
+
+type Alignment = {
+  readonly matches: ReadonlyMap<number, SupportedWordTiming>;
+  readonly unmatched: readonly {
+    readonly gapIndex: number;
+    readonly timing: SupportedWordTiming;
+  }[];
 };
 
 export function buildLexicalConsensus(
@@ -43,24 +56,32 @@ export function buildLexicalConsensus(
   }));
   scored.sort((left, right) => right.score - left.score);
   const selected = scored[0].hypothesis;
-  const alignments = hypotheses
+  const alignedHypotheses = hypotheses
     .filter((hypothesis) => hypothesis !== selected)
-    .map((hypothesis) =>
-      alignWordSequences(
+    .map((hypothesis) => ({
+      hypothesis,
+      alignment: alignWordSequences(
         selected.assessment.acceptedTimings,
         hypothesis.assessment.acceptedTimings,
       ),
-    );
+    }));
   let agreedWords = 0;
   let confidenceTotal = 0;
-  const consensusTimings = selected.assessment.acceptedTimings.map(
+  let rejectedSingletonCount = 0;
+  let fuzzyMatchedWordCount = 0;
+  const minimumVotes = hypotheses.length >= 3 ? 2 : 1;
+  const anchorTimings = selected.assessment.acceptedTimings.flatMap(
     (timing, index) => {
-      const matchingTimings = alignments
-        .map((alignment) => alignment.get(index))
+      const matchingTimings = alignedHypotheses
+        .map(({ alignment }) => alignment.matches.get(index))
         .filter((candidate): candidate is SupportedWordTiming =>
           Boolean(candidate),
         );
       const consensusVotes = 1 + matchingTimings.length;
+      if (consensusVotes < minimumVotes) {
+        rejectedSingletonCount += 1;
+        return [];
+      }
       const startMs = median([
         timing.startMs,
         ...matchingTimings.map((candidate) => candidate.startMs),
@@ -76,28 +97,61 @@ export function buildLexicalConsensus(
       const confidence = roundRate(
         0.18 +
           agreement * 0.47 +
-          timing.acousticSupport * 0.25 +
+          mean(
+            [timing, ...matchingTimings].map(
+              ({ acousticSupport }) => acousticSupport,
+            ),
+          ) *
+            0.25 +
           (selected.model === "base" ? 0.1 : 0.04),
       );
+
+      fuzzyMatchedWordCount += matchingTimings.filter(
+        (candidate) =>
+          normalizeWord(candidate.word) !== normalizeWord(timing.word),
+      ).length;
 
       if (matchingTimings.length > 0) agreedWords += 1;
       confidenceTotal += confidence;
 
-      return {
-        ...timing,
-        startMs: Math.max(0, Math.round(startMs)),
-        endMs: Math.max(Math.round(startMs) + 1, Math.round(endMs)),
-        evidence:
-          matchingTimings.length > 0
-            ? ("multi_pass_consensus" as const)
-            : timing.evidence,
-        confidence,
-        consensusVotes,
-      };
+      return [
+        {
+          ...timing,
+          word: chooseConsensusWord(timing, matchingTimings),
+          startMs: Math.max(0, Math.round(startMs)),
+          endMs: Math.max(Math.round(startMs) + 1, Math.round(endMs)),
+          acousticSupport: roundRate(
+            mean(
+              [timing, ...matchingTimings].map(
+                ({ acousticSupport }) => acousticSupport,
+              ),
+            ),
+          ),
+          evidence:
+            matchingTimings.length > 0
+              ? ("multi_pass_consensus" as const)
+              : timing.evidence,
+          confidence,
+          consensusVotes,
+        },
+      ];
     },
   );
 
-  const acceptedTimings = resolveTimingOverlaps(consensusTimings);
+  const recoveredTimings = recoverSharedInsertions(
+    alignedHypotheses,
+    hypotheses.length,
+  );
+  for (const timing of recoveredTimings) {
+    confidenceTotal += timing.confidence ?? 0;
+    agreedWords += 1;
+  }
+
+  const acceptedTimings = resolveTimingOverlaps(
+    [...anchorTimings, ...recoveredTimings].sort(
+      (left, right) => left.startMs - right.startMs || left.endMs - right.endMs,
+    ),
+  );
 
   return {
     selected,
@@ -106,6 +160,9 @@ export function buildLexicalConsensus(
       confidenceTotal / Math.max(acceptedTimings.length, 1),
     ),
     agreementRate: roundRate(agreedWords / Math.max(acceptedTimings.length, 1)),
+    recoveredWordCount: recoveredTimings.length,
+    rejectedSingletonCount,
+    fuzzyMatchedWordCount,
     executionProviders: [
       ...new Set(hypotheses.map(({ analysis }) => analysis.executionProvider)),
     ],
@@ -181,17 +238,27 @@ function resolveTimingOverlaps(
 function alignWordSequences(
   reference: readonly SupportedWordTiming[],
   candidate: readonly SupportedWordTiming[],
-): ReadonlyMap<number, SupportedWordTiming> {
+): Alignment {
   const left = reference.map((timing) => normalizeWord(timing.word));
   const right = candidate.map((timing) => normalizeWord(timing.word));
-  const table = createLcsTable(left, right);
+  const table = createLcsTable(left, right, (leftIndex, rightIndex) =>
+    timingsAreCompatible(reference[leftIndex], candidate[rightIndex]),
+  );
   const aligned = new Map<number, SupportedWordTiming>();
+  const matchedCandidateIndexes = new Set<number>();
   let leftIndex = left.length;
   let rightIndex = right.length;
 
   while (leftIndex > 0 && rightIndex > 0) {
-    if (left[leftIndex - 1] === right[rightIndex - 1]) {
+    if (
+      timingsAreCompatible(
+        reference[leftIndex - 1],
+        candidate[rightIndex - 1],
+      ) &&
+      table[leftIndex][rightIndex] === table[leftIndex - 1][rightIndex - 1] + 1
+    ) {
       aligned.set(leftIndex - 1, candidate[rightIndex - 1]);
+      matchedCandidateIndexes.add(rightIndex - 1);
       leftIndex -= 1;
       rightIndex -= 1;
     } else if (
@@ -203,7 +270,23 @@ function alignWordSequences(
     }
   }
 
-  return aligned;
+  const orderedMatches = [...aligned.entries()].sort(
+    (leftMatch, rightMatch) => leftMatch[0] - rightMatch[0],
+  );
+  const unmatched = candidate.flatMap((timing, candidateIndex) => {
+    if (matchedCandidateIndexes.has(candidateIndex)) return [];
+    let gapIndex = reference.length;
+    for (const [referenceIndex, matchedTiming] of orderedMatches) {
+      const matchedCandidateIndex = candidate.indexOf(matchedTiming);
+      if (matchedCandidateIndex > candidateIndex) {
+        gapIndex = referenceIndex;
+        break;
+      }
+    }
+    return [{ gapIndex, timing }];
+  });
+
+  return { matches: aligned, unmatched };
 }
 
 function longestCommonSubsequence(
@@ -216,7 +299,10 @@ function longestCommonSubsequence(
   let rightIndex = right.length;
 
   while (leftIndex > 0 && rightIndex > 0) {
-    if (left[leftIndex - 1] === right[rightIndex - 1]) {
+    if (
+      wordsAreCompatible(left[leftIndex - 1], right[rightIndex - 1]) &&
+      table[leftIndex][rightIndex] === table[leftIndex - 1][rightIndex - 1] + 1
+    ) {
       result.push(left[leftIndex - 1]);
       leftIndex -= 1;
       rightIndex -= 1;
@@ -232,7 +318,14 @@ function longestCommonSubsequence(
   return result.reverse();
 }
 
-function createLcsTable(left: readonly string[], right: readonly string[]) {
+function createLcsTable(
+  left: readonly string[],
+  right: readonly string[],
+  compatible: (leftIndex: number, rightIndex: number) => boolean = (
+    leftIndex,
+    rightIndex,
+  ) => wordsAreCompatible(left[leftIndex], right[rightIndex]),
+) {
   const table = Array.from(
     { length: left.length + 1 },
     () => new Uint16Array(right.length + 1),
@@ -240,17 +333,173 @@ function createLcsTable(left: readonly string[], right: readonly string[]) {
 
   for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
     for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
-      table[leftIndex][rightIndex] =
-        left[leftIndex - 1] === right[rightIndex - 1]
-          ? table[leftIndex - 1][rightIndex - 1] + 1
-          : Math.max(
-              table[leftIndex - 1][rightIndex],
-              table[leftIndex][rightIndex - 1],
-            );
+      table[leftIndex][rightIndex] = compatible(leftIndex - 1, rightIndex - 1)
+        ? table[leftIndex - 1][rightIndex - 1] + 1
+        : Math.max(
+            table[leftIndex - 1][rightIndex],
+            table[leftIndex][rightIndex - 1],
+          );
     }
   }
 
   return table;
+}
+
+function recoverSharedInsertions(
+  alignedHypotheses: readonly {
+    readonly hypothesis: LexicalHypothesis;
+    readonly alignment: Alignment;
+  }[],
+  hypothesisCount: number,
+): readonly SupportedWordTiming[] {
+  if (hypothesisCount < 3) return [];
+  const clusters: Array<{
+    readonly gapIndex: number;
+    readonly members: Array<{
+      readonly hypothesis: LexicalHypothesis;
+      readonly timing: SupportedWordTiming;
+    }>;
+  }> = [];
+
+  for (const { hypothesis, alignment } of alignedHypotheses) {
+    for (const unmatched of alignment.unmatched) {
+      const cluster = clusters.find(
+        (candidate) =>
+          candidate.gapIndex === unmatched.gapIndex &&
+          !candidate.members.some(
+            (member) => member.hypothesis === hypothesis,
+          ) &&
+          candidate.members.some((member) =>
+            timingsAreCompatible(member.timing, unmatched.timing),
+          ),
+      );
+      if (cluster === undefined) {
+        clusters.push({
+          gapIndex: unmatched.gapIndex,
+          members: [{ hypothesis, timing: unmatched.timing }],
+        });
+      } else {
+        cluster.members.push({ hypothesis, timing: unmatched.timing });
+      }
+    }
+  }
+
+  return clusters.flatMap(({ members }) => {
+    if (members.length < 2) return [];
+    const timings = members.map(({ timing }) => timing);
+    const representative = members
+      .slice()
+      .sort(
+        (left, right) =>
+          hypothesisWeight(right.hypothesis) -
+          hypothesisWeight(left.hypothesis),
+      )[0].timing;
+    const acousticSupport = roundRate(
+      mean(timings.map((timing) => timing.acousticSupport)),
+    );
+    const agreement = members.length / hypothesisCount;
+    const startMs = Math.max(
+      0,
+      Math.round(median(timings.map(({ startMs }) => startMs))),
+    );
+    return [
+      {
+        ...representative,
+        word: chooseConsensusWord(
+          representative,
+          timings.filter((timing) => timing !== representative),
+        ),
+        startMs,
+        endMs: Math.max(
+          startMs + 1,
+          Math.round(median(timings.map(({ endMs }) => endMs))),
+        ),
+        acousticSupport,
+        evidence: "multi_pass_consensus" as const,
+        confidence: roundRate(0.22 + agreement * 0.55 + acousticSupport * 0.23),
+        consensusVotes: members.length,
+      },
+    ];
+  });
+}
+
+function timingsAreCompatible(
+  left: SupportedWordTiming,
+  right: SupportedWordTiming,
+): boolean {
+  if (
+    !wordsAreCompatible(normalizeWord(left.word), normalizeWord(right.word))
+  ) {
+    return false;
+  }
+  const leftMiddle = (left.startMs + left.endMs) / 2;
+  const rightMiddle = (right.startMs + right.endMs) / 2;
+  const tolerance = Math.max(
+    450,
+    Math.min(
+      1_200,
+      Math.max(left.endMs - left.startMs, right.endMs - right.startMs) * 1.5,
+    ),
+  );
+  return Math.abs(leftMiddle - rightMiddle) <= tolerance;
+}
+
+function wordsAreCompatible(left: string, right: string): boolean {
+  if (left === right) return left !== "";
+  const longest = Math.max(left.length, right.length);
+  const shortest = Math.min(left.length, right.length);
+  if (shortest < 4 || longest - shortest > 2) return false;
+  return 1 - editDistance(left, right) / longest >= (longest <= 5 ? 0.8 : 0.72);
+}
+
+function editDistance(left: string, right: string): number {
+  const previous = new Uint16Array(right.length + 1);
+  const current = new Uint16Array(right.length + 1);
+  for (let index = 0; index <= right.length; index += 1)
+    previous[index] = index;
+  for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
+    current[0] = leftIndex;
+    for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
+      current[rightIndex] = Math.min(
+        previous[rightIndex] + 1,
+        current[rightIndex - 1] + 1,
+        previous[rightIndex - 1] +
+          (left[leftIndex - 1] === right[rightIndex - 1] ? 0 : 1),
+      );
+    }
+    previous.set(current);
+  }
+  return previous[right.length];
+}
+
+function chooseConsensusWord(
+  reference: SupportedWordTiming,
+  candidates: readonly SupportedWordTiming[],
+): string {
+  const counts = new Map<string, { count: number; surface: string }>();
+  for (const timing of [reference, ...candidates]) {
+    const normalized = normalizeWord(timing.word);
+    const current = counts.get(normalized);
+    counts.set(normalized, {
+      count: (current?.count ?? 0) + 1,
+      surface: current?.surface ?? timing.word,
+    });
+  }
+  return [...counts.values()].sort((left, right) => right.count - left.count)[0]
+    .surface;
+}
+
+function hypothesisWeight(hypothesis: LexicalHypothesis): number {
+  return (
+    (hypothesis.model === "base" ? 2 : 0) +
+    (hypothesis.signal === "spectral_vocal" ? 1 : 0)
+  );
+}
+
+function mean(values: readonly number[]): number {
+  return (
+    values.reduce((sum, value) => sum + value, 0) / Math.max(values.length, 1)
+  );
 }
 
 function tokenize(value: string): readonly string[] {

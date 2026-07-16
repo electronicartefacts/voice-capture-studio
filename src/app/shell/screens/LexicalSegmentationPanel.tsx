@@ -61,9 +61,10 @@ export function LexicalSegmentationPanel(input: {
           localement les mots proposés aux zones vocales avant de préparer les
           extraits WAV. L'app compare automatiquement plusieurs écoutes lorsque
           le mix est complexe : original, voix centrale et séparation spectrale.
-          Les mots concordants sont recalés ensemble, sans modifier l'audio
-          exporté. Les résultats incertains restent signalés et rien ne quitte
-          cet appareil.
+          Les variantes proches sont rapprochées, les mots entendus par
+          plusieurs passes sont récupérés et les propositions isolées sont
+          écartées, sans modifier l'audio exporté. Les résultats incertains
+          restent signalés et rien ne quitte cet appareil.
         </p>
       </div>
 
@@ -225,13 +226,15 @@ function formatPasses(result: ImportedMediaSegmentationResult): string {
   const processing = result.manifest.processing;
 
   const passes = `${processing.transcriptionPasses} passages locaux`;
+  const consensus = processing.consensus;
+  const arbitration = ` · ${consensus.recoveredWordCount} récupéré${consensus.recoveredWordCount > 1 ? "s" : ""}, ${consensus.rejectedSingletonCount} isolé${consensus.rejectedSingletonCount > 1 ? "s" : ""} écarté${consensus.rejectedSingletonCount > 1 ? "s" : ""}`;
   if (processing.selectedSignal === "spectral_vocal") {
-    return `${passes} · séparation spectrale retenue`;
+    return `${passes} · séparation spectrale retenue${arbitration}`;
   }
   if (processing.selectedSignal === "vocal_focus") {
-    return `${passes} · isolation centrale retenue`;
+    return `${passes} · isolation centrale retenue${arbitration}`;
   }
-  return `${passes} · consensus sur l'original`;
+  return `${passes} · consensus sur l'original${arbitration}`;
 }
 
 function formatProfile(profile: "balanced" | "compatible"): string {
