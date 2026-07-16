@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { readStoredZipEntries } from "../src/app/export/zipReader";
+import { createZipBlobOffThread } from "../src/app/export/zipService";
 import { createZipBlob } from "../src/app/export/zipWriter";
 
 test("zip writer produces an archive readable by a standard unzip tool", async () => {
@@ -50,6 +51,20 @@ test("zip reader verifies and restores every stored entry", async () => {
   assert.deepEqual(
     new Uint8Array(await entries.get("audio/hash.wav")!.arrayBuffer()),
     new Uint8Array([1, 2, 3]),
+  );
+});
+
+test("off-thread ZIP creation honors an existing cancellation", async () => {
+  const abortController = new AbortController();
+  abortController.abort();
+
+  await assert.rejects(
+    () =>
+      createZipBlobOffThread(
+        [{ path: "manifest.json", data: new Blob(["manifest"]) }],
+        abortController.signal,
+      ),
+    (error: unknown) => error instanceof Error && error.name === "AbortError",
   );
 });
 

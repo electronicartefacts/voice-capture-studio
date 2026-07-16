@@ -64,6 +64,12 @@ keeping a complete song practical. The manifest records the number of passes,
 the selected signal, the unresolved source-separation state, and whether the
 vocal-focus retry helped. These fields describe evidence, not certainty.
 
+The shared inference worker serializes requests so two panels cannot run the
+same ONNX sessions concurrently. Both post-capture analysis and lexical import
+expose cancellation; cancellation terminates the worker, rejects pending work,
+and lets the next request rebuild a clean runtime. ZIP creation observes the
+same signal instead of silently falling back after the user has stopped a job.
+
 ## Browser Ceiling
 
 The Web Speech API can provide transcripts and confidence estimates, but MDN marks the relevant

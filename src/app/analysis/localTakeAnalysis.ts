@@ -14,6 +14,7 @@ const ANALYSIS_SAMPLE_RATE = 16_000;
 
 let sharedWorker: Worker | null = null;
 let nextRequestId = 1;
+const pendingAnalysisRequests = new Map<number, (reason: Error) => void>();
 
 type WindowWithAudioConstructors = Window & {
   webkitAudioContext?: typeof AudioContext;
@@ -39,13 +40,17 @@ export async function analyzeTakeAudio(input: {
   readonly expectedText: string;
   readonly language: string;
   readonly onProgress: (progress: LocalAnalysisProgress) => void;
+  readonly signal?: AbortSignal;
 }): Promise<LocalTakeAnalysis> {
+  throwIfAnalysisAborted(input.signal);
   const audio = await decodeAudioToMono16k(input.audioBlob);
+  throwIfAnalysisAborted(input.signal);
   return analyzeDecodedAudio({
     audio,
     expectedText: input.expectedText,
     language: input.language,
     onProgress: input.onProgress,
+    signal: input.signal,
   });
 }
 
@@ -55,7 +60,9 @@ export async function analyzeDecodedAudio(input: {
   readonly language: string;
   readonly processingProfile?: LocalProcessingProfile;
   readonly onProgress: (progress: LocalAnalysisProgress) => void;
+  readonly signal?: AbortSignal;
 }): Promise<LocalTakeAnalysis> {
+  throwIfAnalysisAborted(input.signal);
   const audio = input.audio;
   // `postMessage` transfers the backing buffer to the worker below. Keep the
   // duration while this side still owns the samples, otherwise the detached
@@ -69,9 +76,18 @@ export async function analyzeDecodedAudio(input: {
   const { transcript, speechSegments, whisperWords } = await new Promise<
     Extract<AnalysisWorkerResponse, { kind: "result" }>
   >((resolve, reject) => {
+    let settled = false;
     const cleanup = () => {
       worker.removeEventListener("message", onMessage);
       worker.removeEventListener("error", onError);
+      input.signal?.removeEventListener("abort", onAbort);
+      pendingAnalysisRequests.delete(id);
+    };
+    const fail = (reason: Error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(reason);
     };
     const onMessage = (event: MessageEvent<AnalysisWorkerResponse>) => {
       if (event.data.id !== id) {
@@ -83,6 +99,7 @@ export async function analyzeDecodedAudio(input: {
         return;
       }
 
+      settled = true;
       cleanup();
 
       if (event.data.kind === "result") {
@@ -93,12 +110,26 @@ export async function analyzeDecodedAudio(input: {
     };
 
     const onError = () => {
-      cleanup();
-      reject(new Error("Le worker d'analyse locale a échoué."));
+      terminateLocalAnalysisWorker(
+        new Error("Le worker d'analyse locale a échoué."),
+        worker,
+      );
     };
+    const onAbort = () =>
+      terminateLocalAnalysisWorker(
+        getAnalysisAbortReason(input.signal),
+        worker,
+      );
 
     worker.addEventListener("message", onMessage);
     worker.addEventListener("error", onError, { once: true });
+    input.signal?.addEventListener("abort", onAbort, { once: true });
+    pendingAnalysisRequests.set(id, fail);
+
+    if (input.signal?.aborted) {
+      onAbort();
+      return;
+    }
 
     const request: AnalysisWorkerRequest = {
       id,
@@ -136,6 +167,14 @@ export async function analyzeDecodedAudio(input: {
   };
 }
 
+export function cancelLocalAnalysis(): void {
+  terminateLocalAnalysisWorker(createAnalysisAbortError());
+}
+
+export function isLocalAnalysisAbort(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
+}
+
 export function getAnalysisDurationMs(audio: Float32Array): number {
   return (audio.length / ANALYSIS_SAMPLE_RATE) * 1000;
 }
@@ -149,6 +188,31 @@ function getAnalysisWorker(): Worker {
   }
 
   return sharedWorker;
+}
+
+function terminateLocalAnalysisWorker(reason: Error, worker = sharedWorker) {
+  if (worker === null || sharedWorker !== worker) return;
+
+  sharedWorker = null;
+  worker.terminate();
+  const cancellations = [...pendingAnalysisRequests.values()];
+  pendingAnalysisRequests.clear();
+
+  for (const cancel of cancellations) cancel(reason);
+}
+
+function throwIfAnalysisAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw getAnalysisAbortReason(signal);
+}
+
+function getAnalysisAbortReason(signal?: AbortSignal): Error {
+  return signal?.reason instanceof Error
+    ? signal.reason
+    : createAnalysisAbortError();
+}
+
+function createAnalysisAbortError(): DOMException {
+  return new DOMException("Analyse locale annulée.", "AbortError");
 }
 
 function getAssetsBaseUrl(): string {

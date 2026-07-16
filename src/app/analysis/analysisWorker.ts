@@ -63,6 +63,7 @@ const workerScope = globalThis as unknown as WorkerScope;
 
 let transcriberPromise: Promise<Transcriber> | null = null;
 let vadPromise: Promise<{ ort: OrtModule; session: VadSession }> | null = null;
+let analysisQueue = Promise.resolve();
 
 async function loadTranscriber(
   assetsBaseUrl: string,
@@ -310,7 +311,10 @@ async function analyze(request: AnalysisWorkerRequest): Promise<void> {
 }
 
 workerScope.addEventListener("message", (event) => {
-  void analyze(event.data);
+  analysisQueue = analysisQueue.then(
+    () => analyze(event.data),
+    () => analyze(event.data),
+  );
 });
 
 function createWasmPaths(assetsBaseUrl: string): {

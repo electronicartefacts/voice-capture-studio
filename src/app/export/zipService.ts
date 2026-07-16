@@ -10,9 +10,14 @@ let nextRequestId = 1;
  */
 export async function createZipBlobOffThread(
   entries: readonly ZipEntryInput[],
+  signal?: AbortSignal,
 ): Promise<Blob> {
+  throwIfZipAborted(signal);
+
   if (typeof Worker === "undefined") {
-    return createZipBlob(entries);
+    const archive = createZipBlob(entries);
+    throwIfZipAborted(signal);
+    return archive;
   }
 
   let worker: Worker;
@@ -26,9 +31,12 @@ export async function createZipBlobOffThread(
   }
 
   try {
-    return await runZipWorker(worker, entries);
-  } catch {
-    return createZipBlob(entries);
+    return await runZipWorker(worker, entries, signal);
+  } catch (error) {
+    if (isZipAbort(error) || signal?.aborted) throw getZipAbortReason(signal);
+    const archive = createZipBlob(entries);
+    throwIfZipAborted(signal);
+    return archive;
   } finally {
     worker.terminate();
   }
@@ -37,6 +45,7 @@ export async function createZipBlobOffThread(
 function runZipWorker(
   worker: Worker,
   entries: readonly ZipEntryInput[],
+  signal?: AbortSignal,
 ): Promise<Blob> {
   return new Promise((resolve, reject) => {
     const id = nextRequestId;
@@ -45,6 +54,7 @@ function runZipWorker(
     const cleanup = () => {
       worker.removeEventListener("message", onMessage);
       worker.removeEventListener("error", onError);
+      signal?.removeEventListener("abort", onAbort);
     };
     const onMessage = (event: MessageEvent<ZipWorkerResponse>) => {
       if (event.data.id !== id) {
@@ -63,12 +73,36 @@ function runZipWorker(
       cleanup();
       reject(new Error("Le worker d'archive ZIP a échoué."));
     };
+    const onAbort = () => {
+      cleanup();
+      reject(getZipAbortReason(signal));
+    };
 
     worker.addEventListener("message", onMessage);
     worker.addEventListener("error", onError, { once: true });
+    signal?.addEventListener("abort", onAbort, { once: true });
+
+    if (signal?.aborted) {
+      onAbort();
+      return;
+    }
 
     const request: ZipWorkerRequest = { id, entries };
 
     worker.postMessage(request);
   });
+}
+
+function throwIfZipAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw getZipAbortReason(signal);
+}
+
+function getZipAbortReason(signal?: AbortSignal): Error {
+  return signal?.reason instanceof Error
+    ? signal.reason
+    : new DOMException("Création de l'archive annulée.", "AbortError");
+}
+
+function isZipAbort(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
 }

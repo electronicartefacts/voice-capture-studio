@@ -27,7 +27,9 @@ import {
 } from "../../audio/reviewWordTimings";
 import {
   analyzeTakeAudio,
+  cancelLocalAnalysis,
   isLocalAnalysisSupported,
+  isLocalAnalysisAbort,
 } from "../../analysis/localTakeAnalysis";
 import type {
   LocalAnalysisProgress,
@@ -1083,35 +1085,62 @@ function LocalAnalysisPanel(input: {
   readonly onAnalysis: (analysis: LocalTakeAnalysis) => void;
 }) {
   const [state, setState] = useState<LocalAnalysisState>({ status: "idle" });
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
+    abortControllerRef.current?.abort();
     setState({ status: "idle" });
+
+    return () => abortControllerRef.current?.abort();
   }, [input.takeId]);
 
   async function runAnalysis() {
+    abortControllerRef.current?.abort();
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
     setState({
       status: "running",
       progress: { stage: "loading-model", progressPercent: 0 },
     });
 
     try {
-      const audioBlob = await (await fetch(input.audioUrl)).blob();
+      const audioBlob = await (
+        await fetch(input.audioUrl, { signal: abortController.signal })
+      ).blob();
       const analysis = await analyzeTakeAudio({
         audioBlob,
         expectedText: input.expectedText,
         language: input.language,
-        onProgress: (progress) => setState({ status: "running", progress }),
+        onProgress: (progress) => {
+          if (!abortController.signal.aborted) {
+            setState({ status: "running", progress });
+          }
+        },
+        signal: abortController.signal,
       });
 
       setState({ status: "done", analysis });
       input.onAnalysis(analysis);
     } catch (error) {
+      if (isLocalAnalysisAbort(error)) {
+        setState({ status: "idle" });
+        return;
+      }
       setState({
         status: "error",
         message:
           error instanceof Error ? error.message : "L'analyse locale a échoué.",
       });
+    } finally {
+      if (abortControllerRef.current === abortController) {
+        abortControllerRef.current = null;
+      }
     }
+  }
+
+  function cancelAnalysis() {
+    abortControllerRef.current?.abort();
+    cancelLocalAnalysis();
   }
 
   return (
@@ -1143,9 +1172,18 @@ function LocalAnalysisPanel(input: {
       )}
 
       {state.status === "running" && (
-        <p aria-live="polite" className="local-analysis-progress">
-          {formatAnalysisProgress(state.progress)}
-        </p>
+        <>
+          <p aria-live="polite" className="local-analysis-progress">
+            {formatAnalysisProgress(state.progress)}
+          </p>
+          <button
+            className="quiet-button standalone"
+            onClick={cancelAnalysis}
+            type="button"
+          >
+            Annuler l'analyse
+          </button>
+        </>
       )}
 
       {state.status === "error" && (

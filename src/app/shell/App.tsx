@@ -435,6 +435,7 @@ export function App() {
   const datasetZipUrlRef = useRef<string | null>(null);
   const workspaceArchiveUrlRef = useRef<string | null>(null);
   const lexicalSegmentationUrlRef = useRef<string | null>(null);
+  const lexicalSegmentationAbortRef = useRef<AbortController | null>(null);
   const ambientMonitorRef = useRef<AmbientMicrophoneMonitor | null>(null);
   const isPersistingRef = useRef(false);
   const roomToneCaptureTimerRef = useRef<number | null>(null);
@@ -779,6 +780,7 @@ export function App() {
       revokeObjectUrl(datasetZipUrlRef.current);
       revokeObjectUrl(workspaceArchiveUrlRef.current);
       revokeObjectUrl(lexicalSegmentationUrlRef.current);
+      lexicalSegmentationAbortRef.current?.abort();
       revokeStoredRecordingUrls();
     };
   }, []);
@@ -2112,11 +2114,17 @@ export function App() {
   }
 
   function clearLexicalSegmentation() {
+    lexicalSegmentationAbortRef.current?.abort();
     revokeObjectUrl(lexicalSegmentationUrlRef.current);
     lexicalSegmentationUrlRef.current = null;
     setLexicalSegmentationFile(null);
     setLexicalSegmentationState({ status: "idle" });
     setMessage(createModeMessage("lexical-segmentation"));
+  }
+
+  function cancelLexicalSegmentation() {
+    lexicalSegmentationAbortRef.current?.abort();
+    setMessage("Annulation de l'analyse locale…");
   }
 
   async function runLexicalSegmentation() {
@@ -2128,6 +2136,9 @@ export function App() {
 
     revokeObjectUrl(lexicalSegmentationUrlRef.current);
     lexicalSegmentationUrlRef.current = null;
+    lexicalSegmentationAbortRef.current?.abort();
+    const abortController = new AbortController();
+    lexicalSegmentationAbortRef.current = abortController;
     setLexicalSegmentationState({
       status: "running",
       progress: { stage: "loading-model", progressPercent: 0 },
@@ -2140,8 +2151,12 @@ export function App() {
       const result = await segmentImportedMedia({
         file,
         language: selectedLanguage,
-        onProgress: (progress) =>
-          setLexicalSegmentationState({ status: "running", progress }),
+        onProgress: (progress) => {
+          if (!abortController.signal.aborted) {
+            setLexicalSegmentationState({ status: "running", progress });
+          }
+        },
+        signal: abortController.signal,
       });
       const downloadUrl = URL.createObjectURL(result.archive);
       lexicalSegmentationUrlRef.current = downloadUrl;
@@ -2152,6 +2167,11 @@ export function App() {
           : `${result.manifest.words.length} mot${result.manifest.words.length > 1 ? "s" : ""} acoustiquement soutenu${result.manifest.words.length > 1 ? "s" : ""} et découpé${result.manifest.words.length > 1 ? "s" : ""}. Vérification humaine recommandée.`,
       );
     } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        setLexicalSegmentationState({ status: "idle" });
+        setMessage("Analyse annulée. Le média reste prêt sur cet appareil.");
+        return;
+      }
       const failureMessage =
         error instanceof Error
           ? error.message
@@ -2161,6 +2181,10 @@ export function App() {
         message: failureMessage,
       });
       setMessage(failureMessage);
+    } finally {
+      if (lexicalSegmentationAbortRef.current === abortController) {
+        lexicalSegmentationAbortRef.current = null;
+      }
     }
   }
 
@@ -3908,6 +3932,7 @@ export function App() {
                   onDubbingYouTubeUrl={loadDubbingYouTubeUrl}
                   onLanguageChange={selectLanguage}
                   onLexicalSegmentationClear={clearLexicalSegmentation}
+                  onLexicalSegmentationCancel={cancelLexicalSegmentation}
                   onLexicalSegmentationFile={loadLexicalSegmentationFile}
                   onProfileChange={updateCaptureProfile}
                   onRefreshDiagnostics={() => void refreshDiagnostics()}

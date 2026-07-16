@@ -22,6 +22,7 @@ export type LexicalSegmentationState =
 export function LexicalSegmentationPanel(input: {
   readonly file: File | null;
   readonly language: LanguageCode;
+  readonly onCancel: () => void;
   readonly onClear: () => void;
   readonly onFile: (file: File) => void;
   readonly onLanguageChange: (language: LanguageCode) => void;
@@ -121,9 +122,18 @@ export function LexicalSegmentationPanel(input: {
       )}
 
       {input.state.status === "running" && (
-        <p aria-live="polite" className="local-analysis-progress">
-          {formatProgress(input.state.progress)}
-        </p>
+        <>
+          <p className="local-analysis-progress" aria-live="polite">
+            {formatProgress(input.state.progress)}
+          </p>
+          <button
+            className="quiet-button standalone"
+            onClick={input.onCancel}
+            type="button"
+          >
+            Annuler l'analyse
+          </button>
+        </>
       )}
 
       {input.state.status === "error" && (

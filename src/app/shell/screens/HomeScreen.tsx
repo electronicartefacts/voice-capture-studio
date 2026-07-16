@@ -103,6 +103,7 @@ export function HomeScreen(input: {
   readonly onDubbingVideoChange: (file: File) => void;
   readonly onDubbingYouTubeUrl: (url: string) => void;
   readonly onLanguageChange: (language: LanguageCode) => void;
+  readonly onLexicalSegmentationCancel: () => void;
   readonly onLexicalSegmentationClear: () => void;
   readonly onLexicalSegmentationFile: (file: File) => void;
   readonly onProfileChange: (profile: CaptureProfile) => void;
@@ -348,6 +349,7 @@ export function HomeScreen(input: {
             file={input.lexicalSegmentationFile}
             language={input.language}
             onClear={input.onLexicalSegmentationClear}
+            onCancel={input.onLexicalSegmentationCancel}
             onFile={input.onLexicalSegmentationFile}
             onLanguageChange={input.onLanguageChange}
             state={input.lexicalSegmentationState}

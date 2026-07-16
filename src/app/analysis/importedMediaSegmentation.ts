@@ -83,9 +83,14 @@ export async function segmentImportedMedia(input: {
   readonly language: string;
   readonly onProgress: (progress: LocalAnalysisProgress) => void;
   readonly now?: Date;
+  readonly signal?: AbortSignal;
 }): Promise<ImportedMediaSegmentationResult> {
+  throwIfAborted(input.signal);
   assertImportedMediaWithinLimits({ sizeBytes: input.file.size });
-  const metadataDurationMs = await probeMediaDurationMs(input.file);
+  const metadataDurationMs = await probeMediaDurationMs(
+    input.file,
+    input.signal,
+  );
   assertImportedMediaWithinLimits({
     sizeBytes: input.file.size,
     durationMs: metadataDurationMs,
@@ -99,6 +104,7 @@ export async function segmentImportedMedia(input: {
       "La piste audio de ce média n'est pas décodable ici. Essaie un WAV, MP3, M4A, MP4 ou WebM compatible avec ce navigateur.",
     );
   }
+  throwIfAborted(input.signal);
   const durationMs = Math.round(
     (audio.length / SEGMENTATION_SAMPLE_RATE) * 1000,
   );
@@ -113,6 +119,7 @@ export async function segmentImportedMedia(input: {
     language: input.language,
     processingProfile,
     onProgress: input.onProgress,
+    signal: input.signal,
   });
   input.onProgress({ stage: "validating-result" });
   let assessment = assessLexicalSegmentation({
@@ -139,6 +146,7 @@ export async function segmentImportedMedia(input: {
       language: input.language,
       processingProfile,
       onProgress: input.onProgress,
+      signal: input.signal,
     });
     input.onProgress({ stage: "validating-result" });
     const vocalFocusAssessment = assessLexicalSegmentation({
@@ -228,9 +236,13 @@ export async function segmentImportedMedia(input: {
       data: encodeWordSegment(audio, word),
     })),
   ];
+  throwIfAborted(input.signal);
+
+  const archive = await createZipBlobOffThread(entries, input.signal);
+  throwIfAborted(input.signal);
 
   return {
-    archive: await createZipBlobOffThread(entries),
+    archive,
     fileName: `${fileStem(input.file.name)}.decoupe-lexicale.zip`,
     manifest,
   };
@@ -390,7 +402,11 @@ function detectProcessingProfile(durationMs: number): LocalProcessingProfile {
   });
 }
 
-async function probeMediaDurationMs(file: File): Promise<number | null> {
+async function probeMediaDurationMs(
+  file: File,
+  signal?: AbortSignal,
+): Promise<number | null> {
+  throwIfAborted(signal);
   if (
     typeof Audio === "undefined" ||
     typeof URL === "undefined" ||
@@ -402,19 +418,34 @@ async function probeMediaDurationMs(file: File): Promise<number | null> {
   const media = new Audio();
   const objectUrl = URL.createObjectURL(file);
 
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     let settled = false;
-    const finish = (durationMs: number | null) => {
-      if (settled) return;
-      settled = true;
+    const cleanup = () => {
       window.clearTimeout(timeoutId);
+      signal?.removeEventListener("abort", onAbort);
       media.removeAttribute("src");
       media.load();
       URL.revokeObjectURL(objectUrl);
+    };
+    const finish = (durationMs: number | null) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
       resolve(durationMs);
+    };
+    const onAbort = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(getAbortReason(signal));
     };
     const timeoutId = window.setTimeout(() => finish(null), 5_000);
 
+    signal?.addEventListener("abort", onAbort, { once: true });
+    if (signal?.aborted) {
+      onAbort();
+      return;
+    }
     media.preload = "metadata";
     media.onloadedmetadata = () =>
       finish(
@@ -426,6 +457,16 @@ async function probeMediaDurationMs(file: File): Promise<number | null> {
     media.src = objectUrl;
     media.load();
   });
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw getAbortReason(signal);
+}
+
+function getAbortReason(signal?: AbortSignal): Error {
+  return signal?.reason instanceof Error
+    ? signal.reason
+    : new DOMException("Analyse locale annulée.", "AbortError");
 }
 
 function isVideoSource(file: File): boolean {
