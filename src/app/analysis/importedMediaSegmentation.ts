@@ -8,6 +8,10 @@ import {
 } from "./localTakeAnalysis";
 import { separateVocalsOffThread } from "./localSpectralVocalSeparation";
 import {
+  applyVocalActivityMask,
+  mergeVocalActivitySegments,
+} from "./vocalActivityMask";
+import {
   buildLexicalConsensus,
   transcriptAgreement,
   type LexicalHypothesis,
@@ -36,7 +40,7 @@ export type ImportedMediaSegmentationResult = {
 };
 
 export type WordSegmentationManifest = {
-  readonly schemaVersion: "voice.word_segmentation.v4";
+  readonly schemaVersion: "voice.word_segmentation.v5";
   readonly createdAt: string;
   readonly source: {
     readonly fileName: string;
@@ -79,6 +83,8 @@ export type WordSegmentationManifest = {
       readonly wordCount: number;
       readonly provider: "wasm" | "webgpu";
       readonly decoding: "greedy" | "beam";
+      readonly activityMaskApplied: boolean;
+      readonly activityCoverage: number;
     }[];
     readonly consensus: {
       readonly strategy: "temporal_fuzzy_majority";
@@ -180,6 +186,11 @@ export async function segmentImportedMedia(input: {
       analysis: tinyAnalysis,
       assessment: tinyAssessment,
       decodingStrategy: "greedy",
+      activityMaskApplied: false,
+      activityCoverage: segmentCoverage(
+        tinyAnalysis.speechSegments,
+        durationMs,
+      ),
     },
   ];
   let sourceSeparation:
@@ -221,6 +232,11 @@ export async function segmentImportedMedia(input: {
       analysis: baseOriginalAnalysis,
       assessment: baseOriginalAssessment,
       decodingStrategy: processingProfile === "balanced" ? "beam" : "greedy",
+      activityMaskApplied: false,
+      activityCoverage: segmentCoverage(
+        baseOriginalAnalysis.speechSegments,
+        durationMs,
+      ),
     });
 
     const focusDifference = normalizedSignalDifference(audio, vocalFocusSignal);
@@ -236,8 +252,16 @@ export async function segmentImportedMedia(input: {
     if (needsMusicalEnsemble && focusDifference > 0.015) {
       input.onProgress({ stage: "enhancing-vocals" });
       const focusedActivity = detectFocusedVocalActivity(vocalFocusSignal);
+      const combinedActivity = mergeVocalActivitySegments(
+        [tinyAnalysis.speechSegments, focusedActivity],
+        durationMs,
+      );
+      const vocalMask = applyVocalActivityMask({
+        signal: vocalFocusSignal,
+        segments: combinedActivity,
+      });
       const vocalFocusAnalysis = await analyzeDecodedAudio({
-        audio: vocalFocusSignal,
+        audio: vocalMask.signal,
         expectedText: "",
         language: input.language,
         processingProfile,
@@ -248,9 +272,11 @@ export async function segmentImportedMedia(input: {
       });
       const vocalFocusAssessment = assessLexicalSegmentation({
         timings: vocalFocusAnalysis.whisperWords,
-        speechSegments: chooseMusicActivitySegments(
-          vocalFocusAnalysis.speechSegments,
-          focusedActivity,
+        speechSegments: mergeVocalActivitySegments(
+          [vocalFocusAnalysis.speechSegments, combinedActivity],
+          durationMs,
+          30,
+          120,
         ),
       });
       hypotheses.push({
@@ -260,6 +286,8 @@ export async function segmentImportedMedia(input: {
         analysis: vocalFocusAnalysis,
         assessment: vocalFocusAssessment,
         decodingStrategy: "greedy",
+        activityMaskApplied: vocalMask.applied,
+        activityCoverage: vocalMask.retainedRatio,
       });
       vocalFocus = "not_selected";
     }
@@ -280,8 +308,16 @@ export async function segmentImportedMedia(input: {
         };
         if (normalizedSignalDifference(audio, separated.signal) > 0.015) {
           const spectralActivity = detectFocusedVocalActivity(separated.signal);
+          const combinedActivity = mergeVocalActivitySegments(
+            [tinyAnalysis.speechSegments, spectralActivity],
+            durationMs,
+          );
+          const spectralMask = applyVocalActivityMask({
+            signal: separated.signal,
+            segments: combinedActivity,
+          });
           const spectralAnalysis = await analyzeDecodedAudio({
-            audio: separated.signal,
+            audio: spectralMask.signal,
             expectedText: "",
             language: input.language,
             processingProfile,
@@ -292,9 +328,11 @@ export async function segmentImportedMedia(input: {
           });
           const spectralAssessment = assessLexicalSegmentation({
             timings: spectralAnalysis.whisperWords,
-            speechSegments: chooseMusicActivitySegments(
-              spectralAnalysis.speechSegments,
-              spectralActivity,
+            speechSegments: mergeVocalActivitySegments(
+              [spectralAnalysis.speechSegments, combinedActivity],
+              durationMs,
+              30,
+              120,
             ),
           });
           hypotheses.push({
@@ -304,6 +342,8 @@ export async function segmentImportedMedia(input: {
             analysis: spectralAnalysis,
             assessment: spectralAssessment,
             decodingStrategy: "greedy",
+            activityMaskApplied: spectralMask.applied,
+            activityCoverage: spectralMask.retainedRatio,
           });
         }
       } catch (error) {
@@ -344,7 +384,7 @@ export async function segmentImportedMedia(input: {
   const supportedTranscript = words.map((word) => word.word).join(" ");
   const createdAt = (input.now ?? new Date()).toISOString();
   const manifest: WordSegmentationManifest = {
-    schemaVersion: "voice.word_segmentation.v4",
+    schemaVersion: "voice.word_segmentation.v5",
     createdAt,
     source: {
       fileName: input.file.name,
@@ -387,6 +427,8 @@ export async function segmentImportedMedia(input: {
         wordCount: hypothesis.assessment.acceptedTimings.length,
         provider: hypothesis.analysis.executionProvider,
         decoding: hypothesis.decodingStrategy,
+        activityMaskApplied: hypothesis.activityMaskApplied,
+        activityCoverage: hypothesis.activityCoverage,
       })),
       consensus: {
         strategy: "temporal_fuzzy_majority",
@@ -706,28 +748,19 @@ function asPassCount(value: number): 1 | 2 | 3 | 4 {
   return Math.min(4, Math.max(1, value)) as 1 | 2 | 3 | 4;
 }
 
-function chooseMusicActivitySegments(
-  speechSegments: readonly {
-    readonly startMs: number;
-    readonly endMs: number;
-  }[],
-  focusedSegments: readonly {
-    readonly startMs: number;
-    readonly endMs: number;
-  }[],
-) {
-  if (focusedSegments.length === 0) return speechSegments;
-  const speechDuration = speechSegments.reduce(
+function segmentCoverage(
+  segments: readonly { readonly startMs: number; readonly endMs: number }[],
+  durationMs: number,
+): number {
+  const activeDurationMs = segments.reduce(
     (sum, segment) => sum + Math.max(0, segment.endMs - segment.startMs),
     0,
   );
-  const focusedDuration = focusedSegments.reduce(
-    (sum, segment) => sum + Math.max(0, segment.endMs - segment.startMs),
-    0,
+  return (
+    Math.round(
+      Math.min(1, activeDurationMs / Math.max(durationMs, 1)) * 1_000,
+    ) / 1_000
   );
-  return focusedDuration >= speechDuration * 0.65
-    ? focusedSegments
-    : speechSegments;
 }
 
 function fileStem(fileName: string): string {

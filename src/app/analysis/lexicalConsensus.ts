@@ -20,6 +20,8 @@ export type LexicalHypothesis = {
   readonly model: LocalTranscriptionModel;
   readonly signal: "original" | "vocal_focus" | "spectral_vocal";
   readonly decodingStrategy: LocalDecodingStrategy;
+  readonly activityMaskApplied: boolean;
+  readonly activityCoverage: number;
   readonly analysis: LocalTakeAnalysis;
   readonly assessment: ReturnType<typeof assessLexicalSegmentation>;
 };

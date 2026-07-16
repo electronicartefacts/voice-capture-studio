@@ -61,10 +61,11 @@ export function LexicalSegmentationPanel(input: {
           localement les mots proposés aux zones vocales avant de préparer les
           extraits WAV. L'app compare automatiquement plusieurs écoutes lorsque
           le mix est complexe : original, voix centrale et séparation spectrale.
-          Les variantes proches sont rapprochées, les mots entendus par
-          plusieurs passes sont récupérés et les propositions isolées sont
-          écartées, sans modifier l'audio exporté. Les résultats incertains
-          restent signalés et rien ne quitte cet appareil.
+          Les passages instrumentaux sont atténués uniquement pour l'écoute du
+          modèle, sans déplacer la timeline ni toucher aux WAV exportés. Les
+          variantes proches sont rapprochées, les mots entendus par plusieurs
+          passes sont récupérés et les propositions isolées sont écartées. Les
+          résultats incertains restent signalés et rien ne quitte cet appareil.
         </p>
       </div>
 
@@ -227,14 +228,21 @@ function formatPasses(result: ImportedMediaSegmentationResult): string {
 
   const passes = `${processing.transcriptionPasses} passages locaux`;
   const consensus = processing.consensus;
+  const maskedPasses = processing.hypotheses.filter(
+    ({ activityMaskApplied }) => activityMaskApplied,
+  ).length;
+  const targeting =
+    maskedPasses === 0
+      ? ""
+      : ` · ${maskedPasses} écoute${maskedPasses > 1 ? "s" : ""} ciblée${maskedPasses > 1 ? "s" : ""}`;
   const arbitration = ` · ${consensus.recoveredWordCount} récupéré${consensus.recoveredWordCount > 1 ? "s" : ""}, ${consensus.rejectedSingletonCount} isolé${consensus.rejectedSingletonCount > 1 ? "s" : ""} écarté${consensus.rejectedSingletonCount > 1 ? "s" : ""}`;
   if (processing.selectedSignal === "spectral_vocal") {
-    return `${passes} · séparation spectrale retenue${arbitration}`;
+    return `${passes} · séparation spectrale retenue${targeting}${arbitration}`;
   }
   if (processing.selectedSignal === "vocal_focus") {
-    return `${passes} · isolation centrale retenue${arbitration}`;
+    return `${passes} · isolation centrale retenue${targeting}${arbitration}`;
   }
-  return `${passes} · consensus sur l'original${arbitration}`;
+  return `${passes} · consensus sur l'original${targeting}${arbitration}`;
 }
 
 function formatProfile(profile: "balanced" | "compatible"): string {

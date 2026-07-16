@@ -13,6 +13,10 @@ import {
 } from "../src/app/analysis/lexicalConsensus";
 import { evaluateMusicPipeline } from "../src/app/analysis/musicPipelineBenchmark";
 import { separateVocalsSpectrally } from "../src/app/analysis/spectralVocalSeparation";
+import {
+  applyVocalActivityMask,
+  mergeVocalActivitySegments,
+} from "../src/app/analysis/vocalActivityMask";
 import type {
   LocalTakeAnalysis,
   WhisperWordTiming,
@@ -278,6 +282,61 @@ test("off-thread spectral separation transfers progress and result", async () =>
   }
 });
 
+test("vocal activity fusion joins speech consonants and sustained singing", () => {
+  const segments = mergeVocalActivitySegments(
+    [
+      [{ startMs: 180, endMs: 360 }],
+      [
+        { startMs: 430, endMs: 680 },
+        { startMs: 1_400, endMs: 1_620 },
+      ],
+    ],
+    2_000,
+    100,
+    120,
+  );
+
+  assert.deepEqual(segments, [
+    { startMs: 80, endMs: 780 },
+    { startMs: 1_300, endMs: 1_720 },
+  ]);
+});
+
+test("vocal activity mask silences instrumental gaps without shifting time", () => {
+  const signal = new Float32Array(16_000).fill(1);
+  signal[8_000] = Number.NaN;
+  const result = applyVocalActivityMask({
+    signal,
+    segments: [{ startMs: 250, endMs: 750 }],
+  });
+
+  assert.equal(result.applied, true);
+  assert.equal(result.retainedRatio, 0.5);
+  assert.equal(result.signal.length, signal.length);
+  assert.equal(result.signal[1_000], 0);
+  assert.equal(result.signal[15_000], 0);
+  assert.equal(result.signal[8_000], 0);
+  assert.equal(result.signal[7_000], 1);
+  assert.ok(result.signal[4_000] > 0 && result.signal[4_000] < 0.01);
+});
+
+test("vocal activity mask preserves risky sparse and continuous detections", () => {
+  const signal = new Float32Array(16_000).fill(0.1);
+  const sparse = applyVocalActivityMask({
+    signal,
+    segments: [{ startMs: 100, endMs: 120 }],
+  });
+  const continuous = applyVocalActivityMask({
+    signal,
+    segments: [{ startMs: 0, endMs: 980 }],
+  });
+
+  assert.equal(sparse.applied, false);
+  assert.equal(sparse.signal, signal);
+  assert.equal(continuous.applied, false);
+  assert.equal(continuous.signal, signal);
+});
+
 test("multi-pass consensus prefers repeated lyrics and median word boundaries", () => {
   const tiny = createHypothesis("original_tiny", "tiny", "original", [
     timing("blue", 80, 340),
@@ -462,5 +521,7 @@ function createHypothesis(
     analysis,
     assessment,
     decodingStrategy: "greedy",
+    activityMaskApplied: false,
+    activityCoverage: 1,
   };
 }

@@ -346,11 +346,14 @@ export function TechnicalPage(input: {
           <span>
             Le modèle léger ouvre l'analyse. Sur un mix complexe, le studio
             compare ensuite l'original, la voix centrale et une séparation
-            spectrale avec le modèle renforcé. Un consensus temporel rapproche
-            les petites variantes, récupère les omissions confirmées et retire
-            les mots isolés. Un faisceau court affine le modèle renforcé sur les
-            appareils équilibrés. WebGPU est utilisé quand il est fiable, avec
-            repli automatique sur le mode compatible. Supprime les modèles pour
+            spectrale avec le modèle renforcé. La détection de parole et
+            l'activité chantée sont fusionnées pour masquer les ponts
+            instrumentaux pendant l'inférence, tout en conservant la durée
+            originale. Un consensus temporel rapproche les petites variantes,
+            récupère les omissions confirmées et retire les mots isolés. Un
+            faisceau court affine le modèle renforcé sur les appareils
+            équilibrés. WebGPU est utilisé quand il est fiable, avec repli
+            automatique sur le mode compatible. Supprime les modèles pour
             récupérer de l'espace ou forcer leur rechargement.
           </span>
         </div>

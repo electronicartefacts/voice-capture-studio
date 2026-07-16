@@ -36,3 +36,9 @@ variantes rapprochées, les omissions récupérées et les propositions isolées
 rejetées. Une hausse de couverture n'est acceptée que si elle ne réintroduit pas
 d'insertions : sur un consensus de trois passes ou plus, un mot exporté doit être
 confirmé par au moins deux écoutes locales.
+
+Les extraits contenant de longues introductions, des ponts instrumentaux et des
+silences de fin doivent aussi mesurer le taux d'hallucination hors activité
+vocale. Le masque temporel est considéré utile seulement s'il réduit ces
+insertions sans supprimer les attaques consonantiques ni déplacer les frontières
+de référence.
