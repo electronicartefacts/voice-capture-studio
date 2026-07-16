@@ -127,6 +127,7 @@ import {
   createSessionPreparationMessage,
   explainPromptChoice,
   formatSaveTarget,
+  getCaptureModeContent,
   isDefaultHomeMessage,
   isSupportedAudioFile,
   isSupportedTextFile,
@@ -175,7 +176,7 @@ import {
   KaraokeScreen,
   RoomToneCalibrationScreen,
 } from "./screens/CaptureScreens";
-import { HomeScreen } from "./screens/HomeScreen";
+import { CaptureModeSelector, HomeScreen } from "./screens/HomeScreen";
 import { PermissionScreen } from "./screens/PermissionScreen";
 import type { LexicalSegmentationState } from "./screens/LexicalSegmentationPanel";
 import {
@@ -183,7 +184,7 @@ import {
   OpeningRitual,
   SiteFooter,
 } from "./screens/StudioChrome";
-import { surfaceProfileDetails, useSurfaceProfile } from "./surfaceProfile";
+import { useSurfaceProfile } from "./surfaceProfile";
 import { useAmbientRenderingBudget } from "./useAmbientRenderingBudget";
 
 const TechnicalPage = lazy(() =>
@@ -346,6 +347,7 @@ export function App() {
   >(null);
   const [folderName, setFolderName] = useState<string | null>(null);
   const [captureMode, setCaptureMode] = useState<CaptureMode>("training");
+  const activeModeContent = getCaptureModeContent(captureMode);
   const [customCorpusText, setCustomCorpusText] = useState("");
   const [customCorpusSourceName, setCustomCorpusSourceName] = useState<
     string | null
@@ -540,7 +542,7 @@ export function App() {
         ".karaoke-screen h1",
         ".karaoke-line",
         ".focus-card h1",
-        ".instrument-face h1",
+        ".lab-launcher h1",
       ].join(", "),
     );
 
@@ -3899,15 +3901,23 @@ export function App() {
               </span>
               <strong>Voice Capture Studio</strong>
             </button>
+            {screen === "home" && (
+              <div className="header-mode-navigation">
+                <CaptureModeSelector
+                  disabled={lexicalSegmentationState.status === "running"}
+                  mode={captureMode}
+                  onChange={selectCaptureMode}
+                />
+                <span
+                  aria-live="polite"
+                  className="header-mode-caption"
+                  data-testid="active-mode-label"
+                >
+                  {activeModeContent.title} · {activeModeContent.pill}
+                </span>
+              </div>
+            )}
             <div className="header-actions">
-              <span
-                aria-label={surfaceProfileDetails[surfaceProfile].description}
-                aria-live="polite"
-                className="surface-profile-badge"
-                title={surfaceProfileDetails[surfaceProfile].description}
-              >
-                {surfaceProfileDetails[surfaceProfile].label}
-              </span>
               <button
                 className="quiet-button"
                 aria-label="Qualité et exports"
@@ -4041,7 +4051,6 @@ export function App() {
                   onBackingTrackClear={clearBackingTrack}
                   onBackingTrackLoopChange={setBackingTrackLoop}
                   onBackingTrackVolumeChange={setBackingTrackVolume}
-                  onCaptureModeChange={selectCaptureMode}
                   continuousLyricsEnabled={continuousLyricsEnabled}
                   onContinuousLyricsChange={setContinuousLyricsEnabled}
                   message={message}

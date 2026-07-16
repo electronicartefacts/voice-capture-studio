@@ -22,6 +22,7 @@ async function enterStudio(page: Page): Promise<void> {
   }).toPass({ timeout: 30_000 });
 
   await expect(page.locator("main.screen-home")).toBeVisible();
+  await expect(page.locator(".simple-header .mode-dial")).toBeVisible();
   await expect(page.getByTestId("active-mode-label")).toContainText(
     "Dataset ML · Corpus intégré",
   );
@@ -32,8 +33,10 @@ test("studio boots to the home screen with recording available", async ({
 }) => {
   await enterStudio(page);
 
-  const launchButton = page.locator("button.launch-button");
+  const launchButton = page.locator(".lab-launcher .lab-launch-button");
 
+  await expect(page.locator(".home-card > .lab-launcher")).toBeVisible();
+  await expect(launchButton).toHaveCount(1);
   await expect(launchButton).toBeEnabled();
   await expect(launchButton).toContainText("Créer le dataset");
 });
@@ -93,7 +96,7 @@ test("ML session tracking and export storage have distinct home regions", async 
           dashboardElement !== null &&
           statusElement !== null &&
           Boolean(
-            dashboardElement.compareDocumentPosition(statusElement) &
+            statusElement.compareDocumentPosition(dashboardElement) &
             Node.DOCUMENT_POSITION_FOLLOWING,
           )
         );
@@ -101,8 +104,10 @@ test("ML session tracking and export storage have distinct home regions", async 
     )
     .toBe(true);
 
-  await page.getByRole("button", { name: "Sauvegarde locale" }).click();
-  await expect(storage).toBeFocused();
+  await expect(
+    page.getByRole("button", { name: "Sauvegarde locale" }),
+  ).toHaveCount(0);
+  await expect(page.locator(".lab-launch-button")).toHaveCount(1);
 
   await page.getByRole("button", { name: /Capture libre/ }).click();
   await expect(page.getByTestId("active-mode-label")).toContainText(

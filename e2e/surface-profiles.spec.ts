@@ -60,9 +60,7 @@ test.describe("surface profiles", () => {
     await expect(
       page.locator("main.surface-mobile-landscape-lab"),
     ).toBeVisible();
-    await expect(page.locator(".surface-profile-badge")).toHaveText(
-      "Lab compact",
-    );
+    await expect(page.locator(".header-mode-navigation")).toBeVisible();
     await expect
       .poll(() =>
         page.evaluate(
@@ -87,16 +85,16 @@ test.describe("surface profiles", () => {
     await enterStudio(page);
 
     await expect(page.locator("main.surface-mobile-focus")).toBeVisible();
-    await expect(page.locator(".surface-profile-badge")).toBeHidden();
+    await expect(page.locator(".header-mode-navigation")).toBeVisible();
 
     await page.setViewportSize({ width: 852, height: 393 });
     await expect(
       page.locator("main.surface-mobile-landscape-lab"),
     ).toBeVisible();
-    await expect(page.locator(".surface-profile-badge")).toBeVisible();
+    await expect(page.locator(".header-mode-navigation")).toBeVisible();
 
     await page.setViewportSize({ width: 393, height: 852 });
     await expect(page.locator("main.surface-mobile-focus")).toBeVisible();
-    await expect(page.locator(".surface-profile-badge")).toBeHidden();
+    await expect(page.locator(".header-mode-navigation")).toBeVisible();
   });
 });

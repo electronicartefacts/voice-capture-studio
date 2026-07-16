@@ -84,6 +84,54 @@ for (const [name, viewport] of VIEWPORTS) {
   });
 }
 
+test("stacks a full-width glass laboratory below the desktop header", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await enterStudio(page);
+
+  const layout = await page.evaluate(() => {
+    const header = document.querySelector<HTMLElement>(".simple-header");
+    const modes = document.querySelector<HTMLElement>(
+      ".simple-header .mode-dial",
+    );
+    const launcher = document.querySelector<HTMLElement>(".lab-launcher");
+    const overview = document.querySelector<HTMLElement>(".lab-overview-card");
+
+    if (
+      header === null ||
+      modes === null ||
+      launcher === null ||
+      overview === null
+    ) {
+      return null;
+    }
+
+    const headerBox = header.getBoundingClientRect();
+    const modeBox = modes.getBoundingClientRect();
+    const launcherBox = launcher.getBoundingClientRect();
+    const overviewBox = overview.getBoundingClientRect();
+    const overviewStyle = window.getComputedStyle(overview);
+
+    return {
+      alignedEdges:
+        Math.abs(launcherBox.left - overviewBox.left) <= 1 &&
+        Math.abs(launcherBox.right - overviewBox.right) <= 1,
+      glassActive:
+        overviewStyle.backdropFilter !== "none" ||
+        overviewStyle.webkitBackdropFilter !== "none",
+      modesInsideHeader:
+        modeBox.left >= headerBox.left && modeBox.right <= headerBox.right,
+    };
+  });
+
+  expect(layout).toEqual({
+    alignedEdges: true,
+    glassActive: true,
+    modesInsideHeader: true,
+  });
+});
+
 test("reflows capture and review when the phone rotates", async ({ page }) => {
   await page.setViewportSize({ width: 393, height: 852 });
   await enterStudio(page);

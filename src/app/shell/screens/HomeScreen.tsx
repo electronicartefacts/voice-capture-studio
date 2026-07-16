@@ -19,7 +19,6 @@ import {
   FolderOpen,
   HardDrive,
   Music,
-  Save,
   SlidersHorizontal,
   Timer,
   Trash2,
@@ -105,7 +104,6 @@ export function HomeScreen(input: {
   readonly onBackingTrackClear: () => void;
   readonly onBackingTrackLoopChange: (loop: boolean) => void;
   readonly onBackingTrackVolumeChange: (volume: number) => void;
-  readonly onCaptureModeChange: (mode: CaptureMode) => void;
   readonly onContinuousLyricsChange: (enabled: boolean) => void;
   readonly onChooseFolder: () => void;
   readonly onCustomCorpusFile: (file: File) => void;
@@ -200,117 +198,91 @@ export function HomeScreen(input: {
                     : ` · retour ${input.backingTrack.name}`
                 }.`;
 
-  function revealExportStorage() {
-    const section = exportStorageRef.current;
-
-    if (section === null) {
-      return;
-    }
-
-    section.scrollIntoView({
-      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
-        ? "auto"
-        : "smooth",
-      block: "start",
-    });
-    section.focus({ preventScroll: true });
-  }
-
   return (
     <div className="home-card">
-      <section className="instrument-face" aria-labelledby="home-title">
-        <div
-          style={{
-            display: "inline-grid",
-            gap: 8,
-            justifyItems: "start",
-          }}
-        >
-          <CaptureModeSelector
-            disabled={input.lexicalSegmentationState.status === "running"}
-            mode={input.captureMode}
-            onChange={input.onCaptureModeChange}
-          />
-          <p
-            aria-live="polite"
-            className="soft-label"
-            data-testid="active-mode-label"
-            style={{ margin: 0 }}
-          >
+      <section className="lab-launcher" aria-labelledby="home-title">
+        <div className="lab-launcher-copy">
+          <p className="soft-label">
             {modeContent.title} · {modeContent.pill}
           </p>
+          <h1 id="home-title">
+            <strong>{modeContent.headlineLead}</strong>
+          </h1>
+          <p>{modeContent.headlineDetail}</p>
         </div>
         <button
-          aria-controls="export-storage"
-          className="setup-pill is-ready storage-jump"
-          onClick={revealExportStorage}
+          className="launch-button is-hero lab-launch-button"
+          disabled={
+            (input.captureMode !== "lexical-segmentation" &&
+              !input.diagnostics.canRecord) ||
+            !localCorpusReady ||
+            (input.captureMode === "lexical-segmentation" &&
+              input.lexicalSegmentationFile === null) ||
+            input.lexicalSegmentationState.status === "running" ||
+            input.isDirectCaptureStarting
+          }
+          onClick={input.onStart}
           type="button"
         >
-          <Save aria-hidden="true" size={14} />
-          Sauvegarde locale
+          <span className="launch-record-dot" aria-hidden="true" />
+          <span>
+            {input.isDirectCaptureStarting
+              ? "La capture démarre…"
+              : input.lexicalSegmentationState.status === "running"
+                ? "Découpe en cours…"
+                : input.captureMode !== "lexical-segmentation" &&
+                    !input.diagnostics.canRecord
+                  ? "Enregistrement indisponible"
+                  : !localCorpusReady
+                    ? "Ajouter un texte"
+                    : modeContent.cta}
+          </span>
         </button>
-
-        <div className="instrument-trigger">
-          <button
-            className="launch-button is-hero"
-            disabled={
-              (input.captureMode !== "lexical-segmentation" &&
-                !input.diagnostics.canRecord) ||
-              !localCorpusReady ||
-              (input.captureMode === "lexical-segmentation" &&
-                input.lexicalSegmentationFile === null) ||
-              input.lexicalSegmentationState.status === "running" ||
-              input.isDirectCaptureStarting
-            }
-            onClick={input.onStart}
-            type="button"
-          >
-            <span className="launch-record-dot" aria-hidden="true" />
-            <span>
-              {input.isDirectCaptureStarting
-                ? "La capture démarre…"
-                : input.lexicalSegmentationState.status === "running"
-                  ? "Découpe en cours…"
-                  : input.captureMode !== "lexical-segmentation" &&
-                      !input.diagnostics.canRecord
-                    ? "Enregistrement indisponible"
-                    : !localCorpusReady
-                      ? "Ajouter un texte"
-                      : modeContent.cta}
-            </span>
-          </button>
-        </div>
-
-        <h1 id="home-title" className="instrument-line">
-          <strong
-            style={{
-              display: "inline-block",
-              fontWeight: 600,
-              marginBottom: 10,
-            }}
-          >
-            {modeContent.headlineLead}
-          </strong>
-          <br />
-          <span style={{ fontWeight: 300 }}>{modeContent.headlineDetail}</span>
-        </h1>
       </section>
 
       <section className="home-workbench" aria-label="Réglages de la session">
-        <div className="workbench-header">
-          <div>
-            <p className="soft-label">{modeContent.kicker}</p>
-            <h2>{modeContent.workbenchTitle}</h2>
+        <section className="lab-overview-card">
+          <div className="workbench-header">
+            <div>
+              <p className="soft-label">{modeContent.kicker}</p>
+              <h2>{modeContent.workbenchTitle}</h2>
+            </div>
+            <span className={`setup-pill is-${setupTone}`}>
+              <BadgeCheck aria-hidden="true" size={16} />
+              {setupLabel}
+            </span>
           </div>
-          <span className={`setup-pill is-${setupTone}`}>
-            <BadgeCheck aria-hidden="true" size={16} />
-            {setupLabel}
-          </span>
-        </div>
 
-        <p className="plain-text" aria-live="polite">
-          {input.message}
-        </p>
+          <p className="plain-text" aria-live="polite">
+            {input.message}
+          </p>
+
+          <div className="status-strip" aria-label="État de la session">
+            <div>
+              <HardDrive aria-hidden="true" size={18} />
+              <span>{storageStatus}</span>
+            </div>
+            <div>
+              <Timer aria-hidden="true" size={18} />
+              <span>
+                {input.savedSessions} session
+                {input.savedSessions > 1 ? "s" : ""}
+              </span>
+            </div>
+            <div>
+              <Check aria-hidden="true" size={18} />
+              <span>
+                {input.captureMode === "free"
+                  ? "Capture libre"
+                  : input.captureMode === "lexical-segmentation"
+                    ? `${input.lexicalSegmentationState.status === "done" ? input.lexicalSegmentationState.result.manifest.words.length : 0} mots découpés`
+                    : input.captureMode === "training"
+                      ? `${formatPercent(coveragePercent)} couvert`
+                      : corpusStatus}
+              </span>
+            </div>
+          </div>
+        </section>
 
         {input.captureMode === "training" && (
           <div
@@ -334,31 +306,6 @@ export function HomeScreen(input: {
             </div>
           </div>
         )}
-
-        <div className="status-strip" aria-label="État de la session">
-          <div>
-            <HardDrive aria-hidden="true" size={18} />
-            <span>{storageStatus}</span>
-          </div>
-          <div>
-            <Timer aria-hidden="true" size={18} />
-            <span>
-              {input.savedSessions} session{input.savedSessions > 1 ? "s" : ""}
-            </span>
-          </div>
-          <div>
-            <Check aria-hidden="true" size={18} />
-            <span>
-              {input.captureMode === "free"
-                ? "Capture libre"
-                : input.captureMode === "lexical-segmentation"
-                  ? `${input.lexicalSegmentationState.status === "done" ? input.lexicalSegmentationState.result.manifest.words.length : 0} mots découpés`
-                  : input.captureMode === "training"
-                    ? `${formatPercent(coveragePercent)} couvert`
-                    : corpusStatus}
-            </span>
-          </div>
-        </div>
 
         {input.captureMode !== "training" &&
           input.captureMode !== "free" &&
@@ -698,6 +645,7 @@ export function CaptureModeSelector(input: {
 
         return (
           <button
+            aria-label={option.title}
             aria-pressed={input.mode === option.mode}
             className={`capture-mode-option${input.mode === option.mode ? " is-active" : ""}`}
             disabled={input.disabled}
@@ -707,7 +655,9 @@ export function CaptureModeSelector(input: {
             type="button"
           >
             <Icon aria-hidden="true" size={18} />
-            <span className="sr-only">{option.title}</span>
+            <span aria-hidden="true" className="mode-option-label">
+              {option.title}
+            </span>
           </button>
         );
       })}
