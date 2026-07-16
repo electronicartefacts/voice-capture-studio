@@ -3382,12 +3382,10 @@ body,
 
 @keyframes materialize {
   from {
-    opacity: 0;
     scale: 0.992;
   }
 
   to {
-    opacity: 1;
     scale: 1;
   }
 }
@@ -3404,12 +3402,10 @@ body,
 
 @keyframes screen-enter {
   from {
-    opacity: 0;
     scale: 0.992;
   }
 
   to {
-    opacity: 1;
     scale: 1;
   }
 }
@@ -3530,16 +3526,16 @@ body,
 
 .lab-launch-button,
 .lab-launch-button:disabled {
-  background: #c9343a;
-  border-color: color-mix(in srgb, #c9343a 78%, var(--text));
-  box-shadow: 0 16px 38px color-mix(in srgb, #c9343a 25%, transparent);
+  background: #a61f29;
+  border-color: color-mix(in srgb, #a61f29 78%, var(--text));
+  box-shadow: 0 16px 38px color-mix(in srgb, #a61f29 25%, transparent);
   color: #fff;
 }
 
 .lab-launch-button:not(:disabled):hover {
-  background: #d83d43;
+  background: #b82a34;
   border-color: #f05b60;
-  box-shadow: 0 20px 46px color-mix(in srgb, #c9343a 32%, transparent);
+  box-shadow: 0 20px 46px color-mix(in srgb, #a61f29 32%, transparent);
   transform: scale(1.018);
 }
 
