@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  advanceLoadingWaveMotion,
   beginLoadingWave,
   cancelLoadingWave,
   finishLoadingWave,
@@ -77,4 +78,47 @@ test("the most recently updated operation drives the single background wave", ()
   assert.equal(getLoadingWaveSnapshot().label, "Premier");
   cancelLoadingWave("first");
   assert.equal(getLoadingWaveSnapshot().label, "Second");
+});
+
+test("visual loading motion glides toward milestones without stepping", () => {
+  let motion = { progress: 0, velocity: 0 };
+
+  motion = advanceLoadingWaveMotion({
+    ...motion,
+    target: 0.65,
+    deltaMs: 16,
+    complete: false,
+  });
+
+  assert.ok(motion.progress > 0);
+  assert.ok(motion.progress < 0.01);
+
+  let previous = motion.progress;
+  for (let frame = 0; frame < 120; frame += 1) {
+    motion = advanceLoadingWaveMotion({
+      ...motion,
+      target: 0.65,
+      deltaMs: 16,
+      complete: false,
+    });
+    assert.ok(motion.progress >= previous);
+    assert.ok(motion.progress <= 0.65);
+    previous = motion.progress;
+  }
+});
+
+test("completion accelerates smoothly until the curve reaches 100 percent", () => {
+  let motion = { progress: 0.42, velocity: 0.12 };
+
+  for (let frame = 0; frame < 180; frame += 1) {
+    motion = advanceLoadingWaveMotion({
+      ...motion,
+      target: 1,
+      deltaMs: 16,
+      complete: true,
+    });
+  }
+
+  assert.ok(motion.progress > 0.999);
+  assert.ok(motion.progress <= 1);
 });

@@ -8,6 +8,11 @@ export type LoadingWaveSnapshot = {
   readonly opacity: number;
 };
 
+export type LoadingWaveMotion = {
+  readonly progress: number;
+  readonly velocity: number;
+};
+
 type LoadingWaveOperation = {
   readonly id: string;
   readonly label: string;
@@ -18,7 +23,9 @@ type LoadingWaveOperation = {
   completedAt: number | null;
 };
 
-const COMPLETION_HOLD_MS = 900;
+const COMPLETION_REVEAL_MS = 1_100;
+const COMPLETION_FADE_MS = 600;
+const COMPLETION_HOLD_MS = COMPLETION_REVEAL_MS + COMPLETION_FADE_MS;
 const operations = new Map<string, LoadingWaveOperation>();
 let operationSequence = 0;
 
@@ -121,7 +128,11 @@ export function getLoadingWaveSnapshot(now = nowMs()): LoadingWaveSnapshot {
   const opacity =
     operation.completedAt === null
       ? 1
-      : clampUnit(1 - (now - operation.completedAt) / COMPLETION_HOLD_MS);
+      : clampUnit(
+          1 -
+            Math.max(0, now - operation.completedAt - COMPLETION_REVEAL_MS) /
+              COMPLETION_FADE_MS,
+        );
 
   return {
     active: true,
@@ -129,6 +140,38 @@ export function getLoadingWaveSnapshot(now = nowMs()): LoadingWaveSnapshot {
     label: operation.label,
     progress: clampUnit(progress),
     opacity,
+  };
+}
+
+export function advanceLoadingWaveMotion(input: {
+  readonly progress: number;
+  readonly velocity: number;
+  readonly target: number;
+  readonly deltaMs: number;
+  readonly complete: boolean;
+}): LoadingWaveMotion {
+  const progress = clampUnit(input.progress);
+  const target = Math.max(progress, clampUnit(input.target));
+  const deltaSeconds = Math.min(50, Math.max(0, input.deltaMs)) / 1_000;
+
+  if (deltaSeconds === 0 || target === progress) {
+    return { progress, velocity: target === progress ? 0 : input.velocity };
+  }
+
+  const stiffness = input.complete ? 28 : 10;
+  const damping = 2 * Math.sqrt(stiffness);
+  const maximumVelocity = input.complete ? 0.82 : 0.16;
+  const acceleration =
+    stiffness * (target - progress) - damping * input.velocity;
+  const velocity = Math.min(
+    maximumVelocity,
+    Math.max(0, input.velocity + acceleration * deltaSeconds),
+  );
+  const nextProgress = Math.min(target, progress + velocity * deltaSeconds);
+
+  return {
+    progress: nextProgress,
+    velocity: nextProgress === target ? 0 : velocity,
   };
 }
 

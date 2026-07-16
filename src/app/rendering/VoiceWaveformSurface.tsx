@@ -5,7 +5,10 @@ import {
   liveAudioSignal,
 } from "./liveAudioSignal";
 import { getWaveformSamplePosition } from "./waveformGeometry";
-import { getLoadingWaveSnapshot } from "./loadingWaveSignal";
+import {
+  advanceLoadingWaveMotion,
+  getLoadingWaveSnapshot,
+} from "./loadingWaveSignal";
 
 export type VoiceWaveformScreen =
   "home" | "permission" | "calibration" | "karaoke" | "done" | "technical";
@@ -76,6 +79,8 @@ export function VoiceWaveformSurface(input: {
     let displaySamples = DISPLAY_SAMPLES;
     let loadingOperationKey = "";
     let renderedLoadingProgress = 0;
+    let loadingProgressVelocity = 0;
+    let lastLoadingFrameAt = 0;
 
     function resize() {
       const nextWidth = Math.round(
@@ -431,11 +436,20 @@ export function VoiceWaveformSurface(input: {
         if (loading.key !== loadingOperationKey) {
           loadingOperationKey = loading.key;
           renderedLoadingProgress = 0;
+          loadingProgressVelocity = 0;
+          lastLoadingFrameAt = frameNow;
         }
 
-        const loadingSmoothing = loading.progress >= 0.995 ? 0.2 : 0.085;
-        renderedLoadingProgress +=
-          (loading.progress - renderedLoadingProgress) * loadingSmoothing;
+        const motion = advanceLoadingWaveMotion({
+          progress: renderedLoadingProgress,
+          velocity: loadingProgressVelocity,
+          target: loading.progress,
+          deltaMs: frameNow - lastLoadingFrameAt,
+          complete: loading.progress >= 0.995,
+        });
+        renderedLoadingProgress = motion.progress;
+        loadingProgressVelocity = motion.velocity;
+        lastLoadingFrameAt = frameNow;
         const braidRadius = isCompactSurface ? 5.5 : 7.5;
         const braidTime = reducedMotion ? 0 : timeSeconds * 1.9;
 
@@ -504,6 +518,8 @@ export function VoiceWaveformSurface(input: {
       } else {
         loadingOperationKey = "";
         renderedLoadingProgress = 0;
+        loadingProgressVelocity = 0;
+        lastLoadingFrameAt = 0;
       }
 
       if (state === "done") {
