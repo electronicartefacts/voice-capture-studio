@@ -123,6 +123,8 @@ export function createRecordedTake(input: {
       : "pass";
   const snrStatus =
     input.metrics.snrDb < modePolicy.minimumSnrDb ? "review" : "pass";
+  const transcriptAllowsAutomaticPass =
+    transcriptMatch.source === "prompt_only" || transcriptStatus === "pass";
   const verdict =
     captureTruncatedStatus === "fail" ||
     clippingStatus === "fail" ||
@@ -140,7 +142,7 @@ export function createRecordedTake(input: {
           plosiveStatus === "pass" &&
           mouthNoiseStatus === "pass" &&
           reverbStatus === "pass" &&
-          transcriptStatus !== "fail" &&
+          transcriptAllowsAutomaticPass &&
           (!modePolicy.roomToneRequired || input.profile.roomToneCaptured)
         ? "pass"
         : "review";
@@ -166,7 +168,9 @@ export function createRecordedTake(input: {
           ? null
           : observedTranscript,
       matchEstimate: transcriptMatch,
-      strictMatchRequired: vocalPerformance.kind !== "sung",
+      strictMatchRequired:
+        vocalPerformance.kind !== "sung" &&
+        vocalPerformance.kind !== "sung_candidate",
       annotations: [],
       tokens: phonemeAlignment.tokens,
     },
@@ -662,7 +666,10 @@ function getTranscriptGateStatus(
   }
 
   if (match.score < 0.75) {
-    return vocalPerformance.kind === "sung" ? "review" : "fail";
+    return vocalPerformance.kind === "sung" ||
+      vocalPerformance.kind === "sung_candidate"
+      ? "review"
+      : "fail";
   }
 
   if (match.score < 0.92) {
@@ -698,8 +705,11 @@ function createTranscriptGateMessage(
     return `Transcript à relire : ${Math.round(match.score * 100)} %, écarts possibles.`;
   }
 
-  if (vocalPerformance.kind === "sung") {
-    return `Paroles chantées non confirmées par l'ASR navigateur (${Math.round(match.score * 100)} %). L'audio reste valide; contrôle des paroles requis.`;
+  if (
+    vocalPerformance.kind === "sung" ||
+    vocalPerformance.kind === "sung_candidate"
+  ) {
+    return `Performance chantée ou mélodique non confirmée par l'ASR navigateur (${Math.round(match.score * 100)} %). L'audio reste valide; contrôle des paroles requis.`;
   }
 
   return `Transcript incompatible (${Math.round(match.score * 100)} %). Reprends mot pour mot.`;

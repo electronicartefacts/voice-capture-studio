@@ -44,6 +44,7 @@ export function ListeningReviewSurface(input: {
   readonly audioUrl: string | null;
   readonly fileName: string | null;
   readonly freeCaptureTranscript?: string | null;
+  readonly freeCaptureTranscriptCandidate?: boolean;
   readonly onBeforePlayback: () => void;
   readonly onEnergyChange: (level: number) => void;
   readonly onProgressChange: (progress: number) => void;
@@ -643,8 +644,18 @@ export function ListeningReviewSurface(input: {
         input.freeCaptureTranscript !== null && (
           <div className="transcript-panel free-capture-transcript-panel">
             <div className="transcript-header">
-              <p className="soft-label">Transcription</p>
-              <span>{freeCaptureWords.length} mots · détectée</span>
+              <p className="soft-label">
+                {input.freeCaptureTranscriptCandidate
+                  ? "Hypothèse de transcription"
+                  : "Transcription"}
+              </p>
+              <span>
+                {input.freeCaptureTranscriptCandidate
+                  ? freeCaptureWords.length > 0
+                    ? `${freeCaptureWords.length} mots · chant à vérifier`
+                    : "chant probable · aucun mot confirmé"
+                  : `${freeCaptureWords.length} mots · détectée`}
+              </span>
             </div>
             <div
               className="review-transcript free-capture-transcript"
@@ -775,6 +786,7 @@ export function DoneScreen(input: {
   readonly downloadUrl: string | null;
   readonly fileName: string | null;
   readonly freeCaptureTranscript?: string | null;
+  readonly freeCaptureTranscriptCandidate?: boolean;
   readonly hasNextPrompt: boolean;
   readonly isFreeCapture?: boolean;
   readonly isContinuousLyricsCapture?: boolean;
@@ -817,6 +829,7 @@ export function DoneScreen(input: {
         audioUrl={input.downloadUrl}
         fileName={input.fileName}
         freeCaptureTranscript={input.freeCaptureTranscript}
+        freeCaptureTranscriptCandidate={input.freeCaptureTranscriptCandidate}
         onBeforePlayback={input.onBeforePlayback}
         onEnergyChange={input.onPlaybackEnergyChange}
         onProgressChange={input.onPlaybackProgressChange}

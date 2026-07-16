@@ -57,7 +57,7 @@ export type TakeCaptureContext = {
   readonly captureMode?: "training" | "dubbing" | "mastering";
   /** Signal-derived performance family; absent on historical takes. */
   readonly vocalPerformance?: {
-    readonly kind: "spoken" | "sung" | "undetermined";
+    readonly kind: "spoken" | "sung" | "sung_candidate" | "undetermined";
     readonly source: "mode_intent" | "audio_signal";
     readonly confidence: number;
     readonly pitchRangeSemitones: number | null;

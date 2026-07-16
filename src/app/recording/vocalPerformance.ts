@@ -2,7 +2,7 @@ import type { PcmRecordingMetrics } from "../audio/pcmRecorder";
 import type { CaptureAudioMode } from "./audioModePolicy";
 
 export type VocalPerformanceAssessment = {
-  readonly kind: "spoken" | "sung" | "undetermined";
+  readonly kind: "spoken" | "sung" | "sung_candidate" | "undetermined";
   readonly source: "mode_intent" | "audio_signal";
   readonly confidence: number;
   readonly pitchRangeSemitones: number | null;
@@ -44,9 +44,9 @@ export function assessVocalPerformance(input: {
 
   if (sungSignal) {
     return {
-      kind: "sung",
+      kind: "sung_candidate",
       source: "audio_signal",
-      confidence: 0.72,
+      confidence: 0.55,
       ...evidence,
     };
   }
@@ -76,6 +76,7 @@ export function describeVocalActivity(
   assessment: VocalPerformanceAssessment,
 ): string {
   if (assessment.kind === "sung") return "chantée";
+  if (assessment.kind === "sung_candidate") return "vocale, chant probable";
   if (assessment.kind === "spoken") return "parlée";
   return "vocale";
 }

@@ -391,7 +391,8 @@ export function createSpeechRecognitionBiasPhrases(
 
 export function createFreeCaptureTranscript(input: {
   readonly finalTranscript: string;
-  readonly performanceKind?: "spoken" | "sung" | "undetermined";
+  readonly performanceKind?:
+    "spoken" | "sung" | "sung_candidate" | "undetermined";
   readonly recognitionAvailable: boolean;
 }): FreeCaptureTranscript {
   const text = input.finalTranscript.trim();
@@ -404,7 +405,9 @@ export function createFreeCaptureTranscript(input: {
       : "unavailable",
     status: !input.recognitionAvailable
       ? "unavailable"
-      : input.performanceKind === "sung" && words.length > 0
+      : (input.performanceKind === "sung" ||
+            input.performanceKind === "sung_candidate") &&
+          words.length > 0
         ? "candidate-sung"
         : words.length > 0
           ? "detected"

@@ -376,6 +376,10 @@ export function App() {
   const [recognizedTranscript, setRecognizedTranscript] = useState("");
   const [freeCaptureReviewTranscript, setFreeCaptureReviewTranscript] =
     useState<string | null>(null);
+  const [
+    freeCaptureReviewTranscriptCandidate,
+    setFreeCaptureReviewTranscriptCandidate,
+  ] = useState(false);
   const [roomToneProgress, setRoomToneProgress] = useState(0);
   const [sessionRoomTone, setSessionRoomTone] =
     useState<RoomToneCalibration | null>(null);
@@ -3412,11 +3416,13 @@ export function App() {
     );
     setLastTake(null);
     setFreeCaptureReviewTranscript(
-      vocalPerformance.kind === "sung"
-        ? isContinuousLyricsCapture
-          ? continuousLyricsText
-          : null
+      isContinuousLyricsCapture
+        ? continuousLyricsText
         : freeCaptureTranscript.text,
+    );
+    setFreeCaptureReviewTranscriptCandidate(
+      !isContinuousLyricsCapture &&
+        freeCaptureTranscript.status === "candidate-sung",
     );
     await refreshStoredRecordings();
     setScreen("done");
@@ -3517,6 +3523,7 @@ export function App() {
     setActiveWordIndex(0);
     setRecognizedTranscript("");
     setFreeCaptureReviewTranscript(null);
+    setFreeCaptureReviewTranscriptCandidate(false);
     recognizedFinalTranscriptRef.current = "";
     speechRecognitionHypothesesRef.current = [];
     freeSpeechRecognitionAvailableRef.current = false;
@@ -3980,6 +3987,9 @@ export function App() {
                     fileName={savedFileName}
                     freeCaptureTranscript={
                       isFreeCapture ? freeCaptureReviewTranscript : null
+                    }
+                    freeCaptureTranscriptCandidate={
+                      isFreeCapture && freeCaptureReviewTranscriptCandidate
                     }
                     language={selectedLanguage}
                     location={savedLocation}

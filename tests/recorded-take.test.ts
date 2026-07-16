@@ -155,10 +155,13 @@ test("sung performances keep ASR mismatch secondary in every directed mode", () 
       takeId,
     });
 
-    assert.equal(take.captureContext?.vocalPerformance?.kind, "sung");
+    assert.equal(
+      take.captureContext?.vocalPerformance?.kind,
+      captureMode === "mastering" ? "sung" : "sung_candidate",
+    );
     assert.equal(take.transcript.strictMatchRequired, false);
     assert.equal(findGateStatus(take, "transcript_match"), "review");
-    assert.notEqual(take.quality.verdict, "reject");
+    assert.equal(take.quality.verdict, "review");
   }
 });
 

@@ -17,7 +17,7 @@ test("mastering declares sung intent without relying on browser ASR", () => {
   assert.equal(assessment.confidence, 1);
 });
 
-test("song-like pitch evidence adapts every capture mode", () => {
+test("song-like pitch evidence stays a candidate outside explicit song mode", () => {
   for (const captureMode of ["free", "training", "dubbing"] as const) {
     const assessment = assessVocalPerformance({
       captureMode,
@@ -28,8 +28,9 @@ test("song-like pitch evidence adapts every capture mode", () => {
       },
     });
 
-    assert.equal(assessment.kind, "sung");
+    assert.equal(assessment.kind, "sung_candidate");
     assert.equal(assessment.source, "audio_signal");
+    assert.equal(assessment.confidence, 0.55);
   }
 });
 
