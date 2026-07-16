@@ -58,6 +58,14 @@ import {
   setLiveAudioLevel,
 } from "../rendering/liveAudioSignal";
 import {
+  beginLoadingWave,
+  cancelLoadingWave,
+  finishLoadingWave,
+  mapLocalAnalysisToLoadingProgress,
+  runWithLoadingWave,
+  updateLoadingWave,
+} from "../rendering/loadingWaveSignal";
+import {
   resetLiveReadingGuidePosition,
   setLiveReadingGuidePosition,
 } from "../rendering/liveReadingGuideSignal";
@@ -188,6 +196,26 @@ const DoneScreen = lazy(() =>
     default: module.DoneScreen,
   })),
 );
+
+function LoadingWaveFallback({
+  id,
+  label,
+  className,
+}: {
+  id: string;
+  label: string;
+  className?: string;
+}) {
+  useEffect(() => {
+    beginLoadingWave(id, label);
+
+    return () => finishLoadingWave(id);
+  }, [id, label]);
+
+  return className === undefined ? null : (
+    <section aria-hidden="true" className={className} />
+  );
+}
 
 type RecordingWakeLockSentinel = {
   readonly released: boolean;
@@ -656,49 +684,56 @@ export function App() {
 
   useEffect(() => {
     setFolderName(getRememberedFolderName());
+    beginLoadingWave("workspace-open", "Ouverture du workspace");
 
-    void workspaceRepository.open(workspaceId).then(async (result) => {
-      if (result.ok) {
-        let receipt = result.value;
-        const openedWorkspace = applyWorkspaceReceipt(receipt);
+    void workspaceRepository
+      .open(workspaceId)
+      .then(async (result) => {
+        if (result.ok) {
+          let receipt = result.value;
+          const openedWorkspace = applyWorkspaceReceipt(receipt);
 
-        if (openedWorkspace !== receipt.workspace) {
-          const saveResult = await workspaceRepository.save(openedWorkspace);
+          if (openedWorkspace !== receipt.workspace) {
+            const saveResult = await workspaceRepository.save(openedWorkspace);
 
-          if (saveResult.ok) {
-            receipt = saveResult.value;
-            applyWorkspaceReceipt(receipt);
+            if (saveResult.ok) {
+              receipt = saveResult.value;
+              applyWorkspaceReceipt(receipt);
+            }
+          }
+
+          setMessage(
+            receipt.durability === "memory-only"
+              ? createMemoryOnlyWorkspaceMessage()
+              : createRuntimeHomeMessage(diagnostics),
+          );
+          return;
+        }
+
+        if (!canCreateWorkspaceAfterOpenFailure(result.error)) {
+          setWorkspaceOpenBlocker(result.message);
+          setMessage(result.message);
+          return;
+        }
+
+        const nextWorkspace = createEmptyWorkspace({
+          corpus: canonicalCorpus,
+          speakers: initialSpeakers,
+          now: new Date(),
+        });
+        const saveResult = await workspaceRepository.save(nextWorkspace);
+
+        if (saveResult.ok) {
+          applyWorkspaceReceipt(saveResult.value);
+          if (saveResult.value.durability === "memory-only") {
+            setMessage(createMemoryOnlyWorkspaceMessage());
           }
         }
+      })
+      .then(() => finishLoadingWave("workspace-open"))
+      .catch(() => cancelLoadingWave("workspace-open"));
 
-        setMessage(
-          receipt.durability === "memory-only"
-            ? createMemoryOnlyWorkspaceMessage()
-            : createRuntimeHomeMessage(diagnostics),
-        );
-        return;
-      }
-
-      if (!canCreateWorkspaceAfterOpenFailure(result.error)) {
-        setWorkspaceOpenBlocker(result.message);
-        setMessage(result.message);
-        return;
-      }
-
-      const nextWorkspace = createEmptyWorkspace({
-        corpus: canonicalCorpus,
-        speakers: initialSpeakers,
-        now: new Date(),
-      });
-      const saveResult = await workspaceRepository.save(nextWorkspace);
-
-      if (saveResult.ok) {
-        applyWorkspaceReceipt(saveResult.value);
-        if (saveResult.value.durability === "memory-only") {
-          setMessage(createMemoryOnlyWorkspaceMessage());
-        }
-      }
-    });
+    return () => cancelLoadingWave("workspace-open");
   }, []);
 
   useEffect(() => {
@@ -781,6 +816,7 @@ export function App() {
       revokeObjectUrl(workspaceArchiveUrlRef.current);
       revokeObjectUrl(lexicalSegmentationUrlRef.current);
       lexicalSegmentationAbortRef.current?.abort();
+      cancelLoadingWave("lexical-segmentation");
       revokeStoredRecordingUrls();
     };
   }, []);
@@ -953,6 +989,42 @@ export function App() {
   useEffect(() => {
     finishRecordingRef.current = finishRecording;
   });
+
+  useEffect(() => {
+    if (ritualStatus === "requesting") {
+      beginLoadingWave("microphone-permission", "Ouverture du microphone");
+    } else if (ritualStatus === "idle") {
+      finishLoadingWave("microphone-permission");
+    } else {
+      cancelLoadingWave("microphone-permission");
+    }
+  }, [ritualStatus]);
+
+  useEffect(() => {
+    if (isDirectCaptureStarting) {
+      beginLoadingWave("capture-start", "Démarrage de la capture");
+    } else {
+      finishLoadingWave("capture-start");
+    }
+  }, [isDirectCaptureStarting]);
+
+  useEffect(() => {
+    if (isFinalizing) {
+      beginLoadingWave("capture-finalization", "Finalisation de la prise");
+    } else {
+      finishLoadingWave("capture-finalization");
+    }
+  }, [isFinalizing]);
+
+  useEffect(() => {
+    if (datasetExportState.status === "preparing") {
+      beginLoadingWave("dataset-export", "Préparation du dataset");
+    } else if (datasetExportState.status === "done") {
+      finishLoadingWave("dataset-export");
+    } else {
+      cancelLoadingWave("dataset-export");
+    }
+  }, [datasetExportState.status]);
 
   async function awakenStudio() {
     if (studioAwake || ritualStatus === "requesting") {
@@ -2115,6 +2187,7 @@ export function App() {
 
   function clearLexicalSegmentation() {
     lexicalSegmentationAbortRef.current?.abort();
+    cancelLoadingWave("lexical-segmentation");
     revokeObjectUrl(lexicalSegmentationUrlRef.current);
     lexicalSegmentationUrlRef.current = null;
     setLexicalSegmentationFile(null);
@@ -2124,6 +2197,7 @@ export function App() {
 
   function cancelLexicalSegmentation() {
     lexicalSegmentationAbortRef.current?.abort();
+    cancelLoadingWave("lexical-segmentation");
     setMessage("Annulation de l'analyse locale…");
   }
 
@@ -2139,6 +2213,7 @@ export function App() {
     lexicalSegmentationAbortRef.current?.abort();
     const abortController = new AbortController();
     lexicalSegmentationAbortRef.current = abortController;
+    beginLoadingWave("lexical-segmentation", "Découpe lexicale locale", 0.02);
     setLexicalSegmentationState({
       status: "running",
       progress: { stage: "loading-model", progressPercent: 0 },
@@ -2154,6 +2229,10 @@ export function App() {
         onProgress: (progress) => {
           if (!abortController.signal.aborted) {
             setLexicalSegmentationState({ status: "running", progress });
+            updateLoadingWave(
+              "lexical-segmentation",
+              mapLocalAnalysisToLoadingProgress(progress),
+            );
           }
         },
         signal: abortController.signal,
@@ -2161,6 +2240,7 @@ export function App() {
       const downloadUrl = URL.createObjectURL(result.archive);
       lexicalSegmentationUrlRef.current = downloadUrl;
       setLexicalSegmentationState({ status: "done", result, downloadUrl });
+      finishLoadingWave("lexical-segmentation");
       setMessage(
         result.manifest.transcription.quality.status === "insufficient"
           ? `${result.manifest.words.length} segment${result.manifest.words.length > 1 ? "s" : ""} candidat${result.manifest.words.length > 1 ? "s" : ""} produit${result.manifest.words.length > 1 ? "s" : ""}. La voix chantée n'a pas été confirmée par le détecteur de parole.`
@@ -2168,6 +2248,7 @@ export function App() {
       );
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") {
+        cancelLoadingWave("lexical-segmentation");
         setLexicalSegmentationState({ status: "idle" });
         setMessage("Analyse annulée. Le média reste prêt sur cet appareil.");
         return;
@@ -2180,6 +2261,7 @@ export function App() {
         status: "error",
         message: failureMessage,
       });
+      cancelLoadingWave("lexical-segmentation");
       setMessage(failureMessage);
     } finally {
       if (lexicalSegmentationAbortRef.current === abortController) {
@@ -3834,7 +3916,15 @@ export function App() {
           </header>
 
           {screen === "technical" ? (
-            <Suspense fallback={<section className="technical-page" />}>
+            <Suspense
+              fallback={
+                <LoadingWaveFallback
+                  className="technical-page"
+                  id="technical-screen-load"
+                  label="Ouverture de la qualité"
+                />
+              }
+            >
               <TechnicalPage
                 audioLevel={audioLevel}
                 captureMode={captureMode}
@@ -3852,13 +3942,35 @@ export function App() {
                 microphoneLabel={microphoneLabel}
                 onBack={() => setScreen("home")}
                 onDownloadDataset={downloadDatasetPackage}
-                onDownloadWorkspaceArchive={downloadWorkspaceArchive}
-                onImportForcedAlignment={loadForcedAlignmentFile}
-                onImportWorkspaceArchive={importWorkspaceArchive}
+                onDownloadWorkspaceArchive={() =>
+                  runWithLoadingWave(
+                    "workspace-archive-export",
+                    "Création de l’archive",
+                    downloadWorkspaceArchive,
+                  )
+                }
+                onImportForcedAlignment={(file) =>
+                  runWithLoadingWave(
+                    "forced-alignment-import",
+                    "Import de l’alignement",
+                    () => loadForcedAlignmentFile(file),
+                  )
+                }
+                onImportWorkspaceArchive={(file) =>
+                  runWithLoadingWave(
+                    "workspace-archive-import",
+                    "Restauration du workspace",
+                    () => importWorkspaceArchive(file),
+                  )
+                }
                 onInputGainModeChange={updateInputGainMode}
                 onInputSensitivityChange={updateInputSensitivity}
                 onCorpusLicenseChange={(granted) =>
-                  void updateCorpusLicense(granted).catch((error: unknown) =>
+                  void runWithLoadingWave(
+                    "corpus-license-update",
+                    "Enregistrement des droits",
+                    () => updateCorpusLicense(granted),
+                  ).catch((error: unknown) =>
                     setMessage(
                       error instanceof Error
                         ? error.message
@@ -3866,9 +3978,19 @@ export function App() {
                     ),
                   )
                 }
-                onClearCachedModels={() => void clearCachedModels()}
+                onClearCachedModels={() =>
+                  void runWithLoadingWave(
+                    "model-cache-clear",
+                    "Nettoyage des modèles",
+                    clearCachedModels,
+                  )
+                }
                 onTrainingConsentChange={(granted) =>
-                  void updateTrainingConsent(granted).catch((error: unknown) =>
+                  void runWithLoadingWave(
+                    "training-consent-update",
+                    "Enregistrement du consentement",
+                    () => updateTrainingConsent(granted),
+                  ).catch((error: unknown) =>
                     setMessage(
                       error instanceof Error
                         ? error.message
@@ -3917,8 +4039,20 @@ export function App() {
                   continuousLyricsEnabled={continuousLyricsEnabled}
                   onContinuousLyricsChange={setContinuousLyricsEnabled}
                   message={message}
-                  onChooseFolder={selectFolder}
-                  onCustomCorpusFile={loadCustomCorpusFile}
+                  onChooseFolder={() =>
+                    void runWithLoadingWave(
+                      "folder-selection",
+                      "Connexion du dossier",
+                      selectFolder,
+                    )
+                  }
+                  onCustomCorpusFile={(file) =>
+                    runWithLoadingWave(
+                      "custom-corpus-import",
+                      "Lecture du corpus",
+                      () => loadCustomCorpusFile(file),
+                    )
+                  }
                   onCustomCorpusTextChange={(text) =>
                     updateCustomCorpusText(
                       text,
@@ -3935,9 +4069,21 @@ export function App() {
                   onLexicalSegmentationCancel={cancelLexicalSegmentation}
                   onLexicalSegmentationFile={loadLexicalSegmentationFile}
                   onProfileChange={updateCaptureProfile}
-                  onRefreshDiagnostics={() => void refreshDiagnostics()}
+                  onRefreshDiagnostics={() =>
+                    void runWithLoadingWave(
+                      "runtime-diagnostics",
+                      "Actualisation du diagnostic",
+                      () => refreshDiagnostics(),
+                    )
+                  }
                   onSpeakerChange={selectSpeaker}
-                  onSpeakerCreate={createSpeaker}
+                  onSpeakerCreate={(speaker) =>
+                    runWithLoadingWave(
+                      "speaker-create",
+                      "Création de la voix",
+                      () => createSpeaker(speaker),
+                    )
+                  }
                   isDirectCaptureStarting={isDirectCaptureStarting}
                   onStart={prepareSession}
                   savedSessions={workspace?.sessions.length ?? 0}
@@ -4006,7 +4152,14 @@ export function App() {
               )}
 
               {screen === "done" && (
-                <Suspense fallback={null}>
+                <Suspense
+                  fallback={
+                    <LoadingWaveFallback
+                      id="done-screen-load"
+                      label="Préparation de la prise"
+                    />
+                  }
+                >
                   <DoneScreen
                     downloadUrl={downloadUrl}
                     fileName={savedFileName}

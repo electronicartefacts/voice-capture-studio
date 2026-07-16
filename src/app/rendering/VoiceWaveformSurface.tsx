@@ -5,6 +5,7 @@ import {
   liveAudioSignal,
 } from "./liveAudioSignal";
 import { getWaveformSamplePosition } from "./waveformGeometry";
+import { getLoadingWaveSnapshot } from "./loadingWaveSignal";
 
 export type VoiceWaveformScreen =
   "home" | "permission" | "calibration" | "karaoke" | "done" | "technical";
@@ -63,12 +64,18 @@ export function VoiceWaveformSurface(input: {
     const previousWaveform = new Float32Array(DISPLAY_SAMPLES).fill(0);
     const xCoordinates = new Float32Array(DISPLAY_SAMPLES);
     const yCoordinates = new Float32Array(DISPLAY_SAMPLES);
+    const loadingYCoordinates = new Float32Array(DISPLAY_SAMPLES);
+    const reducedMotion = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
     let frameId = 0;
     let pausedTimerId: number | null = null;
     let lastFrameAt = -Infinity;
     let renderWidth = 0;
     let renderHeight = 0;
     let displaySamples = DISPLAY_SAMPLES;
+    let loadingOperationKey = "";
+    let renderedLoadingProgress = 0;
 
     function resize() {
       const nextWidth = Math.round(
@@ -192,6 +199,7 @@ export function VoiceWaveformSurface(input: {
       lineWidth: number,
       alpha: number,
       color: string,
+      verticalCoordinates = yCoordinates,
     ) {
       ctx.save();
       ctx.globalAlpha = alpha;
@@ -200,19 +208,19 @@ export function VoiceWaveformSurface(input: {
       ctx.lineJoin = "round";
       ctx.lineWidth = lineWidth;
       ctx.beginPath();
-      ctx.moveTo(xCoordinates[0], yCoordinates[0]);
+      ctx.moveTo(xCoordinates[0], verticalCoordinates[0]);
 
       for (let index = 0; index < displaySamples - 1; index += 1) {
         const p0Index = index > 0 ? index - 1 : 0;
         const p3Index = Math.min(index + 2, displaySamples - 1);
         const p0x = xCoordinates[p0Index];
-        const p0y = yCoordinates[p0Index];
+        const p0y = verticalCoordinates[p0Index];
         const p1x = xCoordinates[index];
-        const p1y = yCoordinates[index];
+        const p1y = verticalCoordinates[index];
         const p2x = xCoordinates[index + 1];
-        const p2y = yCoordinates[index + 1];
+        const p2y = verticalCoordinates[index + 1];
         const p3x = xCoordinates[p3Index];
-        const p3y = yCoordinates[p3Index];
+        const p3y = verticalCoordinates[p3Index];
         const dx = p2x - p1x;
         const dy = p2y - p1y;
         const length = Math.max(1, Math.hypot(dx, dy));
@@ -415,6 +423,87 @@ export function VoiceWaveformSurface(input: {
           alpha * Math.min(0.6, 0.12 + level * 0.55),
           playheadColor,
         );
+      }
+
+      const loading = getLoadingWaveSnapshot(frameNow);
+
+      if (loading.active) {
+        if (loading.key !== loadingOperationKey) {
+          loadingOperationKey = loading.key;
+          renderedLoadingProgress = 0;
+        }
+
+        const loadingSmoothing = loading.progress >= 0.995 ? 0.2 : 0.085;
+        renderedLoadingProgress +=
+          (loading.progress - renderedLoadingProgress) * loadingSmoothing;
+        const braidRadius = isCompactSurface ? 5.5 : 7.5;
+        const braidTime = reducedMotion ? 0 : timeSeconds * 1.9;
+
+        for (let index = 0; index < displaySamples; index += 1) {
+          const position = getWaveformSamplePosition(index, displaySamples);
+          const entrance = Math.min(1, position * 12);
+          loadingYCoordinates[index] =
+            yCoordinates[index] +
+            Math.sin(position * Math.PI * 8 - braidTime) *
+              braidRadius *
+              entrance -
+            (isCompactSurface ? 2.5 : 3.5);
+        }
+
+        const progressX = width * clampUnit(renderedLoadingProgress);
+        const loadingAlpha =
+          clampUnit(loading.opacity) * (isCompactSurface ? 0.9 : 0.78);
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(0, 0, Math.min(width, progressX + 8), height);
+        ctx.clip();
+        drawSpline(
+          0,
+          isCompactSurface ? 7 : 8.5,
+          loadingAlpha * 0.08,
+          playheadColor,
+          loadingYCoordinates,
+        );
+        drawSpline(
+          0,
+          isCompactSurface ? 3.2 : 3.6,
+          loadingAlpha * 0.42,
+          playheadColor,
+          loadingYCoordinates,
+        );
+        drawSpline(
+          0,
+          isCompactSurface ? 1.45 : 1.7,
+          loadingAlpha,
+          playheadColor,
+          loadingYCoordinates,
+        );
+        ctx.restore();
+
+        const leadingIndex = Math.min(
+          displaySamples - 1,
+          Math.max(
+            0,
+            Math.round(renderedLoadingProgress * (displaySamples - 1)),
+          ),
+        );
+        ctx.save();
+        ctx.fillStyle = playheadColor;
+        ctx.globalAlpha = loadingAlpha * 0.9;
+        ctx.beginPath();
+        ctx.arc(
+          progressX,
+          loadingYCoordinates[leadingIndex],
+          isCompactSurface ? 2.2 : 2.6,
+          0,
+          Math.PI * 2,
+        );
+        ctx.fill();
+        ctx.restore();
+      } else {
+        loadingOperationKey = "";
+        renderedLoadingProgress = 0;
       }
 
       if (state === "done") {

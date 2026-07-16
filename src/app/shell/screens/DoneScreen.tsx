@@ -36,6 +36,13 @@ import type {
   LocalTakeAnalysis,
 } from "../../analysis/types";
 import {
+  beginLoadingWave,
+  cancelLoadingWave,
+  finishLoadingWave,
+  mapLocalAnalysisToLoadingProgress,
+  updateLoadingWave,
+} from "../../rendering/loadingWaveSignal";
+import {
   REVIEW_WAVEFORM_BAR_COUNT,
   closeAmbientAudioContext,
   type WindowWithAudioContext,
@@ -1086,18 +1093,23 @@ function LocalAnalysisPanel(input: {
 }) {
   const [state, setState] = useState<LocalAnalysisState>({ status: "idle" });
   const abortControllerRef = useRef<AbortController | null>(null);
+  const loadingWaveId = `take-analysis:${input.takeId}`;
 
   useEffect(() => {
     abortControllerRef.current?.abort();
     setState({ status: "idle" });
 
-    return () => abortControllerRef.current?.abort();
-  }, [input.takeId]);
+    return () => {
+      abortControllerRef.current?.abort();
+      cancelLoadingWave(loadingWaveId);
+    };
+  }, [input.takeId, loadingWaveId]);
 
   async function runAnalysis() {
     abortControllerRef.current?.abort();
     const abortController = new AbortController();
     abortControllerRef.current = abortController;
+    beginLoadingWave(loadingWaveId, "Analyse locale de la prise", 0.02);
     setState({
       status: "running",
       progress: { stage: "loading-model", progressPercent: 0 },
@@ -1114,18 +1126,25 @@ function LocalAnalysisPanel(input: {
         onProgress: (progress) => {
           if (!abortController.signal.aborted) {
             setState({ status: "running", progress });
+            updateLoadingWave(
+              loadingWaveId,
+              mapLocalAnalysisToLoadingProgress(progress),
+            );
           }
         },
         signal: abortController.signal,
       });
 
       setState({ status: "done", analysis });
+      finishLoadingWave(loadingWaveId);
       input.onAnalysis(analysis);
     } catch (error) {
       if (isLocalAnalysisAbort(error)) {
+        cancelLoadingWave(loadingWaveId);
         setState({ status: "idle" });
         return;
       }
+      cancelLoadingWave(loadingWaveId);
       setState({
         status: "error",
         message:
@@ -1141,6 +1160,7 @@ function LocalAnalysisPanel(input: {
   function cancelAnalysis() {
     abortControllerRef.current?.abort();
     cancelLocalAnalysis();
+    cancelLoadingWave(loadingWaveId);
   }
 
   return (
