@@ -84,9 +84,29 @@ cohérence stéréo. Les passages instrumentaux peuvent être masqués uniquemen
 pour l'inférence. La durée, les timecodes et les WAV proviennent toujours de
 l'original non filtré.
 
-Le manifeste `voice.word_segmentation.v6` rend la stratégie inspectable : scène,
+Le manifeste `voice.word_segmentation.v7` rend la stratégie inspectable : scène,
 profondeur réelle, budget, hypothèses, modèle, signal, provider, décodage,
-couverture du masque et compte des mots récupérés ou rejetés.
+couverture du masque, vitesses réelles de l'éclaireur et du renfort, et compte
+des mots récupérés ou rejetés.
+
+### 4. Adaptation au coût réellement observé
+
+Le moteur ne déduit plus la puissance d'un appareil depuis une mémoire déclarée
+ou un nombre de cœurs peu représentatif de Safari. Il mesure la durée réelle de
+la première transcription et de son VAD, sans compter le téléchargement du
+modèle, puis la compare à la durée du média. Si Base est lancé, sa vitesse est
+mesurée à son tour et peut encore réduire le travail restant :
+
+- chemin rapide : jusqu'à quatre hypothèses sur un mix musical court;
+- chemin modéré : focus vocal conservé, séparation spectrale évitée;
+- chemin contraint : une vérification Base reste possible, mais le coût ne peut
+  plus être multiplié par quatre;
+- fichier long ou profil compatible : les bornes conservatrices restent
+  prioritaires.
+
+La classe et les deux facteurs temps réel sont affichés dans le résultat et
+écrits dans le manifeste. Le comportement devient ainsi inclusif, explicable et
+testable sur n'importe quel moteur de navigateur.
 
 ## Expérience utilisateur
 
@@ -191,6 +211,11 @@ devient possible de comparer objectivement un modèle spécialisé chant, un
 Demucs/MDX quantifié, ou un autre ASR compact avant de faire payer son poids à
 tous les appareils.
 
+Le banc de mesure sait désormais calculer séparément les mots proposés hors des
+zones vocales annotées, en plus du WER, CER et de l'erreur de frontières. Cette
+métrique bloque le cas trompeur où un pipeline semble récupérer davantage de
+paroles uniquement parce qu'il invente des mots dans les passages instrumentaux.
+
 ## Références primaires
 
 - Exploiting Music Source Separation for Automatic Lyrics Transcription with
@@ -213,11 +238,11 @@ tous les appareils.
 ### Prépublication locale
 
 - `npm run validate` : formatage, lint et TypeScript validés;
-- 198 tests réussis, aucun échec ni test ignoré;
-- couverture : 90,16 % lignes, 80,94 % branches, 89,83 % fonctions;
+- 200 tests réussis, aucun échec ni test ignoré;
+- couverture : 90,07 % lignes, 80,86 % branches, 89,75 % fonctions;
 - build de production validé : 166,4 Kio de JavaScript initial pour un budget
   de 170 Kio, 16,0 Kio de CSS pour un budget de 16 Kio;
-- 56 parcours Playwright réussis en 43,1 s sur Chromium, WebKit et Firefox;
+- 56 parcours Playwright réussis en 45,8 s sur Chromium, WebKit et Firefox;
 - matrice vérifiée : téléphones compacts, portrait/paysage, tablette, desktop,
   rotation, PWA hors ligne, accessibilité WCAG A/AA, capture, replay, archives,
   IndexedDB, doublage et vraie analyse locale Tiny/Silero;

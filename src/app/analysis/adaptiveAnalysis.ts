@@ -4,6 +4,7 @@ import type {
   LocalAnalysisDepth,
   LocalDecodingStrategy,
   LocalProcessingProfile,
+  LocalRuntimeClass,
   LocalTakeAnalysis,
   LocalTranscriptionModel,
 } from "./types";
@@ -23,6 +24,9 @@ export type ImportedAnalysisPlan = {
   readonly runBaseOriginal: boolean;
   readonly allowVocalFocus: boolean;
   readonly allowSpectralSeparation: boolean;
+  readonly runtimeClass: LocalRuntimeClass;
+  readonly scoutRealtimeFactor: number | null;
+  readonly verificationRealtimeFactor: number | null;
 };
 
 export function classifyCaptureAcousticScene(
@@ -218,32 +222,89 @@ export function createImportedAnalysisPlan(input: {
   readonly focusedCoverage: number;
   readonly focusDifference: number;
   readonly stereoCenterUsed: boolean;
+  readonly scoutRealtimeFactor?: number;
 }): ImportedAnalysisPlan {
   const scene = classifyImportedAcousticScene(input);
+  const scoutRealtimeFactor = normalizeRealtimeFactor(
+    input.scoutRealtimeFactor,
+  );
+  const runtimeClass = classifyRuntimePerformance(scoutRealtimeFactor);
+  const plan = (depth: LocalAnalysisDepth, maximumHypotheses: 1 | 2 | 3 | 4) =>
+    boundedImportedPlan(
+      scene,
+      depth,
+      maximumHypotheses,
+      runtimeClass,
+      scoutRealtimeFactor,
+    );
 
   if (input.durationMs > 5 * 60_000) {
-    return boundedImportedPlan(scene, "fast", 1);
+    return plan("fast", 1);
   }
 
   if (input.profile === "compatible") {
-    return scene === "clean_voice"
-      ? boundedImportedPlan(scene, "fast", 1)
-      : boundedImportedPlan(scene, "verified", 2);
+    return scene === "clean_voice" ? plan("fast", 1) : plan("verified", 2);
+  }
+
+  // Measured inference speed is more inclusive than Chromium-only memory or
+  // core-count hints. A first pass slower than the source duration keeps one
+  // independent verification for difficult audio but avoids multiplying the
+  // wait and peak-memory risk with two more enhancement passes.
+  if (runtimeClass === "constrained") {
+    return scene === "clean_voice" ? plan("fast", 1) : plan("verified", 2);
   }
 
   if (scene === "clean_voice") {
-    return boundedImportedPlan(scene, "verified", 2);
+    return plan("verified", 2);
   }
 
   if (input.durationMs > 3 * 60_000) {
-    return boundedImportedPlan(scene, "verified", 2);
+    return plan("verified", 2);
   }
 
   if (scene === "music_mix") {
-    return boundedImportedPlan(scene, "deep", 4);
+    return runtimeClass === "moderate" ? plan("deep", 3) : plan("deep", 4);
   }
 
-  return boundedImportedPlan(scene, "deep", 3);
+  return plan("deep", 3);
+}
+
+export function refineImportedAnalysisPlan(input: {
+  readonly plan: ImportedAnalysisPlan;
+  readonly verificationRealtimeFactor?: number;
+}): ImportedAnalysisPlan {
+  const verificationRealtimeFactor = normalizeRealtimeFactor(
+    input.verificationRealtimeFactor,
+  );
+  if (verificationRealtimeFactor === null) return input.plan;
+
+  const verificationRuntimeClass = classifyRuntimePerformance(
+    verificationRealtimeFactor,
+  );
+  const runtimeClass = slowerRuntimeClass(
+    input.plan.runtimeClass,
+    verificationRuntimeClass,
+  );
+  const maximumHypotheses =
+    verificationRealtimeFactor > 0.8
+      ? Math.min(input.plan.maximumHypotheses, 2)
+      : verificationRealtimeFactor > 0.45
+        ? Math.min(input.plan.maximumHypotheses, 3)
+        : input.plan.maximumHypotheses;
+  const boundedMaximum = maximumHypotheses as 1 | 2 | 3 | 4;
+  const depth: LocalAnalysisDepth =
+    boundedMaximum === 1 ? "fast" : boundedMaximum === 2 ? "verified" : "deep";
+
+  return {
+    ...boundedImportedPlan(
+      input.plan.scene,
+      depth,
+      boundedMaximum,
+      runtimeClass,
+      input.plan.scoutRealtimeFactor,
+    ),
+    verificationRealtimeFactor,
+  };
 }
 
 function classifyImportedAcousticScene(input: {
@@ -273,6 +334,8 @@ function boundedImportedPlan(
   scene: LocalAcousticScene,
   depth: LocalAnalysisDepth,
   maximumHypotheses: 1 | 2 | 3 | 4,
+  runtimeClass: LocalRuntimeClass,
+  scoutRealtimeFactor: number | null,
 ): ImportedAnalysisPlan {
   return {
     scene,
@@ -281,7 +344,37 @@ function boundedImportedPlan(
     runBaseOriginal: maximumHypotheses >= 2,
     allowVocalFocus: maximumHypotheses >= 3,
     allowSpectralSeparation: maximumHypotheses >= 4,
+    runtimeClass,
+    scoutRealtimeFactor,
+    verificationRealtimeFactor: null,
   };
+}
+
+export function classifyRuntimePerformance(
+  scoutRealtimeFactor: number | null,
+): LocalRuntimeClass {
+  if (scoutRealtimeFactor === null) return "unmeasured";
+  if (scoutRealtimeFactor <= 0.35) return "fast";
+  if (scoutRealtimeFactor <= 0.8) return "moderate";
+  return "constrained";
+}
+
+function normalizeRealtimeFactor(value: number | undefined): number | null {
+  if (value === undefined || !Number.isFinite(value) || value <= 0) return null;
+  return roundScore(value);
+}
+
+function slowerRuntimeClass(
+  left: LocalRuntimeClass,
+  right: LocalRuntimeClass,
+): LocalRuntimeClass {
+  const ranks: Record<LocalRuntimeClass, number> = {
+    unmeasured: 0,
+    fast: 1,
+    moderate: 2,
+    constrained: 3,
+  };
+  return ranks[right] > ranks[left] ? right : left;
 }
 
 function scoreTakeHypothesis(

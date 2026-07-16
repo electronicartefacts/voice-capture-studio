@@ -461,13 +461,18 @@ test("music benchmark reports lexical errors and temporal boundary drift", () =>
       { word: "dans", startMs: 120, endMs: 320 },
       { word: "une", startMs: 330, endMs: 450 },
       { word: "nuit", startMs: 460, endMs: 820 },
+      { word: "musique", startMs: 1_200, endMs: 1_500 },
     ],
+    vocalRegions: [{ startMs: 80, endMs: 850 }],
   });
 
-  assert.equal(result.wordErrorRate, 0.333);
+  assert.equal(result.wordErrorRate, 0.667);
+  assert.equal(result.insertionCount, 1);
   assert.equal(result.substitutionCount, 1);
   assert.equal(result.matchedWordRate, 0.667);
   assert.equal(result.boundaryMeanAbsoluteErrorMs, 20);
+  assert.equal(result.instrumentalInsertionCount, 1);
+  assert.equal(result.instrumentalInsertionRate, 0.25);
 });
 
 function timing(

@@ -29,6 +29,8 @@ export type LocalAcousticScene =
   | "music_mix"
   | "uncertain";
 export type LocalAnalysisDepth = "fast" | "verified" | "deep";
+export type LocalRuntimeClass =
+  "unmeasured" | "fast" | "moderate" | "constrained";
 
 export type LocalAnalysisProgress =
   | { readonly stage: "loading-model"; readonly progressPercent: number }

@@ -4,6 +4,11 @@ export type BenchmarkWord = {
   readonly endMs?: number;
 };
 
+export type BenchmarkVocalRegion = {
+  readonly startMs: number;
+  readonly endMs: number;
+};
+
 export type MusicPipelineBenchmarkResult = {
   readonly wordErrorRate: number;
   readonly characterErrorRate: number;
@@ -12,11 +17,14 @@ export type MusicPipelineBenchmarkResult = {
   readonly insertionCount: number;
   readonly deletionCount: number;
   readonly substitutionCount: number;
+  readonly instrumentalInsertionCount: number;
+  readonly instrumentalInsertionRate: number | null;
 };
 
 export function evaluateMusicPipeline(input: {
   readonly reference: readonly BenchmarkWord[];
   readonly predicted: readonly BenchmarkWord[];
+  readonly vocalRegions?: readonly BenchmarkVocalRegion[];
 }): MusicPipelineBenchmarkResult {
   const referenceWords = input.reference.map(({ word }) => normalize(word));
   const predictedWords = input.predicted.map(({ word }) => normalize(word));
@@ -28,6 +36,13 @@ export function evaluateMusicPipeline(input: {
     predictedCharacters,
   );
   const timingErrors: number[] = [];
+  const timedPredictions = input.predicted.filter(hasTiming);
+  const instrumentalInsertionCount =
+    input.vocalRegions === undefined
+      ? 0
+      : timedPredictions.filter(
+          (word) => !hasVocalRegionOverlap(word, input.vocalRegions ?? []),
+        ).length;
 
   for (const operation of wordOperations.alignment) {
     if (operation.kind !== "match") continue;
@@ -65,7 +80,38 @@ export function evaluateMusicPipeline(input: {
     insertionCount: wordOperations.insertionCount,
     deletionCount: wordOperations.deletionCount,
     substitutionCount: wordOperations.substitutionCount,
+    instrumentalInsertionCount,
+    instrumentalInsertionRate:
+      input.vocalRegions === undefined || timedPredictions.length === 0
+        ? null
+        : roundRate(instrumentalInsertionCount / timedPredictions.length),
   };
+}
+
+function hasTiming(word: BenchmarkWord): word is BenchmarkWord & {
+  readonly startMs: number;
+  readonly endMs: number;
+} {
+  return (
+    word.startMs !== undefined &&
+    word.endMs !== undefined &&
+    Number.isFinite(word.startMs) &&
+    Number.isFinite(word.endMs) &&
+    word.endMs >= word.startMs
+  );
+}
+
+function hasVocalRegionOverlap(
+  word: BenchmarkWord & { readonly startMs: number; readonly endMs: number },
+  vocalRegions: readonly BenchmarkVocalRegion[],
+): boolean {
+  return vocalRegions.some(
+    (region) =>
+      region.endMs >= region.startMs &&
+      Math.min(word.endMs, region.endMs) -
+        Math.max(word.startMs, region.startMs) >
+        0,
+  );
 }
 
 function editOperations(left: readonly string[], right: readonly string[]) {

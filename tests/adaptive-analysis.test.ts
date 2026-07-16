@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   classifyCaptureAcousticScene,
+  classifyRuntimePerformance,
   createImportedAnalysisPlan,
+  refineImportedAnalysisPlan,
   runAdaptiveTakeAnalysis,
   selectTakeAnalysisHypothesis,
   shouldEscalateTakeAnalysis,
@@ -163,12 +165,80 @@ test("media analysis budgets depth from scene, duration, and runtime", () => {
     runBaseOriginal: false,
     allowVocalFocus: false,
     allowSpectralSeparation: false,
+    runtimeClass: "unmeasured",
+    scoutRealtimeFactor: null,
+    verificationRealtimeFactor: null,
   });
   assert.equal(musical.scene, "music_mix");
   assert.equal(musical.maximumHypotheses, 4);
   assert.equal(musical.allowSpectralSeparation, true);
   assert.equal(long.depth, "fast");
   assert.equal(long.maximumHypotheses, 1);
+});
+
+test("media analysis uses observed inference speed instead of device hints", () => {
+  const moderate = createImportedAnalysisPlan({
+    durationMs: 90_000,
+    profile: "balanced",
+    initialStatus: "insufficient",
+    speechCoverage: 0.18,
+    focusedCoverage: 0.58,
+    focusDifference: 0.12,
+    stereoCenterUsed: true,
+    scoutRealtimeFactor: 0.55,
+  });
+  const constrained = createImportedAnalysisPlan({
+    durationMs: 90_000,
+    profile: "balanced",
+    initialStatus: "insufficient",
+    speechCoverage: 0.18,
+    focusedCoverage: 0.58,
+    focusDifference: 0.12,
+    stereoCenterUsed: true,
+    scoutRealtimeFactor: 1.2,
+  });
+
+  assert.equal(classifyRuntimePerformance(null), "unmeasured");
+  assert.equal(classifyRuntimePerformance(0.35), "fast");
+  assert.equal(classifyRuntimePerformance(0.8), "moderate");
+  assert.equal(classifyRuntimePerformance(0.81), "constrained");
+  assert.equal(moderate.maximumHypotheses, 3);
+  assert.equal(moderate.allowVocalFocus, true);
+  assert.equal(moderate.allowSpectralSeparation, false);
+  assert.equal(moderate.runtimeClass, "moderate");
+  assert.equal(constrained.maximumHypotheses, 2);
+  assert.equal(constrained.runtimeClass, "constrained");
+});
+
+test("media analysis refines its remaining budget after the Base verifier", () => {
+  const initial = createImportedAnalysisPlan({
+    durationMs: 90_000,
+    profile: "balanced",
+    initialStatus: "insufficient",
+    speechCoverage: 0.18,
+    focusedCoverage: 0.58,
+    focusDifference: 0.12,
+    stereoCenterUsed: true,
+    scoutRealtimeFactor: 0.2,
+  });
+  const moderate = refineImportedAnalysisPlan({
+    plan: initial,
+    verificationRealtimeFactor: 0.6,
+  });
+  const constrained = refineImportedAnalysisPlan({
+    plan: initial,
+    verificationRealtimeFactor: 1.1,
+  });
+
+  assert.equal(initial.maximumHypotheses, 4);
+  assert.equal(moderate.maximumHypotheses, 3);
+  assert.equal(moderate.allowVocalFocus, true);
+  assert.equal(moderate.allowSpectralSeparation, false);
+  assert.equal(moderate.runtimeClass, "moderate");
+  assert.equal(moderate.verificationRealtimeFactor, 0.6);
+  assert.equal(constrained.maximumHypotheses, 2);
+  assert.equal(constrained.allowVocalFocus, false);
+  assert.equal(constrained.runtimeClass, "constrained");
 });
 
 test("adaptive take runner stops after a sufficient clean scout", async () => {

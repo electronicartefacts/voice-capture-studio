@@ -208,6 +208,19 @@ export function LexicalSegmentationPanel(input: {
                   : ""}
               </dd>
             </div>
+            <div>
+              <dt>Adaptation à l'appareil</dt>
+              <dd>
+                {formatRuntimeClass(
+                  input.state.result.manifest.processing.adaptiveStrategy
+                    .runtimeClass,
+                  input.state.result.manifest.processing.adaptiveStrategy
+                    .scoutRealtimeFactor,
+                  input.state.result.manifest.processing.adaptiveStrategy
+                    .verificationRealtimeFactor,
+                )}
+              </dd>
+            </div>
           </dl>
           <a
             className="download-action"
@@ -287,6 +300,38 @@ function formatDepth(
   if (depth === "fast") return "rapide";
   if (depth === "verified") return "vérifiée";
   return "approfondie";
+}
+
+function formatRuntimeClass(
+  runtimeClass: ImportedMediaSegmentationResult["manifest"]["processing"]["adaptiveStrategy"]["runtimeClass"],
+  scoutRealtimeFactor: number | null,
+  verificationRealtimeFactor: number | null,
+): string {
+  const label =
+    runtimeClass === "fast"
+      ? "Traitement rapide"
+      : runtimeClass === "moderate"
+        ? "Traitement modéré"
+        : runtimeClass === "constrained"
+          ? "Appareil préservé"
+          : "Vitesse non mesurée";
+
+  const observations = [
+    scoutRealtimeFactor === null
+      ? null
+      : `éclaireur ${formatRealtimeFactor(scoutRealtimeFactor)}`,
+    verificationRealtimeFactor === null
+      ? null
+      : `renfort ${formatRealtimeFactor(verificationRealtimeFactor)}`,
+  ].filter((value): value is string => value !== null);
+
+  return observations.length === 0
+    ? label
+    : `${label} · ${observations.join(" · ")}`;
+}
+
+function formatRealtimeFactor(value: number): string {
+  return `${value.toLocaleString("fr-FR", { maximumFractionDigits: 2 })}× la durée`;
 }
 
 function formatProfile(profile: "balanced" | "compatible"): string {

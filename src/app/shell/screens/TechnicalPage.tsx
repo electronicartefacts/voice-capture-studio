@@ -354,7 +354,11 @@ export function TechnicalPage(input: {
             la durée ni les WAV. Chaque résultat conserve son budget, ses
             hypothèses et la raison du choix final. WebGPU est utilisé quand il
             est fiable, avec repli automatique sur WASM. Supprime les modèles
-            pour récupérer de l'espace ou forcer leur rechargement.
+            pour récupérer de l'espace ou forcer leur rechargement. Sur un média
+            importé, les durées réelles de l'éclaireur puis du renfort bornent
+            aussi le nombre d'hypothèses suivantes afin de préserver les
+            appareils lents sans se fier à des indices matériels spécifiques à
+            Chromium.
           </span>
         </div>
         <button

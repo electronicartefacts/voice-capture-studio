@@ -81,11 +81,20 @@ from becoming the only evidence.
 
 Imports are preflighted before full decoding and are limited to 200 MB and ten
 minutes. This bounds the largest avoidable tab-memory failures on mobile while
-keeping a complete song practical. The v6 manifest records the detected scene,
+keeping a complete song practical. The v7 manifest records the detected scene,
 planned hypothesis budget, actual depth, every model/signal/provider/decoder,
 activity-mask coverage, selected signal, consensus recovery/rejection counts,
-and whether isolation was skipped for length or device budget. These fields
-describe evidence, not certainty.
+the observed scout and Base-verifier real-time factors, and whether isolation
+was skipped for length or device budget. The observed speed is measured after
+model loading, so a cold cache or network speed does not silently reduce
+analysis quality. These fields describe evidence, not certainty.
+
+The hypothesis budget does not infer device quality from Chromium-only memory
+or CPU hints. It measures how long the Tiny scout actually takes relative to the
+source duration, then repeats the measurement for the stronger Base verifier.
+Fast short mixes can use all four hypotheses, moderate devices skip the
+costliest spectral pass, and constrained devices retain one independent Base
+verification without multiplying latency and peak-memory pressure.
 
 Research and runtime references:
 

@@ -29,7 +29,10 @@ import {
   type SupportedWordTiming,
 } from "./lexicalSegmentationQuality";
 import { assertImportedMediaWithinLimits } from "./lexicalSegmentationPolicy";
-import { createImportedAnalysisPlan } from "./adaptiveAnalysis";
+import {
+  createImportedAnalysisPlan,
+  refineImportedAnalysisPlan,
+} from "./adaptiveAnalysis";
 
 export const SEGMENTATION_SAMPLE_RATE = 16_000;
 const ADAPTIVE_VOCAL_RETRY_MAX_DURATION_MS = 5 * 60_000;
@@ -41,7 +44,7 @@ export type ImportedMediaSegmentationResult = {
 };
 
 export type WordSegmentationManifest = {
-  readonly schemaVersion: "voice.word_segmentation.v6";
+  readonly schemaVersion: "voice.word_segmentation.v7";
   readonly createdAt: string;
   readonly source: {
     readonly fileName: string;
@@ -93,6 +96,9 @@ export type WordSegmentationManifest = {
         | "uncertain";
       readonly depth: "fast" | "verified" | "deep";
       readonly hypothesisBudget: 1 | 2 | 3 | 4;
+      readonly runtimeClass: "unmeasured" | "fast" | "moderate" | "constrained";
+      readonly scoutRealtimeFactor: number | null;
+      readonly verificationRealtimeFactor: number | null;
     };
     readonly hypotheses: readonly {
       readonly kind: LexicalHypothesisKind;
@@ -183,14 +189,24 @@ export async function segmentImportedMedia(input: {
     durationMs,
   });
   const processingProfile = detectProcessingProfile(durationMs);
+  let scoutStartedAt: number | null = null;
   const tinyAnalysis = await analyzeDecodedAudio({
     audio: audio.slice(),
     expectedText: "",
     language: input.language,
     processingProfile,
-    onProgress: input.onProgress,
+    onProgress: (progress) => {
+      if (progress.stage === "transcribing" && scoutStartedAt === null) {
+        scoutStartedAt = monotonicNow();
+      }
+      input.onProgress(progress);
+    },
     signal: input.signal,
   });
+  const scoutRealtimeFactor = calculateRealtimeFactor(
+    scoutStartedAt,
+    durationMs,
+  );
   input.onProgress({ stage: "validating-result" });
   const tinyAssessment = assessLexicalSegmentation({
     timings: tinyAnalysis.whisperWords,
@@ -221,7 +237,9 @@ export async function segmentImportedMedia(input: {
     focusedCoverage: segmentCoverage(focusedActivity, durationMs),
     focusDifference,
     stereoCenterUsed,
+    ...(scoutRealtimeFactor === null ? {} : { scoutRealtimeFactor }),
   });
+  let effectivePlan = adaptivePlan;
   let sourceSeparation:
     | "not_needed"
     | "spectral_mid_side_residual"
@@ -246,6 +264,7 @@ export async function segmentImportedMedia(input: {
 
   if (adaptivePlan.runBaseOriginal) {
     input.onProgress({ stage: "enhancing-vocals" });
+    let verificationStartedAt: number | null = null;
     const baseOriginalAnalysis = await analyzeDecodedAudio({
       audio: audio.slice(),
       expectedText: "",
@@ -253,8 +272,26 @@ export async function segmentImportedMedia(input: {
       processingProfile,
       transcriptionModel: "base",
       decodingStrategy: processingProfile === "balanced" ? "beam" : "greedy",
-      onProgress: input.onProgress,
+      onProgress: (progress) => {
+        if (
+          progress.stage === "transcribing" &&
+          verificationStartedAt === null
+        ) {
+          verificationStartedAt = monotonicNow();
+        }
+        input.onProgress(progress);
+      },
       signal: input.signal,
+    });
+    const verificationRealtimeFactor = calculateRealtimeFactor(
+      verificationStartedAt,
+      durationMs,
+    );
+    effectivePlan = refineImportedAnalysisPlan({
+      plan: adaptivePlan,
+      ...(verificationRealtimeFactor === null
+        ? {}
+        : { verificationRealtimeFactor }),
     });
     input.onProgress({ stage: "validating-result" });
     const baseOriginalAssessment = assessLexicalSegmentation({
@@ -276,7 +313,7 @@ export async function segmentImportedMedia(input: {
     });
 
     const needsMusicalEnsemble =
-      adaptivePlan.scene === "music_mix" ||
+      effectivePlan.scene === "music_mix" ||
       tinyAssessment.quality.status === "insufficient" ||
       baseOriginalAssessment.quality.status === "insufficient" ||
       transcriptAgreement(
@@ -287,7 +324,7 @@ export async function segmentImportedMedia(input: {
 
     if (
       needsMusicalEnsemble &&
-      adaptivePlan.allowVocalFocus &&
+      effectivePlan.allowVocalFocus &&
       focusDifference > 0.015
     ) {
       input.onProgress({ stage: "enhancing-vocals" });
@@ -329,13 +366,13 @@ export async function segmentImportedMedia(input: {
         activityCoverage: vocalMask.retainedRatio,
       });
       vocalFocus = "not_selected";
-    } else if (needsMusicalEnsemble && !adaptivePlan.allowVocalFocus) {
+    } else if (needsMusicalEnsemble && !effectivePlan.allowVocalFocus) {
       vocalFocus = "skipped_for_budget";
     }
 
     if (
       needsMusicalEnsemble &&
-      adaptivePlan.allowSpectralSeparation &&
+      effectivePlan.allowSpectralSeparation &&
       spectralInput !== null
     ) {
       input.onProgress({ stage: "separating-vocals", progressPercent: 0 });
@@ -396,7 +433,7 @@ export async function segmentImportedMedia(input: {
         sourceSeparation = "not_needed";
         separationMetrics = null;
       }
-    } else if (needsMusicalEnsemble && !adaptivePlan.allowSpectralSeparation) {
+    } else if (needsMusicalEnsemble && !effectivePlan.allowSpectralSeparation) {
       sourceSeparation = "skipped_for_budget";
     }
   }
@@ -431,7 +468,7 @@ export async function segmentImportedMedia(input: {
   const supportedTranscript = words.map((word) => word.word).join(" ");
   const createdAt = (input.now ?? new Date()).toISOString();
   const manifest: WordSegmentationManifest = {
-    schemaVersion: "voice.word_segmentation.v6",
+    schemaVersion: "voice.word_segmentation.v7",
     createdAt,
     source: {
       fileName: input.file.name,
@@ -468,14 +505,17 @@ export async function segmentImportedMedia(input: {
       selectedSignal,
       vocalFocus,
       adaptiveStrategy: {
-        scene: adaptivePlan.scene,
+        scene: effectivePlan.scene,
         depth:
           hypotheses.length >= 3
             ? "deep"
             : hypotheses.length === 2
               ? "verified"
               : "fast",
-        hypothesisBudget: adaptivePlan.maximumHypotheses,
+        hypothesisBudget: effectivePlan.maximumHypotheses,
+        runtimeClass: effectivePlan.runtimeClass,
+        scoutRealtimeFactor: effectivePlan.scoutRealtimeFactor,
+        verificationRealtimeFactor: effectivePlan.verificationRealtimeFactor,
       },
       hypotheses: hypotheses.map((hypothesis) => ({
         kind: hypothesis.kind,
@@ -681,6 +721,20 @@ function detectProcessingProfile(durationMs: number): LocalProcessingProfile {
       typeof SharedArrayBuffer !== "undefined" &&
       globalThis.crossOriginIsolated,
   });
+}
+
+function calculateRealtimeFactor(
+  startedAt: number | null,
+  durationMs: number,
+): number | null {
+  if (startedAt === null || durationMs <= 0) return null;
+  const elapsedMs = Math.max(0, monotonicNow() - startedAt);
+  if (elapsedMs === 0) return null;
+  return Math.round((elapsedMs / durationMs) * 1_000) / 1_000;
+}
+
+function monotonicNow(): number {
+  return typeof performance === "undefined" ? Date.now() : performance.now();
 }
 
 async function probeMediaDurationMs(
