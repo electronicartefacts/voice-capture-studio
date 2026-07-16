@@ -206,6 +206,7 @@ export function HomeScreen(input: {
     <div className="home-card">
       <section className="instrument-face" aria-labelledby="home-title">
         <CaptureModeSelector
+          disabled={input.lexicalSegmentationState.status === "running"}
           mode={input.captureMode}
           onChange={input.onCaptureModeChange}
         />
@@ -621,6 +622,7 @@ export function VoiceManager(input: {
 }
 
 export function CaptureModeSelector(input: {
+  readonly disabled?: boolean;
   readonly mode: CaptureMode;
   readonly onChange: (mode: CaptureMode) => void;
 }) {
@@ -633,6 +635,7 @@ export function CaptureModeSelector(input: {
           <button
             aria-pressed={input.mode === option.mode}
             className={`capture-mode-option${input.mode === option.mode ? " is-active" : ""}`}
+            disabled={input.disabled}
             key={option.mode}
             onClick={() => input.onChange(option.mode)}
             title={option.title}

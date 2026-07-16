@@ -1,6 +1,6 @@
 # Capture Technology Audit
 
-Last reviewed: 2026-07-12
+Last reviewed: 2026-07-16
 
 ## Current Position
 
@@ -47,6 +47,22 @@ quantized model, VAD model, and an explicitly pinned ONNX WASM pair from this
 origin. It disables an incompatible N-bit graph rewrite for the bundled q8
 decoder. This avoids both remote fallback and runtime-dependent WASM filename
 selection while leaving the real-time recorder untouched.
+
+### Imported music and lexical segmentation
+
+The media-import path remains deliberately honest about the browser ceiling:
+it does not claim source separation. Its first pass combines local Whisper word
+hypotheses with independent Silero activity evidence. When that pass is
+insufficient, files up to five minutes receive one bounded second pass through a
+deterministic vocal-focus filter (120 Hz high-pass, 6.5 kHz low-pass and bounded
+normalization). The result is selected only when its acoustic evidence improves;
+the exported word clips always come from the untouched decoded source.
+
+Imports are preflighted before full decoding and are limited to 200 MB and ten
+minutes. This bounds the largest avoidable tab-memory failures on mobile while
+keeping a complete song practical. The manifest records the number of passes,
+the selected signal, the unresolved source-separation state, and whether the
+vocal-focus retry helped. These fields describe evidence, not certainty.
 
 ## Browser Ceiling
 

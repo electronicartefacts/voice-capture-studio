@@ -23,6 +23,7 @@ export type LocalAnalysisProgress =
   | { readonly stage: "loading-model"; readonly progressPercent: number }
   | { readonly stage: "transcribing" }
   | { readonly stage: "detecting-speech" }
+  | { readonly stage: "enhancing-vocals" }
   | { readonly stage: "validating-result" };
 
 export type LocalTakeAnalysis = {

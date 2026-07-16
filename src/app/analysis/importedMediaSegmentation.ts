@@ -13,8 +13,10 @@ import {
   type LexicalSegmentationQuality,
   type SupportedWordTiming,
 } from "./lexicalSegmentationQuality";
+import { assertImportedMediaWithinLimits } from "./lexicalSegmentationPolicy";
 
 export const SEGMENTATION_SAMPLE_RATE = 16_000;
+const ADAPTIVE_VOCAL_RETRY_MAX_DURATION_MS = 5 * 60_000;
 
 export type ImportedMediaSegmentationResult = {
   readonly archive: Blob;
@@ -46,6 +48,10 @@ export type WordSegmentationManifest = {
     readonly executionProvider: "wasm";
     readonly modelAssets: "same-origin-cache-first";
     readonly sourceSeparation: "not_available";
+    readonly transcriptionPasses: 1 | 2;
+    readonly selectedSignal: "original" | "vocal_focus";
+    readonly vocalFocus:
+      "not_needed" | "selected" | "not_selected" | "skipped_for_length";
   };
   readonly transcription: {
     readonly engine: "whisper-tiny-secondary";
@@ -78,6 +84,13 @@ export async function segmentImportedMedia(input: {
   readonly onProgress: (progress: LocalAnalysisProgress) => void;
   readonly now?: Date;
 }): Promise<ImportedMediaSegmentationResult> {
+  assertImportedMediaWithinLimits({ sizeBytes: input.file.size });
+  const metadataDurationMs = await probeMediaDurationMs(input.file);
+  assertImportedMediaWithinLimits({
+    sizeBytes: input.file.size,
+    durationMs: metadataDurationMs,
+  });
+
   let audio: Float32Array;
   try {
     audio = await decodeAudioToMono16k(input.file);
@@ -89,8 +102,12 @@ export async function segmentImportedMedia(input: {
   const durationMs = Math.round(
     (audio.length / SEGMENTATION_SAMPLE_RATE) * 1000,
   );
+  assertImportedMediaWithinLimits({
+    sizeBytes: input.file.size,
+    durationMs,
+  });
   const processingProfile = detectProcessingProfile(durationMs);
-  const analysis = await analyzeDecodedAudio({
+  let analysis = await analyzeDecodedAudio({
     audio: audio.slice(),
     expectedText: "",
     language: input.language,
@@ -98,10 +115,48 @@ export async function segmentImportedMedia(input: {
     onProgress: input.onProgress,
   });
   input.onProgress({ stage: "validating-result" });
-  const { acceptedTimings, quality } = assessLexicalSegmentation({
+  let assessment = assessLexicalSegmentation({
     timings: analysis.whisperWords,
     speechSegments: analysis.speechSegments,
   });
+  let transcriptionPasses: 1 | 2 = 1;
+  let selectedSignal: "original" | "vocal_focus" = "original";
+  let vocalFocus:
+    "not_needed" | "selected" | "not_selected" | "skipped_for_length" =
+    assessment.quality.status === "insufficient"
+      ? "skipped_for_length"
+      : "not_needed";
+
+  if (
+    assessment.quality.status === "insufficient" &&
+    durationMs <= ADAPTIVE_VOCAL_RETRY_MAX_DURATION_MS
+  ) {
+    transcriptionPasses = 2;
+    input.onProgress({ stage: "enhancing-vocals" });
+    const vocalFocusAnalysis = await analyzeDecodedAudio({
+      audio: createVocalFocusSignal(audio),
+      expectedText: "",
+      language: input.language,
+      processingProfile,
+      onProgress: input.onProgress,
+    });
+    input.onProgress({ stage: "validating-result" });
+    const vocalFocusAssessment = assessLexicalSegmentation({
+      timings: vocalFocusAnalysis.whisperWords,
+      speechSegments: vocalFocusAnalysis.speechSegments,
+    });
+
+    if (shouldPreferLexicalAssessment(vocalFocusAssessment, assessment)) {
+      analysis = vocalFocusAnalysis;
+      assessment = vocalFocusAssessment;
+      selectedSignal = "vocal_focus";
+      vocalFocus = "selected";
+    } else {
+      vocalFocus = "not_selected";
+    }
+  }
+
+  const { acceptedTimings, quality } = assessment;
 
   if (acceptedTimings.length === 0) {
     throw new Error(
@@ -120,7 +175,7 @@ export async function segmentImportedMedia(input: {
       mediaType: input.file.type || "application/octet-stream",
       sizeBytes: input.file.size,
       durationMs,
-      videoDiscarded: input.file.type.startsWith("video/"),
+      videoDiscarded: isVideoSource(input.file),
     },
     audio: {
       sampleRateHz: SEGMENTATION_SAMPLE_RATE,
@@ -136,6 +191,9 @@ export async function segmentImportedMedia(input: {
       executionProvider: "wasm",
       modelAssets: "same-origin-cache-first",
       sourceSeparation: "not_available",
+      transcriptionPasses,
+      selectedSignal,
+      vocalFocus,
     },
     transcription: {
       engine: "whisper-tiny-secondary",
@@ -176,6 +234,70 @@ export async function segmentImportedMedia(input: {
     fileName: `${fileStem(input.file.name)}.decoupe-lexicale.zip`,
     manifest,
   };
+}
+
+export function createVocalFocusSignal(
+  input: Float32Array,
+  sampleRate = SEGMENTATION_SAMPLE_RATE,
+): Float32Array {
+  const output = new Float32Array(input.length);
+  const highPassCutoffHz = 120;
+  const lowPassCutoffHz = Math.min(6_500, sampleRate * 0.45);
+  const timeStep = 1 / sampleRate;
+  const highPassRc = 1 / (2 * Math.PI * highPassCutoffHz);
+  const highPassAlpha = highPassRc / (highPassRc + timeStep);
+  const lowPassRc = 1 / (2 * Math.PI * lowPassCutoffHz);
+  const lowPassAlpha = timeStep / (lowPassRc + timeStep);
+  let previousInput = 0;
+  let highPassed = 0;
+  let lowPassed = 0;
+  let peak = 0;
+
+  for (let index = 0; index < input.length; index += 1) {
+    const sample = Number.isFinite(input[index]) ? input[index] : 0;
+    highPassed = highPassAlpha * (highPassed + sample - previousInput);
+    previousInput = sample;
+    lowPassed += lowPassAlpha * (highPassed - lowPassed);
+    output[index] = lowPassed;
+    peak = Math.max(peak, Math.abs(lowPassed));
+  }
+
+  if (peak >= 0.01) {
+    const gain = Math.min(4, 0.92 / peak);
+    for (let index = 0; index < output.length; index += 1) {
+      output[index] = Math.max(-1, Math.min(1, output[index] * gain));
+    }
+  }
+
+  return output;
+}
+
+export function shouldPreferLexicalAssessment(
+  candidate: ReturnType<typeof assessLexicalSegmentation>,
+  current: ReturnType<typeof assessLexicalSegmentation>,
+): boolean {
+  if (
+    candidate.quality.status === "review" &&
+    current.quality.status === "insufficient"
+  ) {
+    return true;
+  }
+
+  if (candidate.quality.status !== current.quality.status) return false;
+
+  if (
+    candidate.quality.evidenceMode === "speech_vad" &&
+    current.quality.evidenceMode === "transcriber_only"
+  ) {
+    return true;
+  }
+
+  return (
+    candidate.quality.evidenceMode === current.quality.evidenceMode &&
+    candidate.quality.acceptedWordCount >= current.quality.acceptedWordCount &&
+    candidate.quality.speechOverlapRate >=
+      current.quality.speechOverlapRate + 0.15
+  );
 }
 
 export function createWordAudioSegments(
@@ -266,6 +388,51 @@ function detectProcessingProfile(durationMs: number): LocalProcessingProfile {
       typeof SharedArrayBuffer !== "undefined" &&
       globalThis.crossOriginIsolated,
   });
+}
+
+async function probeMediaDurationMs(file: File): Promise<number | null> {
+  if (
+    typeof Audio === "undefined" ||
+    typeof URL === "undefined" ||
+    typeof URL.createObjectURL !== "function"
+  ) {
+    return null;
+  }
+
+  const media = new Audio();
+  const objectUrl = URL.createObjectURL(file);
+
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (durationMs: number | null) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeoutId);
+      media.removeAttribute("src");
+      media.load();
+      URL.revokeObjectURL(objectUrl);
+      resolve(durationMs);
+    };
+    const timeoutId = window.setTimeout(() => finish(null), 5_000);
+
+    media.preload = "metadata";
+    media.onloadedmetadata = () =>
+      finish(
+        Number.isFinite(media.duration) && media.duration > 0
+          ? Math.round(media.duration * 1_000)
+          : null,
+      );
+    media.onerror = () => finish(null);
+    media.src = objectUrl;
+    media.load();
+  });
+}
+
+function isVideoSource(file: File): boolean {
+  return (
+    file.type.startsWith("video/") ||
+    /\.(?:m4v|mov|mp4|ogv|webm)$/i.test(file.name)
+  );
 }
 
 function csvCell(value: string): string {

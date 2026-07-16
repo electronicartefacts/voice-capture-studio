@@ -1,6 +1,7 @@
 import { useEffect, useRef, type ChangeEvent, type DragEvent } from "react";
 import { AudioLines, Download, FileAudio, Upload, X } from "lucide-react";
 import type { ImportedMediaSegmentationResult } from "../../analysis/importedMediaSegmentation";
+import { LEXICAL_SEGMENTATION_MAX_DURATION_MS } from "../../analysis/lexicalSegmentationPolicy";
 import type { LocalAnalysisProgress } from "../../analysis/types";
 import {
   formatLanguage,
@@ -57,8 +58,9 @@ export function LexicalSegmentationPanel(input: {
         <p>
           Importe une vidéo ou un son, parlé ou chanté. L'analyse compare
           localement les mots proposés aux zones vocales avant de préparer les
-          extraits WAV. Les résultats incertains restent signalés et rien ne
-          quitte cet appareil.
+          extraits WAV. Si le premier passage échoue, un filtre vocal local peut
+          lancer une seconde lecture sans modifier l'audio exporté. Les
+          résultats incertains restent signalés et rien ne quitte cet appareil.
         </p>
       </div>
 
@@ -74,6 +76,7 @@ export function LexicalSegmentationPanel(input: {
         <label>
           <span>Langue parlée</span>
           <select
+            disabled={input.state.status === "running"}
             onChange={(event) =>
               input.onLanguageChange(event.target.value as LanguageCode)
             }
@@ -155,7 +158,8 @@ export function LexicalSegmentationPanel(input: {
               <dt>Découpe produite</dt>
               <dd>
                 {input.state.result.manifest.words.length} WAV mot par mot ·
-                manifeste JSON · timeline CSV
+                manifeste JSON · timeline CSV ·{" "}
+                {formatPasses(input.state.result)}
               </dd>
             </div>
           </dl>
@@ -173,7 +177,9 @@ export function LexicalSegmentationPanel(input: {
       {input.file !== null && input.state.status === "idle" && (
         <p className="action-hint">
           <AudioLines aria-hidden="true" size={16} /> Lance la découpe avec le
-          bouton principal. Le premier passage charge les modèles locaux.
+          bouton principal. Le premier passage charge les modèles locaux. Limite
+          de {LEXICAL_SEGMENTATION_MAX_DURATION_MS / 60_000} minutes pour
+          préserver la mémoire de l'appareil.
         </p>
       )}
     </section>
@@ -190,7 +196,18 @@ function formatProgress(progress: LocalAnalysisProgress): string {
     ? "Détection et horodatage des mots…"
     : progress.stage === "detecting-speech"
       ? "Vérification des zones vocales…"
-      : "Contrôle de fiabilité avant export…";
+      : progress.stage === "enhancing-vocals"
+        ? "Premier résultat fragile · préparation d'un second passage vocal…"
+        : "Contrôle de fiabilité avant export…";
+}
+
+function formatPasses(result: ImportedMediaSegmentationResult): string {
+  const processing = result.manifest.processing;
+
+  if (processing.transcriptionPasses === 1) return "1 passage local";
+  return processing.selectedSignal === "vocal_focus"
+    ? "2 passages locaux · filtre vocal retenu"
+    : "2 passages locaux · original conservé";
 }
 
 function formatProfile(profile: "balanced" | "compatible"): string {
