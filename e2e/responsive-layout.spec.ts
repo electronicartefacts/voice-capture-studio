@@ -3,6 +3,7 @@ import { expect, test, type Page } from "@playwright/test";
 const APP_PATH = "/voice-capture-studio/";
 
 const VIEWPORTS = [
+  ["narrow phone portrait", { width: 280, height: 653 }],
   ["compact phone portrait", { width: 320, height: 568 }],
   ["phone portrait", { width: 393, height: 852 }],
   ["compact phone landscape", { width: 667, height: 375 }],
@@ -37,7 +38,7 @@ async function enterStudio(page: Page): Promise<void> {
   await expect(page.locator("main.is-awake")).toBeVisible({ timeout: 30_000 });
 }
 
-async function expectSinglePageScroll(page: Page): Promise<void> {
+async function expectContainedPage(page: Page): Promise<void> {
   const layout = await page.evaluate(() => ({
     horizontalOverflow:
       document.documentElement.scrollWidth > window.innerWidth + 1,
@@ -53,10 +54,50 @@ async function expectSinglePageScroll(page: Page): Promise<void> {
       .filter(
         (className): className is string => typeof className === "string",
       ),
+    escapedElements: [
+      ...document.querySelectorAll<HTMLElement>(
+        ".opening-ritual *, .simple-header *, .session-stage *, .technical-page *, .site-footer *",
+      ),
+    ]
+      .filter((element) => {
+        const style = window.getComputedStyle(element);
+        const bounds = element.getBoundingClientRect();
+
+        return (
+          !element.matches(".sr-only") &&
+          element.closest(".sr-only") === null &&
+          style.display !== "none" &&
+          style.visibility !== "hidden" &&
+          bounds.width > 0 &&
+          bounds.height > 0 &&
+          (bounds.left < -1 || bounds.right > window.innerWidth + 1)
+        );
+      })
+      .slice(0, 20)
+      .map((element) => `${element.tagName}.${element.className}`),
+    clippedControls: [
+      ...document.querySelectorAll<HTMLElement>(
+        ".opening-ritual button, .simple-header button, .session-stage button, .session-stage a, .session-stage summary, .technical-page button, .technical-page a, .technical-page summary, .site-footer a",
+      ),
+    ]
+      .filter((element) => {
+        const style = window.getComputedStyle(element);
+
+        return (
+          style.display !== "none" &&
+          style.visibility !== "hidden" &&
+          element.getBoundingClientRect().width > 0 &&
+          element.scrollWidth > element.clientWidth + 1
+        );
+      })
+      .slice(0, 20)
+      .map((element) => `${element.tagName}.${element.className}`),
   }));
 
   expect(layout.horizontalOverflow).toBe(false);
   expect(layout.nestedScrollboxes).toEqual([]);
+  expect(layout.escapedElements).toEqual([]);
+  expect(layout.clippedControls).toEqual([]);
 }
 
 for (const [name, viewport] of VIEWPORTS) {
@@ -75,12 +116,12 @@ for (const [name, viewport] of VIEWPORTS) {
     ]) {
       await page.getByRole("button", { name: mode, exact: true }).click();
       await expect(page.locator(".home-card")).toBeVisible();
-      await expectSinglePageScroll(page);
+      await expectContainedPage(page);
     }
 
     await page.getByRole("button", { name: "Qualité et exports" }).click();
     await expect(page.locator(".technical-page")).toBeVisible();
-    await expectSinglePageScroll(page);
+    await expectContainedPage(page);
   });
 }
 
@@ -233,19 +274,27 @@ test("reflows capture and review when the phone rotates", async ({ page }) => {
   await page.getByRole("button", { name: "Démarrer la capture" }).click();
 
   await expect(page.locator(".karaoke-screen")).toBeVisible();
+  await page.setViewportSize({ width: 280, height: 653 });
+  await expect(page.locator("main.surface-mobile-focus")).toBeVisible();
+  await expectContainedPage(page);
+
   await page.setViewportSize({ width: 852, height: 393 });
   await expect(page.locator("main.surface-mobile-landscape-lab")).toBeVisible();
-  await expectSinglePageScroll(page);
+  await expectContainedPage(page);
 
   await page.getByRole("button", { name: "Stop" }).click();
   await expect(page.locator(".listening-review")).toBeVisible({
     timeout: 30_000,
   });
-  await expectSinglePageScroll(page);
+  await expectContainedPage(page);
+
+  await page.setViewportSize({ width: 280, height: 653 });
+  await expect(page.locator("main.surface-mobile-focus")).toBeVisible();
+  await expectContainedPage(page);
 
   await page.setViewportSize({ width: 834, height: 1194 });
   await expect(page.locator("main.surface-tablet-dashboard")).toBeVisible();
-  await expectSinglePageScroll(page);
+  await expectContainedPage(page);
 });
 
 test("keeps guided preparation and calibration fluid on tablet landscape", async ({
@@ -257,9 +306,46 @@ test("keeps guided preparation and calibration fluid on tablet landscape", async
   await page.getByRole("button", { name: "Créer le dataset" }).click();
 
   await expect(page.locator(".director-panel")).toBeVisible();
-  await expectSinglePageScroll(page);
+  await expectContainedPage(page);
+
+  await page.setViewportSize({ width: 280, height: 653 });
+  await expect(page.locator("main.surface-mobile-focus")).toBeVisible();
+  await expectContainedPage(page);
+
+  await page.setViewportSize({ width: 1024, height: 768 });
 
   await page.getByRole("button", { name: "Démarrer la prise" }).click();
   await expect(page.locator(".room-tone-screen")).toBeVisible();
-  await expectSinglePageScroll(page);
+  await page.setViewportSize({ width: 280, height: 653 });
+  await expect(page.locator("main.surface-mobile-focus")).toBeVisible();
+  await expectContainedPage(page);
+});
+
+test("contains the dubbing media surface on a narrow phone", async ({
+  page,
+}) => {
+  await page.route("https://www.youtube-nocookie.com/**", (route) =>
+    route.abort(),
+  );
+  await page.setViewportSize({ width: 280, height: 653 });
+  await enterStudio(page);
+  await page.getByRole("button", { name: "Doublage", exact: true }).click();
+  await page
+    .getByLabel("Texte du corpus local")
+    .fill("00:00:42,000 --> 00:00:46,000\nOn y va maintenant.");
+  await page
+    .getByPlaceholder("Coller un lien YouTube")
+    .fill("https://youtu.be/dQw4w9WgXcQ");
+  await page.getByRole("button", { name: "Relier" }).click();
+  await expectContainedPage(page);
+
+  await page.locator(".lab-launch-button").click();
+  await expect(page.locator(".director-panel")).toBeVisible();
+  await expectContainedPage(page);
+
+  await page.getByRole("button", { name: "Démarrer la prise" }).click();
+  await expect(page.locator(".dubbing-capture-layout")).toBeVisible({
+    timeout: 30_000,
+  });
+  await expectContainedPage(page);
 });

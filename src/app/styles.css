@@ -1121,24 +1121,6 @@ textarea:focus-visible {
   color: color-mix(in srgb, var(--muted) 72%, transparent);
 }
 
-.capture-profile .checkbox-row {
-  align-items: center;
-  background: color-mix(in srgb, var(--accent-a) 8%, transparent);
-  border: 1px solid color-mix(in srgb, var(--accent-a) 26%, var(--line));
-  border-radius: var(--radius);
-  display: flex;
-  gap: 10px;
-  grid-column: 1 / -1;
-  min-height: 48px;
-  padding: 11px 12px;
-}
-
-.capture-profile .checkbox-row input {
-  accent-color: var(--accent-a);
-  min-height: 18px;
-  width: 18px;
-}
-
 .primary-actions {
   display: grid;
   gap: 12px;
@@ -2048,6 +2030,7 @@ textarea:focus-visible {
 }
 
 .technical-page {
+  container-type: inline-size;
   justify-self: center;
   max-width: 1120px;
   padding: clamp(22px, 4vw, 42px);
@@ -2345,7 +2328,7 @@ textarea:focus-visible {
 .dataset-export-actions {
   display: grid;
   gap: 10px;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
 }
 
 .dataset-export-status {
@@ -2634,13 +2617,11 @@ textarea:focus-visible {
 
   .session-stage {
     align-items: start;
-    padding: 20px;
   }
 
   .focus-card h1,
   .director-panel h1,
   .technical-page h1 {
-    font-size: clamp(32px, 9.8vw, 44px);
     max-width: 13ch;
   }
 
@@ -2702,12 +2683,6 @@ textarea:focus-visible {
     inline-size: 84px;
   }
 
-  .home-workbench,
-  .focus-card,
-  .director-panel {
-    padding: 18px;
-  }
-
   .capture-profile-details summary {
     align-items: flex-start;
     flex-direction: column;
@@ -2729,14 +2704,6 @@ textarea:focus-visible {
 
   .prompt-direction blockquote {
     font-size: clamp(24px, 9vw, 36px);
-  }
-
-  .karaoke-screen {
-    min-height: 66vh;
-  }
-
-  .room-tone-screen {
-    min-height: 66vh;
   }
 
   .room-tone-copy h1 {
@@ -2768,11 +2735,6 @@ textarea:focus-visible {
     font-size: 12px;
     line-height: 1.2;
     white-space: normal;
-  }
-
-  .karaoke-line {
-    font-size: clamp(32px, 11vw, 58px);
-    min-height: clamp(220px, 36vh, 330px);
   }
 }
 
@@ -3228,6 +3190,8 @@ body,
   display: grid;
   gap: 28px;
   justify-items: center;
+  min-width: 0;
+  width: min(100%, 860px);
 }
 
 .opening-ritual h1 {
@@ -3237,6 +3201,7 @@ body,
   line-height: 1.05;
   margin: 0;
   max-width: 16ch;
+  overflow-wrap: anywhere;
 }
 
 .opening-ritual p {
@@ -3259,9 +3224,11 @@ body,
   display: inline-flex;
   font-weight: 760;
   gap: 10px;
+  max-width: 100%;
   min-height: 50px;
   padding: 13px 18px;
   position: relative;
+  text-align: center;
   transition:
     background var(--motion-fast) var(--ease-standard),
     border-color var(--motion-fast) var(--ease-standard),
@@ -3716,11 +3683,6 @@ body,
 }
 
 @media (max-width: 720px) {
-  .session-stage {
-    min-height: calc(var(--app-viewport-height, 100vh) - 76px);
-    padding: 18px;
-  }
-
   .focus-card h1,
   .director-panel h1,
   .technical-page h1 {
@@ -3978,8 +3940,13 @@ body,
   gap: 4px;
 }
 
+.forced-alignment-panel > .folder-button,
+.forced-alignment-panel > .quiet-button {
+  flex: 0 0 auto;
+}
+
 .forced-alignment-panel > div > span {
-  color: var(--muted-text, rgba(255, 255, 255, 0.64));
+  color: var(--muted);
   font-size: 0.85rem;
 }
 
@@ -4289,6 +4256,23 @@ body,
   width: 100%;
 }
 
+:is(
+  .home-workbench > * > *,
+  .technical-page > *,
+  .director-panel > *,
+  .focus-card > *,
+  .room-tone-screen > *,
+  .karaoke-screen > *
+) {
+  max-width: 100%;
+  min-width: 0;
+}
+
+:is(.forced-alignment-panel, .studio-ready-panel) > * {
+  max-width: 100%;
+  min-width: 0;
+}
+
 .home-workbench,
 .director-panel,
 .focus-card,
@@ -4327,18 +4311,6 @@ body,
 .home-workbench > section,
 .home-workbench > details {
   padding: var(--surface-pad);
-}
-
-.folder-button,
-.launch-button,
-.download-action,
-.stop-button,
-.quiet-button,
-.system-refresh,
-.ritual-button,
-.capture-mode-option,
-.site-footer-links a {
-  white-space: nowrap;
 }
 
 .folder-button,
@@ -4457,7 +4429,23 @@ body,
   }
 }
 
+@container (max-width: 52rem) {
+  .technical-page .forced-alignment-panel {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .technical-page .workspace-archive-actions {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+  }
+}
+
 @media (max-width: 720px) {
+  .setup-pill {
+    max-width: 100%;
+    white-space: normal;
+  }
+
   .home-workbench .primary-actions .folder-button,
   .home-workbench .primary-actions .launch-button,
   .stacked-actions .folder-button,
@@ -4475,11 +4463,35 @@ body,
     min-width: 0;
   }
 
-  .launch-button.is-hero span {
+  .studio-ready-panel {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .microphone-sensitivity,
+  .backing-track-volume {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .microphone-sensitivity > span,
+  .backing-track-volume > span {
+    grid-column: 1 / -1;
+  }
+
+  .recordings-list a {
+    flex-wrap: wrap;
+  }
+
+  .recording-topbar > * {
+    max-width: 100%;
     min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+  }
+
+  .karaoke-word {
+    flex-wrap: wrap;
+    justify-content: center;
+    max-width: 100%;
+    white-space: normal;
   }
 }
 
