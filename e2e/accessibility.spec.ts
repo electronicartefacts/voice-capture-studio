@@ -40,8 +40,13 @@ async function expectNoSeriousAccessibilityViolations(page: Page) {
 }
 
 test("opening ritual meets the automated WCAG A and AA baseline", async ({
+  context,
   page,
 }) => {
+  // The application intentionally skips the ritual when the browser reports
+  // an already-granted microphone permission. Keep this test independent from
+  // the project-wide recording permission so it always audits the ritual.
+  await context.clearPermissions();
   await page.goto(APP_PATH);
 
   await expect(page.locator(".opening-ritual")).toBeVisible();
