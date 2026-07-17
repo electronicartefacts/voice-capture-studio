@@ -2549,13 +2549,13 @@ textarea:focus-visible {
 }
 
 @media (max-width: 1180px) {
-  .capture-mode-option {
+  .simple-header .capture-mode-option {
     height: 42px;
     padding: 0;
     width: 42px;
   }
 
-  .mode-option-label {
+  .simple-header .mode-option-label {
     display: none;
   }
 
@@ -2661,7 +2661,7 @@ textarea:focus-visible {
     flex: 1 1 auto;
   }
 
-  .capture-mode-option {
+  .simple-header .capture-mode-option {
     flex: 1 1 0;
     height: 42px;
     min-height: 42px;
