@@ -269,12 +269,19 @@ export type StandaloneCaptureArtifact = {
   readonly metadata: Record<string, unknown>;
 };
 
+export type VoiceArtifactProcessingContext = {
+  readonly captureKind: "session_take" | "standalone";
+  readonly roomToneBlob?: Blob;
+  readonly roomToneSourceRef: string | null;
+};
+
 export async function createVoiceCapturePackagePlan(input: {
   readonly corpus: CorpusManifest;
   readonly corpora?: readonly CorpusManifest[];
   readonly getAudioBlob: (fileName: string) => Promise<Blob | undefined>;
   readonly processAudioBlob?: (
     audioBlob: Blob,
+    context: VoiceArtifactProcessingContext,
   ) => Promise<ProcessedVoiceArtifact>;
   readonly standaloneCaptures?: readonly StandaloneCaptureArtifact[];
   readonly now?: Date;
@@ -348,8 +355,16 @@ export async function createVoiceCapturePackagePlan(input: {
   const speakerPaths = new Map<string, string>();
   const corpusPaths = new Map<string, string>();
   const roomTonePathBySession = new Map<string, string>();
+  const roomToneBlobBySession = new Map<string, Blob>();
   const legacyWarnings: string[] = [];
   let audioBytes = 0;
+
+  const defaultRoomToneSourceRef =
+    input.workspace.settings.captureProfile.roomToneFileName ?? null;
+  const defaultRoomToneBlob =
+    input.processAudioBlob !== undefined && defaultRoomToneSourceRef !== null
+      ? await input.getAudioBlob(defaultRoomToneSourceRef)
+      : undefined;
 
   const standaloneIndex: unknown[] = [];
   for (const capture of standaloneCaptures) {
@@ -373,7 +388,11 @@ export async function createVoiceCapturePackagePlan(input: {
     let derivedPath: string | null = null;
     let processingPath: string | null = null;
     if (input.processAudioBlob !== undefined) {
-      const processed = await input.processAudioBlob(capture.blob);
+      const processed = await input.processAudioBlob(capture.blob, {
+        captureKind: "standalone",
+        roomToneBlob: defaultRoomToneBlob,
+        roomToneSourceRef: defaultRoomToneSourceRef,
+      });
       await validatePcmWavBlob(processed.blob, {
         sampleRateHz: 16_000,
         channels: 1,
@@ -423,8 +442,8 @@ export async function createVoiceCapturePackagePlan(input: {
     contextBySession.set(session.id, captureContext);
     let roomTonePath: string | null = null;
     if (
-      scope.includeRoomTones === true &&
-      captureContext.room_tone.ref !== null
+      captureContext.room_tone.ref !== null &&
+      (scope.includeRoomTones === true || input.processAudioBlob !== undefined)
     ) {
       const roomToneBlob = await input.getAudioBlob(
         captureContext.room_tone.ref,
@@ -435,10 +454,13 @@ export async function createVoiceCapturePackagePlan(input: {
         );
       } else {
         await validatePcmWavBlob(roomToneBlob);
-        const roomToneHash = await sha256Blob(roomToneBlob);
-        roomTonePath = `room-tones/room_tone_${roomToneHash}.wav`;
-        addAudioFileOnce(files, roomTonePath, roomToneBlob);
-        roomTonePathBySession.set(session.id, roomTonePath);
+        roomToneBlobBySession.set(session.id, roomToneBlob);
+        if (scope.includeRoomTones === true) {
+          const roomToneHash = await sha256Blob(roomToneBlob);
+          roomTonePath = `room-tones/room_tone_${roomToneHash}.wav`;
+          addAudioFileOnce(files, roomTonePath, roomToneBlob);
+          roomTonePathBySession.set(session.id, roomTonePath);
+        }
       }
     }
     addJsonFile(files, sessionPath, {
@@ -562,7 +584,14 @@ export async function createVoiceCapturePackagePlan(input: {
     const audioPath = `audio/${audioId}.wav`;
     let derivedVoice: VoiceCapturePackageSample["derived_voice"];
     if (input.processAudioBlob !== undefined) {
-      const processed = await input.processAudioBlob(audioBlob);
+      const processed = await input.processAudioBlob(audioBlob, {
+        captureKind: "session_take",
+        roomToneBlob:
+          roomToneBlobBySession.get(session.id) ?? defaultRoomToneBlob,
+        roomToneSourceRef:
+          contextBySession.get(session.id)?.room_tone.ref ??
+          defaultRoomToneSourceRef,
+      });
       const processedValidation = await validatePcmWavBlob(processed.blob, {
         sampleRateHz: 16_000,
         channels: 1,

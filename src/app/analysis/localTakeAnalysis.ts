@@ -20,6 +20,12 @@ import {
   type CaptureAnalysisContext,
 } from "./adaptiveAnalysis";
 import { separateVocalsOffThread } from "./localSpectralVocalSeparation";
+import {
+  readRuntimePerformanceProfile,
+  recordRuntimePerformanceObservation,
+  selectCapturedAnalysisBudget,
+  type CapturedAnalysisBudget,
+} from "./runtimePerformanceProfile";
 
 const ANALYSIS_SAMPLE_RATE = 16_000;
 
@@ -50,6 +56,7 @@ export function isLocalAnalysisSupported(): boolean {
  */
 export async function analyzeTakeAudio(input: {
   readonly audioBlob: Blob;
+  readonly roomToneBlob?: Blob;
   readonly expectedText: string;
   readonly language: string;
   readonly context?: CaptureAnalysisContext;
@@ -58,44 +65,86 @@ export async function analyzeTakeAudio(input: {
 }): Promise<LocalTakeAnalysis> {
   throwIfAnalysisAborted(input.signal);
   const signals = await decodeAudioToVocalSignals16k(input.audioBlob);
+  const noiseReference =
+    input.roomToneBlob === undefined
+      ? null
+      : await decodeAudioToMono16k(input.roomToneBlob).catch(() => null);
+  const durationMs = getAnalysisDurationMs(signals.mono);
+  const existingPerformanceProfile = readRuntimePerformanceProfile();
+  const measuredTranscriptionFactors: number[] = [];
+  const analyzeMeasured = async (analysisInput: {
+    readonly audio: Float32Array;
+    readonly model: LocalTranscriptionModel;
+    readonly decoding: LocalDecodingStrategy;
+  }) => {
+    let inferenceStartedAt: number | null = null;
+    const result = await analyzeDecodedAudio({
+      audio: analysisInput.audio,
+      expectedText: input.expectedText,
+      language: input.language,
+      transcriptionModel: analysisInput.model,
+      decodingStrategy: analysisInput.decoding,
+      onProgress: (progress) => {
+        if (progress.stage === "transcribing" && inferenceStartedAt === null) {
+          inferenceStartedAt = performance.now();
+        }
+        input.onProgress(progress);
+      },
+      signal: input.signal,
+    });
+    if (inferenceStartedAt !== null && durationMs > 0) {
+      const elapsedMs = performance.now() - inferenceStartedAt;
+      const factor = elapsedMs / durationMs;
+      measuredTranscriptionFactors.push(factor);
+      recordRuntimePerformanceObservation({
+        kind: "transcription",
+        elapsedMs,
+        sourceDurationMs: durationMs,
+      });
+    }
+    return result;
+  };
   throwIfAnalysisAborted(input.signal);
   const original = await runAdaptiveTakeAnalysis({
     audio: signals.mono,
     context: input.context,
     onProgress: input.onProgress,
-    analyze: ({ audio: candidateAudio, model, decoding }) =>
-      analyzeDecodedAudio({
-        audio: candidateAudio,
-        expectedText: input.expectedText,
-        language: input.language,
-        transcriptionModel: model,
-        decodingStrategy: decoding,
-        onProgress: input.onProgress,
-        signal: input.signal,
-      }),
+    analyze: ({ audio, model, decoding }) =>
+      analyzeMeasured({ audio, model, decoding }),
+  });
+  const budget = selectCapturedAnalysisBudget({
+    scene: classifyCaptureAcousticScene(input.context),
+    durationMs,
+    observedTranscriptionRealtimeFactor:
+      measuredTranscriptionFactors.length === 0
+        ? null
+        : Math.max(...measuredTranscriptionFactors),
+    profile: existingPerformanceProfile,
   });
   return runCapturedVocalEnsemble({
     signals,
     original,
     context: input.context,
+    budget,
     onProgress: input.onProgress,
     analyze: (audio) =>
-      analyzeDecodedAudio({
-        audio,
-        expectedText: input.expectedText,
-        language: input.language,
-        transcriptionModel: "base",
-        decodingStrategy: "greedy",
-        onProgress: input.onProgress,
-        signal: input.signal,
-      }),
-    separate: () =>
-      separateVocalsOffThread({
+      analyzeMeasured({ audio, model: "base", decoding: "greedy" }),
+    separate: async () => {
+      const startedAt = performance.now();
+      const result = await separateVocalsOffThread({
         ...signals.spectralInput!,
+        noiseReference,
         onProgress: (progressPercent) =>
           input.onProgress({ stage: "separating-vocals", progressPercent }),
         signal: input.signal,
-      }).then((result) => result.signal),
+      });
+      recordRuntimePerformanceObservation({
+        kind: "separation",
+        elapsedMs: performance.now() - startedAt,
+        sourceDurationMs: durationMs,
+      });
+      return result.signal;
+    },
   });
 }
 
@@ -103,16 +152,24 @@ export async function runCapturedVocalEnsemble(input: {
   readonly signals: Awaited<ReturnType<typeof decodeAudioToVocalSignals16k>>;
   readonly original: LocalTakeAnalysis;
   readonly context?: CaptureAnalysisContext;
+  readonly budget?: CapturedAnalysisBudget;
   readonly onProgress: (progress: LocalAnalysisProgress) => void;
   readonly analyze: (audio: Float32Array) => Promise<LocalTakeAnalysis>;
   readonly separate: () => Promise<Float32Array>;
 }): Promise<LocalTakeAnalysis> {
   const scene = classifyCaptureAcousticScene(input.context);
+  const budget =
+    input.budget ??
+    selectCapturedAnalysisBudget({
+      scene,
+      durationMs: getAnalysisDurationMs(input.signals.mono),
+    });
   const needsVocalEnsemble =
     scene !== "clean_voice" &&
+    budget.allowVocalFocus &&
     input.signals.vocalFocus.length <= ANALYSIS_SAMPLE_RATE * 5 * 60;
 
-  if (!needsVocalEnsemble) return input.original;
+  if (!needsVocalEnsemble) return withRuntimeBudget(input.original, budget);
 
   input.onProgress({ stage: "enhancing-vocals" });
   const vocalFocusAnalysis = await input.analyze(input.signals.vocalFocus);
@@ -132,6 +189,7 @@ export async function runCapturedVocalEnsemble(input: {
 
   if (
     input.signals.spectralInput !== null &&
+    budget.allowSpectralSeparation &&
     (scene === "sung_voice" || (input.context?.snrDb ?? 99) < 16)
   ) {
     input.onProgress({ stage: "separating-vocals", progressPercent: 0 });
@@ -162,8 +220,34 @@ export async function runCapturedVocalEnsemble(input: {
         matchedWordCount: hypothesis.analysis.matchedWordCount,
         score: selection.scores[index],
       })),
+      runtime: runtimeStrategy(budget),
     },
   };
+}
+
+function withRuntimeBudget(
+  analysis: LocalTakeAnalysis,
+  budget: CapturedAnalysisBudget,
+): LocalTakeAnalysis {
+  if (analysis.strategy === undefined) return analysis;
+  return {
+    ...analysis,
+    strategy: {
+      ...analysis.strategy,
+      runtime: runtimeStrategy(budget),
+    },
+  };
+}
+
+function runtimeStrategy(budget: CapturedAnalysisBudget) {
+  return {
+    runtimeClass: budget.runtimeClass,
+    observedTranscriptionRealtimeFactor:
+      budget.observedTranscriptionRealtimeFactor,
+    storedTranscriptionRealtimeFactor: budget.storedTranscriptionRealtimeFactor,
+    hypothesisBudget: budget.maximumHypotheses,
+    reasons: budget.reasons,
+  } as const;
 }
 
 export async function analyzeDecodedAudio(input: {

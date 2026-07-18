@@ -22,6 +22,9 @@ The observation-pipeline pass moves the app to a better intermediate contract:
 8. Raw ambient measurement and voice-optimised recording use separate microphone streams.
 9. Free, continuous, and guided session starts all receive a fresh three-second room-tone pass.
 10. Exports retain immutable raw WAV audio beside an explicitly derived, timing-preserving vocal signal.
+11. The room-tone WAV is decoded into a frequency-domain noise reference for post-capture vocal separation.
+12. Each browser learns an exponentially weighted local performance profile from measured inference and
+    separation time; the per-take budget and reasons are retained in analysis provenance.
 
 ## Capture and isolation pipeline
 
@@ -39,7 +42,10 @@ never overwritten by enhancement.
 
 Post-capture analysis starts automatically. Clean speech can stop after the Tiny/Silero scout. A
 constrained or sung take adds Base inference over a deterministic vocal-band/transient-reduced
-signal; low-SNR or sung material can add a spectral mid/side residual hypothesis. Arbitration keeps
+signal; low-SNR or sung material can add a spectral mid/side residual hypothesis. That spectral pass
+starts from the immediately preceding room calibration when its WAV is available, then continues to
+track slow changes in the mixture instead of treating the voice itself as the only source from which
+to estimate noise. Arbitration keeps
 the hypothesis with the strongest prompt and acoustic support. Whisper boundaries anchored by
 Silero are then fused back into the complete prompt-derived word and phoneme graph: matched words
 use their observed boundaries, unmatched items are time-warped between acoustic anchors, and phrase
@@ -47,9 +53,16 @@ intervals follow sentence punctuation. Guided takes persist this graph in worksp
 and continuous captures add the same words, phrases, speech segments, and strategy to their JSON
 manifest.
 
+The capture post-pass measures inference only after the worker enters transcription, excluding the
+model download stage. It combines the current take with a local moving-average profile stored by that
+browser. Clean speech keeps the fast path; slow runtimes still retain an independent Base/vocal-focus
+check for complex scenes, while fast short takes can add spectral evidence. The exported strategy
+records the measured factor, stored factor, runtime class, hypothesis budget, and decision reasons.
+
 Dataset package generation derives a second mono 16 kHz / 24-bit voice-first WAV for each selected
 take. Its processing method, source hash, derived hash, separation metrics, and timing-preservation
-claim are recorded in `processing/`. The sample keeps `training_default: false`: downstream users
+claim are recorded in `processing/`, together with room-reference status and measured separation
+speed. The sample keeps `training_default: false`: downstream users
 can choose the isolated signal for ASR or inspection without silently replacing the immutable raw
 training evidence.
 

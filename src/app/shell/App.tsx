@@ -1403,9 +1403,13 @@ export function App() {
       const plan = await createVoiceCapturePackagePlan({
         corpus: exportCorpus,
         getAudioBlob: getWorkspaceRecording,
-        processAudioBlob: (audioBlob) =>
+        processAudioBlob: (audioBlob, processingContext) =>
           import("../analysis/processedVoiceArtifact").then((module) =>
-            module.createProcessedVoiceArtifact({ audioBlob }),
+            module.createProcessedVoiceArtifact({
+              audioBlob,
+              roomToneBlob: processingContext.roomToneBlob,
+              roomToneSourceRef: processingContext.roomToneSourceRef,
+            }),
           ),
         licenses: workspace.rights.licenses,
         rights: workspace.rights.consents,
@@ -1514,9 +1518,13 @@ export function App() {
       const plan = await createVoiceCapturePackagePlan({
         corpus: exportCorpus,
         getAudioBlob: getWorkspaceRecording,
-        processAudioBlob: (audioBlob) =>
+        processAudioBlob: (audioBlob, processingContext) =>
           import("../analysis/processedVoiceArtifact").then((module) =>
-            module.createProcessedVoiceArtifact({ audioBlob }),
+            module.createProcessedVoiceArtifact({
+              audioBlob,
+              roomToneBlob: processingContext.roomToneBlob,
+              roomToneSourceRef: processingContext.roomToneSourceRef,
+            }),
           ),
         licenses: workspace.rights.licenses,
         rights: workspace.rights.consents,
@@ -4370,6 +4378,13 @@ export function App() {
                     onLocalAnalysis={(analysis) =>
                       void persistLocalTakeAnalysis(analysis)
                     }
+                    getRoomToneBlob={async () => {
+                      const fileName =
+                        workspace?.settings.captureProfile.roomToneFileName;
+                      return fileName === undefined
+                        ? undefined
+                        : getWorkspaceRecording(fileName);
+                    }}
                     onBeforePlayback={stopAmbientMicrophoneMonitor}
                     progressLabel={
                       session === null

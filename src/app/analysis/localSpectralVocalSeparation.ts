@@ -3,6 +3,7 @@ import type { SpectralVocalSeparationResult } from "./spectralVocalSeparation";
 export async function separateVocalsOffThread(input: {
   readonly left: Float32Array;
   readonly right: Float32Array | null;
+  readonly noiseReference?: Float32Array | null;
   readonly onProgress: (progressPercent: number) => void;
   readonly signal?: AbortSignal;
 }): Promise<SpectralVocalSeparationResult> {
@@ -15,6 +16,7 @@ export async function separateVocalsOffThread(input: {
   );
   const left = input.left.slice();
   const right = input.right?.slice() ?? null;
+  const noiseReference = input.noiseReference?.slice() ?? null;
 
   return new Promise((resolve, reject) => {
     let settled = false;
@@ -49,6 +51,8 @@ export async function separateVocalsOffThread(input: {
             signal: message.signal,
             centerEnergyRatio: message.centerEnergyRatio,
             residualEnergyRatio: message.residualEnergyRatio,
+            noiseReferenceUsed: message.noiseReferenceUsed === true,
+            noiseReferenceFrameCount: message.noiseReferenceFrameCount ?? 0,
           }),
         );
       } else {
@@ -63,7 +67,8 @@ export async function separateVocalsOffThread(input: {
     }
     const transfer: Transferable[] = [left.buffer];
     if (right !== null) transfer.push(right.buffer);
-    worker.postMessage({ left, right }, transfer);
+    if (noiseReference !== null) transfer.push(noiseReference.buffer);
+    worker.postMessage({ left, right, noiseReference }, transfer);
   });
 }
 

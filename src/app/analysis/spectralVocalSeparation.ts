@@ -8,6 +8,8 @@ export type SpectralVocalSeparationResult = {
   readonly signal: Float32Array;
   readonly centerEnergyRatio: number;
   readonly residualEnergyRatio: number;
+  readonly noiseReferenceUsed: boolean;
+  readonly noiseReferenceFrameCount: number;
 };
 
 /**
@@ -19,6 +21,7 @@ export type SpectralVocalSeparationResult = {
 export function separateVocalsSpectrally(input: {
   readonly left: Float32Array;
   readonly right: Float32Array | null;
+  readonly noiseReference?: Float32Array | null;
   readonly sampleRate?: number;
   readonly onProgress?: (progressPercent: number) => void;
 }): SpectralVocalSeparationResult {
@@ -30,6 +33,8 @@ export function separateVocalsSpectrally(input: {
       signal: createVocalFocusSignal(input.left, sampleRate),
       centerEnergyRatio: input.right === null ? 1 : 0,
       residualEnergyRatio: 0,
+      noiseReferenceUsed: false,
+      noiseReferenceFrameCount: 0,
     };
   }
 
@@ -37,6 +42,8 @@ export function separateVocalsSpectrally(input: {
   const normalization = new Float32Array(length);
   const window = createSqrtHannWindow(FRAME_SIZE);
   const background = new Float32Array(FRAME_SIZE / 2 + 1);
+  const reference = estimateReferenceNoiseSpectrum(input.noiseReference);
+  if (reference !== null) background.set(reference.magnitudes);
   const frameCount = Math.max(
     1,
     Math.ceil((length - FRAME_SIZE) / HOP_SIZE) + 1,
@@ -80,8 +87,10 @@ export function separateVocalsSpectrally(input: {
       const nextFloor =
         previousFloor + floorAlpha * (midMagnitude - previousFloor);
       background[bin] = nextFloor;
+      const referenceFloor = reference?.magnitudes[bin] ?? 0;
+      const noiseEstimate = Math.max(nextFloor * 0.72, referenceFloor * 0.92);
       const residualRatio = clampUnit(
-        (midMagnitude - nextFloor * 0.72) / (midMagnitude + 1e-8),
+        (midMagnitude - noiseEstimate) / (midMagnitude + 1e-8),
       );
       const frequencyHz = (bin * sampleRate) / FRAME_SIZE;
       const bandWeight = vocalBandWeight(frequencyHz, sampleRate);
@@ -129,7 +138,40 @@ export function separateVocalsSpectrally(input: {
     residualEnergyRatio: roundRate(
       residualEnergy / Math.max(mixtureEnergy, 1e-8),
     ),
+    noiseReferenceUsed: reference !== null,
+    noiseReferenceFrameCount: reference?.frameCount ?? 0,
   };
+}
+
+function estimateReferenceNoiseSpectrum(
+  signal: Float32Array | null | undefined,
+): { readonly magnitudes: Float32Array; readonly frameCount: number } | null {
+  if (signal === null || signal === undefined || signal.length < FRAME_SIZE) {
+    return null;
+  }
+
+  const magnitudes = new Float32Array(FRAME_SIZE / 2 + 1);
+  const window = createSqrtHannWindow(FRAME_SIZE);
+  const referenceHopSize = FRAME_SIZE / 2;
+  const frameCount = Math.max(
+    1,
+    Math.floor((signal.length - FRAME_SIZE) / referenceHopSize) + 1,
+  );
+
+  for (let frame = 0; frame < frameCount; frame += 1) {
+    const real = new Float64Array(FRAME_SIZE);
+    const imaginary = new Float64Array(FRAME_SIZE);
+    const offset = frame * referenceHopSize;
+    for (let index = 0; index < FRAME_SIZE; index += 1) {
+      real[index] = finiteSample(signal[offset + index] ?? 0) * window[index];
+    }
+    transformFft(real, imaginary, false);
+    for (let bin = 0; bin <= FRAME_SIZE / 2; bin += 1) {
+      magnitudes[bin] += Math.hypot(real[bin], imaginary[bin]) / frameCount;
+    }
+  }
+
+  return { magnitudes, frameCount };
 }
 
 function transformFft(

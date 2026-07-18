@@ -78,6 +78,40 @@ test("captured vocal ensemble keeps a clean scout without extra processing", asy
   assert.equal(result, original);
 });
 
+test("captured vocal ensemble keeps independent focus but skips spectral work on a measured slow runtime", async () => {
+  let separationCalls = 0;
+  const result = await runCapturedVocalEnsemble({
+    signals: {
+      mono: new Float32Array(16_000),
+      vocalFocus: new Float32Array(16_000),
+      stereoCenterUsed: false,
+      spectralInput: { left: new Float32Array(16_000), right: null },
+    },
+    original: createAnalysis("bruit", 0, "insufficient"),
+    context: { performanceKind: "spoken", snrDb: 8 },
+    budget: {
+      runtimeClass: "constrained",
+      observedTranscriptionRealtimeFactor: 1.2,
+      storedTranscriptionRealtimeFactor: 0.9,
+      maximumHypotheses: 2,
+      allowVocalFocus: true,
+      allowSpectralSeparation: false,
+      reasons: ["measured_runtime_guard"],
+    },
+    onProgress: () => undefined,
+    analyze: async () => createAnalysis("bonjour monde", 2, "strong"),
+    separate: async () => {
+      separationCalls += 1;
+      return new Float32Array(16_000);
+    },
+  });
+
+  assert.equal(separationCalls, 0);
+  assert.equal(result.strategy?.hypotheses.length, 2);
+  assert.equal(result.strategy?.runtime?.runtimeClass, "constrained");
+  assert.equal(result.strategy?.runtime?.hypothesisBudget, 2);
+});
+
 function createAnalysis(
   transcript: string,
   matchedWordCount: number,

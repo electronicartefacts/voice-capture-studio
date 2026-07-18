@@ -214,6 +214,39 @@ test("spectral separation produces a finite vocal residual for mono and stereo",
   assert.ok(result.residualEnergyRatio > 0);
 });
 
+test("spectral separation consumes calibrated room noise as an explicit reference", () => {
+  const mixture = new Float32Array(16_000);
+  const roomTone = new Float32Array(8_000);
+  for (let index = 0; index < mixture.length; index += 1) {
+    const background = Math.sin((index / 16_000) * Math.PI * 2 * 700) * 0.22;
+    const voice =
+      index >= 8_000 ? Math.sin((index / 16_000) * Math.PI * 2 * 310) * 0.2 : 0;
+    mixture[index] = background + voice;
+    if (index < roomTone.length) roomTone[index] = background;
+  }
+
+  const baseline = separateVocalsSpectrally({ left: mixture, right: null });
+  const calibrated = separateVocalsSpectrally({
+    left: mixture,
+    right: null,
+    noiseReference: roomTone,
+  });
+
+  assert.equal(calibrated.noiseReferenceUsed, true);
+  assert.ok(calibrated.noiseReferenceFrameCount > 0);
+  assert.ok(
+    rms(calibrated.signal.subarray(0, 7_500)) <
+      rms(baseline.signal.subarray(0, 7_500)),
+  );
+});
+
+function rms(signal: Float32Array): number {
+  return Math.sqrt(
+    signal.reduce((sum, sample) => sum + sample * sample, 0) /
+      Math.max(1, signal.length),
+  );
+}
+
 test("focused vocal activity keeps sustained singing without speech VAD", () => {
   const signal = new Float32Array(32_000);
   for (let index = 4_000; index < 24_000; index += 1) {

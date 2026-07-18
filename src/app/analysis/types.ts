@@ -68,6 +68,13 @@ export type LocalTakeAnalysis = {
       readonly matchedWordCount: number;
       readonly score: number;
     }[];
+    readonly runtime?: {
+      readonly runtimeClass: LocalRuntimeClass;
+      readonly observedTranscriptionRealtimeFactor: number | null;
+      readonly storedTranscriptionRealtimeFactor: number | null;
+      readonly hypothesisBudget: 1 | 2 | 3;
+      readonly reasons: readonly string[];
+    };
   };
 };
 

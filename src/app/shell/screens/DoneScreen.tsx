@@ -797,6 +797,7 @@ export function DoneScreen(input: {
   readonly fileName: string | null;
   readonly freeCaptureTranscript?: string | null;
   readonly freeCaptureTranscriptCandidate?: boolean;
+  readonly getRoomToneBlob?: () => Promise<Blob | undefined>;
   readonly hasNextPrompt: boolean;
   readonly isFreeCapture?: boolean;
   readonly isContinuousCorpusCapture?: boolean;
@@ -1060,6 +1061,7 @@ export function DoneScreen(input: {
         isLocalAnalysisSupported() && (
           <LocalAnalysisPanel
             audioUrl={input.downloadUrl}
+            getRoomToneBlob={input.getRoomToneBlob}
             context={{
               performanceKind:
                 input.take?.captureContext?.vocalPerformance?.kind,
@@ -1099,6 +1101,7 @@ type LocalAnalysisState =
 
 function LocalAnalysisPanel(input: {
   readonly audioUrl: string;
+  readonly getRoomToneBlob?: () => Promise<Blob | undefined>;
   readonly context: CaptureAnalysisContext;
   readonly expectedText: string;
   readonly language: string;
@@ -1138,8 +1141,10 @@ function LocalAnalysisPanel(input: {
       const audioBlob = await (
         await fetch(input.audioUrl, { signal: abortController.signal })
       ).blob();
+      const roomToneBlob = await input.getRoomToneBlob?.();
       const analysis = await analyzeTakeAudio({
         audioBlob,
+        roomToneBlob,
         context: input.context,
         expectedText: input.expectedText,
         language: input.language,
@@ -1263,6 +1268,15 @@ function LocalAnalysisPanel(input: {
                 {state.analysis.strategy.selectedModel === "base"
                   ? "modèle renforcé retenu"
                   : "éclaireur suffisant"}
+                {state.analysis.strategy.runtime !== undefined && (
+                  <>
+                    {" "}
+                    · calcul local{" "}
+                    {formatRuntimeClass(
+                      state.analysis.strategy.runtime.runtimeClass,
+                    )}
+                  </>
+                )}
               </dd>
             </div>
           )}
@@ -1371,6 +1385,17 @@ function formatAcousticScene(
   if (scene === "sung_voice") return "Voix chantée";
   if (scene === "music_mix") return "Mix musical";
   return "Scène incertaine";
+}
+
+function formatRuntimeClass(
+  runtimeClass: NonNullable<
+    NonNullable<LocalTakeAnalysis["strategy"]>["runtime"]
+  >["runtimeClass"],
+): string {
+  if (runtimeClass === "fast") return "rapide";
+  if (runtimeClass === "moderate") return "équilibré";
+  if (runtimeClass === "constrained") return "adapté";
+  return "en calibration";
 }
 
 function formatAnalysisSeconds(durationMs: number): string {

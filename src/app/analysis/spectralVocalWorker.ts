@@ -3,6 +3,7 @@ import { separateVocalsSpectrally } from "./spectralVocalSeparation";
 type Request = {
   readonly left: Float32Array;
   readonly right: Float32Array | null;
+  readonly noiseReference: Float32Array | null;
 };
 
 type WorkerScope = {
@@ -20,6 +21,7 @@ workerScope.addEventListener("message", (event) => {
     const result = separateVocalsSpectrally({
       left: event.data.left,
       right: event.data.right,
+      noiseReference: event.data.noiseReference,
       onProgress: (progressPercent) =>
         workerScope.postMessage({ kind: "progress", progressPercent }),
     });

@@ -151,6 +151,13 @@ test("voice capture package retains a derived voice-first WAV beside immutable r
         timingPreserved: true,
         centerEnergyRatio: 0.82,
         residualEnergyRatio: 0.46,
+        noiseReference: {
+          status: "unavailable",
+          sourceRef: null,
+          frameCount: 0,
+        },
+        measuredSeparationRealtimeFactor: 0.2,
+        priorSeparationRealtimeFactor: null,
       },
     }),
     scope: createScope(fixture.workspace, {
@@ -271,7 +278,10 @@ test("voice capture package audits repeated text and blocks exact audio duplicat
 
 test("voice capture package retains a referenced room-tone WAV", async () => {
   const roomTone = createWav(0.01);
+  const processed = encodeWav24(new Float32Array(1_600).fill(0.03), 16_000);
   const roomToneFileName = "room-tone-fixture.wav";
+  let processingRoomTone: Blob | undefined;
+  let processingRoomToneRef: string | null = null;
   const baseWorkspace = createEmptyWorkspace({
     corpus: canonicalCorpus,
     speakers: initialSpeakers,
@@ -301,6 +311,31 @@ test("voice capture package retains a referenced room-tone WAV", async () => {
       fileName === roomToneFileName
         ? roomTone
         : fixture.audioByFileName.get(fileName),
+    processAudioBlob: async (_audioBlob, context) => {
+      processingRoomTone = context.roomToneBlob;
+      processingRoomToneRef = context.roomToneSourceRef;
+      return {
+        blob: processed,
+        metadata: {
+          schemaVersion: "voice.processed_vocal.v1",
+          localOnly: true,
+          sampleRateHz: 16_000,
+          bitDepth: 24,
+          channels: 1,
+          method: "spectral_mid_side_residual_vocal_band",
+          timingPreserved: true,
+          centerEnergyRatio: 0.8,
+          residualEnergyRatio: 0.4,
+          noiseReference: {
+            status: "used",
+            sourceRef: roomToneFileName,
+            frameCount: 6,
+          },
+          measuredSeparationRealtimeFactor: 0.2,
+          priorSeparationRealtimeFactor: null,
+        },
+      };
+    },
     scope: createScope(fixture.workspace, {
       speakerId: frSpeaker.id,
       language: "fr",
@@ -312,6 +347,8 @@ test("voice capture package retains a referenced room-tone WAV", async () => {
 
   assert.ok(plan.files.some((file) => file.path.startsWith("room-tones/")));
   assert.match(plan.samples[0].room_tone_ref ?? "", /^room-tones\//);
+  assert.equal(processingRoomTone, roomTone);
+  assert.equal(processingRoomToneRef, roomToneFileName);
   assert.ok(
     !plan.forgeCompatibility.warnings.includes(
       "room_tone_audio_not_retained_by_legacy_calibration",

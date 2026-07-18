@@ -19,9 +19,11 @@ open-source foundation for privacy-preserving voice capture workflows.
   for scene playback.
 - Local microphone capture through Web Audio.
 - WAV PCM mono export at 48 kHz / 24-bit where browser support allows it.
-- Room-tone calibration and first-pass technical quality checks.
+- Room-tone calibration used both for technical gates and as an explicit spectral noise reference.
 - Adaptive local analysis: a lightweight scout handles clear takes, while difficult, sung, noisy,
   or ambiguous material receives a stronger second hypothesis and evidence-based arbitration.
+- Per-browser performance learning based on measured inference/separation speed, with the chosen
+  analysis budget retained in dataset provenance instead of guessed from a user-agent.
 - Multi-hypothesis music analysis that can compare the original, a centered vocal focus, spectral
   separation, speech/singing activity, and temporally aligned consensus without altering exports.
 - Paginated word-by-word review on the untouched local media, with exact timecodes and evidence,

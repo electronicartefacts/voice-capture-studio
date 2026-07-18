@@ -202,6 +202,13 @@ export type LocalAcousticAnalysis = {
       readonly matchedWordCount: number;
       readonly score: number;
     }[];
+    readonly runtime?: {
+      readonly runtimeClass: "unmeasured" | "fast" | "moderate" | "constrained";
+      readonly observedTranscriptionRealtimeFactor: number | null;
+      readonly storedTranscriptionRealtimeFactor: number | null;
+      readonly hypothesisBudget: 1 | 2 | 3;
+      readonly reasons: readonly string[];
+    };
   };
   readonly words: readonly {
     readonly word: string;
