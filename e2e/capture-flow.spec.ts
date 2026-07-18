@@ -336,9 +336,13 @@ test("dubbing connects a YouTube scene to the scripted recording surface", async
   await page.locator("button.launch-button").click();
   await expect(page.locator("main.screen-permission")).toBeVisible();
   await expect(
-    page.getByText("On y va maintenant.", { exact: true }),
+    page.getByText(
+      "Prise continue prête : lis tout le corpus, puis appuie sur Stop.",
+      { exact: true },
+    ),
   ).toBeVisible();
-  await expect(page.getByText("0:42 → 0:46")).toBeVisible();
+  await expect(page.getByText("0:42", { exact: true })).toBeVisible();
+  await expect(page.getByText("Phrase", { exact: true })).toHaveCount(0);
 
   await page.getByRole("button", { name: "Démarrer la prise" }).click();
   await expect(page.locator("main.screen-karaoke")).toBeVisible({
@@ -350,7 +354,43 @@ test("dubbing connects a YouTube scene to the scripted recording surface", async
 
   await expect(captureFrame).toHaveAttribute("src", /autoplay=1/);
   await expect(captureFrame).toHaveAttribute("src", /start=42/);
-  await expect(page.getByText("REC · Doublage image")).toBeVisible();
+  await expect(page.getByText("REC · Script complet")).toBeVisible();
+  await expect(
+    page.getByText("Script complet · une seule prise"),
+  ).toBeVisible();
+  await expect(
+    page.getByText(/On y va maintenant\.[\s\S]*Je te suis\./),
+  ).toBeVisible();
+});
+
+test("interpretation records the complete corpus without a phrase toggle", async ({
+  page,
+}) => {
+  await enterStudio(page);
+
+  await page.getByRole("button", { name: "Interprétation" }).click();
+  await page
+    .getByLabel("Texte du corpus local")
+    .fill("Premier mouvement.\n\nDeuxième mouvement, sans couper le micro.");
+
+  await expect(page.getByText("Paroles complètes en une prise")).toHaveCount(0);
+  await page.locator("button.launch-button").click();
+  await expect(page.locator("main.screen-permission")).toBeVisible();
+  await expect(
+    page.getByText(
+      "Prise continue prête : interprète tout le corpus, puis appuie sur Stop.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+
+  await page.getByRole("button", { name: "Démarrer la prise" }).click();
+  await expect(page.locator("main.screen-karaoke")).toBeVisible({
+    timeout: 30_000,
+  });
+  await expect(page.getByText("REC · Corpus complet")).toBeVisible();
+  await expect(
+    page.getByText(/Premier mouvement\.[\s\S]*Deuxième mouvement/),
+  ).toBeVisible();
 });
 
 test("workspace progress survives a reload through IndexedDB", async ({

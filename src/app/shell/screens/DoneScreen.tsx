@@ -799,7 +799,7 @@ export function DoneScreen(input: {
   readonly freeCaptureTranscriptCandidate?: boolean;
   readonly hasNextPrompt: boolean;
   readonly isFreeCapture?: boolean;
-  readonly isContinuousLyricsCapture?: boolean;
+  readonly isContinuousCorpusCapture?: boolean;
   readonly location: string | null;
   readonly metadataDownloadUrl: string | null;
   readonly message: string;
@@ -858,8 +858,8 @@ export function DoneScreen(input: {
             >
               <Play aria-hidden="true" size={19} />
               <span>
-                {input.isContinuousLyricsCapture
-                  ? "Reprendre les paroles"
+                {input.isContinuousCorpusCapture
+                  ? "Reprendre le corpus"
                   : "Nouvelle capture libre"}
               </span>
             </button>

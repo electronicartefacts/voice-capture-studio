@@ -28,7 +28,11 @@ import {
 } from "../helpers";
 import { KARAOKE_STYLE_UPDATE_INTERVAL_MS } from "../audioEnvironment";
 import { createTranscriptPreview } from "../speech";
-import type { ReadingGuideMode, RoomToneCalibration } from "../types";
+import type {
+  CaptureMode,
+  ReadingGuideMode,
+  RoomToneCalibration,
+} from "../types";
 import type { DubbingMediaSource } from "../types";
 import { DubbingMediaStage } from "./DubbingMediaStage";
 
@@ -101,7 +105,8 @@ export function KaraokeScreen(input: {
   readonly dubbingMedia: DubbingMediaSource | null;
   readonly dubbingMediaMuted: boolean;
   readonly dubbingStartSeconds: number;
-  readonly continuousLyricsText: string | null;
+  readonly continuousCorpusMode: CaptureMode | null;
+  readonly continuousCorpusText: string | null;
   readonly isFreeCapture: boolean;
   readonly isFinalizing: boolean;
   readonly language: LanguageCode;
@@ -118,19 +123,23 @@ export function KaraokeScreen(input: {
     .split(/\s+/)
     .filter(Boolean).length;
   const guideLabel =
-    input.isFreeCapture && input.readingGuideMode === "speech-recognition"
-      ? `Mots · ${detectedWordCount}`
-      : input.readingGuideMode === "speech-recognition"
-        ? "Suivi des mots"
-        : "Suivi vocal";
+    input.continuousCorpusText !== null
+      ? "Corpus complet"
+      : input.isFreeCapture && input.readingGuideMode === "speech-recognition"
+        ? `Mots · ${detectedWordCount}`
+        : input.readingGuideMode === "speech-recognition"
+          ? "Suivi des mots"
+          : "Suivi vocal";
   return (
     <div className="karaoke-screen" aria-busy={input.isFinalizing}>
       <div className="recording-topbar">
         <div className="recording-dot" aria-live="polite">
           {input.isFinalizing
             ? "Finalisation"
-            : input.continuousLyricsText !== null
-              ? "REC · Paroles complètes"
+            : input.continuousCorpusText !== null
+              ? input.continuousCorpusMode === "dubbing"
+                ? "REC · Script complet"
+                : "REC · Corpus complet"
               : input.isFreeCapture
                 ? "REC · Capture libre"
                 : input.dubbingMedia !== null
@@ -176,11 +185,32 @@ export function KaraokeScreen(input: {
           <span>{input.prompt.delivery.tone}</span>
         </div>
       )}
-      {input.continuousLyricsText !== null ? (
+      {input.continuousCorpusText !== null &&
+      input.continuousCorpusMode === "dubbing" &&
+      input.dubbingMedia !== null ? (
+        <div className="dubbing-capture-layout">
+          <DubbingMediaStage
+            autoplay={!input.isFinalizing}
+            className="is-capturing"
+            endSeconds={null}
+            muted={input.dubbingMediaMuted}
+            source={input.dubbingMedia}
+            startSeconds={input.dubbingStartSeconds}
+          />
+          <div className="dubbing-capture-prompt">
+            <p className="soft-label">Script complet · une seule prise</p>
+            <p className="karaoke-lyrics">{input.continuousCorpusText}</p>
+          </div>
+        </div>
+      ) : input.continuousCorpusText !== null ? (
         <div className="room-tone-copy">
-          <p className="soft-label">Prise karaoké continue</p>
-          <h1>Chante toutes les paroles.</h1>
-          <p className="karaoke-lyrics">{input.continuousLyricsText}</p>
+          <p className="soft-label">Corpus complet · une seule prise</p>
+          <h1>
+            {input.continuousCorpusMode === "mastering"
+              ? "Interprète tout le texte."
+              : "Lis tout le texte."}
+          </h1>
+          <p className="karaoke-lyrics">{input.continuousCorpusText}</p>
         </div>
       ) : input.isFreeCapture ? (
         <FreeCaptureSurface transcript={input.recognizedTranscript} />

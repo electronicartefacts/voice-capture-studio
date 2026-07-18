@@ -37,10 +37,10 @@ export function createModeMessage(mode: CaptureMode): string {
   }
 
   if (mode === "dubbing") {
-    return "Mode doublage : relie une scène, ajoute son script et enregistre les répliques dans l'ordre de l'image.";
+    return "Mode doublage : relie une scène, ajoute son script et enregistre le corpus complet en une prise.";
   }
 
-  return "Mode interprétation : ajoute un texte et, si besoin, un support audio au casque.";
+  return "Mode interprétation : ajoute un texte et, si besoin, un support audio au casque, puis enregistre le corpus complet en une prise.";
 }
 
 export function createSessionPreparationMessage(mode: CaptureMode): string {
@@ -394,9 +394,9 @@ export const captureModeOptions: readonly {
     cta: "Démarrer le doublage",
     headlineLead: "Habite chaque réplique au rythme de l'image.",
     headlineDetail:
-      "Ajoute ton script, cale la scène et enregistre les passages dans leur ordre naturel.",
+      "Ajoute ton script, cale la scène et enregistre tout le corpus sans couper entre les répliques.",
     workbenchTitle: "Console doublage",
-    summary: "Texte collé ou fichier découpé en répliques enregistrables.",
+    summary: "Texte collé ou fichier lu intégralement dans une seule prise.",
   },
   {
     mode: "mastering",
@@ -407,7 +407,7 @@ export const captureModeOptions: readonly {
     cta: "Lancer l'interprétation",
     headlineLead: "Interprète le texte avec ton propre rythme.",
     headlineDetail:
-      "Le support audio reste au casque tandis que la voix est captée séparément, prête à travailler.",
+      "Le support audio reste au casque tandis que tout le corpus est capté sans interruption.",
     workbenchTitle: "Console d'interprétation",
     summary: "Texte local, support audio et capture voix séparée.",
   },

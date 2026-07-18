@@ -85,7 +85,6 @@ export function HomeScreen(input: {
   readonly backingTrackVolume: number;
   readonly captureProfile: CaptureProfile | undefined;
   readonly captureMode: CaptureMode;
-  readonly continuousLyricsEnabled: boolean;
   readonly coverage: CoverageSummary | null;
   readonly customCorpusSourceName: string | null;
   readonly customCorpusText: string;
@@ -104,7 +103,6 @@ export function HomeScreen(input: {
   readonly onBackingTrackClear: () => void;
   readonly onBackingTrackLoopChange: (loop: boolean) => void;
   readonly onBackingTrackVolumeChange: (volume: number) => void;
-  readonly onContinuousLyricsChange: (enabled: boolean) => void;
   readonly onChooseFolder: () => void;
   readonly onCustomCorpusFile: (file: File) => void;
   readonly onCustomCorpusTextChange: (text: string) => void;
@@ -364,33 +362,16 @@ export function HomeScreen(input: {
         )}
 
         {input.captureMode === "mastering" && (
-          <>
-            <BackingTrackPanel
-              audioRef={input.backingAudioRef}
-              loop={input.backingTrackLoop}
-              onChange={input.onBackingTrackChange}
-              onClear={input.onBackingTrackClear}
-              onLoopChange={input.onBackingTrackLoopChange}
-              onVolumeChange={input.onBackingTrackVolumeChange}
-              track={input.backingTrack}
-              volume={input.backingTrackVolume}
-            />
-            {input.localCorpusSummary !== null && (
-              <label className="session-option is-active">
-                <input
-                  checked={input.continuousLyricsEnabled}
-                  onChange={(event) =>
-                    input.onContinuousLyricsChange(event.target.checked)
-                  }
-                  type="checkbox"
-                />
-                <span>
-                  <strong>Paroles complètes en une prise</strong>
-                  <small>Garde le micro ouvert pendant toute la chanson.</small>
-                </span>
-              </label>
-            )}
-          </>
+          <BackingTrackPanel
+            audioRef={input.backingAudioRef}
+            loop={input.backingTrackLoop}
+            onChange={input.onBackingTrackChange}
+            onClear={input.onBackingTrackClear}
+            onLoopChange={input.onBackingTrackLoopChange}
+            onVolumeChange={input.onBackingTrackVolumeChange}
+            track={input.backingTrack}
+            volume={input.backingTrackVolume}
+          />
         )}
 
         {input.captureMode !== "lexical-segmentation" && (

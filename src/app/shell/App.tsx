@@ -386,8 +386,7 @@ export function App() {
   const [isFreeCapture, setIsFreeCapture] = useState(false);
   const isFreeCaptureRef = useRef(false);
   const [isDirectCaptureStarting, setIsDirectCaptureStarting] = useState(false);
-  const [continuousLyricsEnabled, setContinuousLyricsEnabled] = useState(true);
-  const [isContinuousLyricsCapture, setIsContinuousLyricsCapture] =
+  const [isContinuousCorpusCapture, setIsContinuousCorpusCapture] =
     useState(false);
   const [workspaceBackupUrl, setWorkspaceBackupUrl] = useState<string | null>(
     null,
@@ -612,10 +611,16 @@ export function App() {
     activePromptId && activeCorpus !== null
       ? findPrompt(activeCorpus, activePromptId)
       : undefined;
+  const firstCorpusPrompt = activeCorpus?.scenarios
+    .flatMap((scenario) => scenario.prompts)
+    .at(0);
   const dubbingStartSeconds =
-    activePrompt?.sourceTiming === undefined
-      ? dubbingCueSeconds
-      : activePrompt.sourceTiming.startMs / 1000;
+    activePrompt?.sourceTiming !== undefined
+      ? activePrompt.sourceTiming.startMs / 1000
+      : isContinuousCorpusCapture &&
+          firstCorpusPrompt?.sourceTiming !== undefined
+        ? firstCorpusPrompt.sourceTiming.startMs / 1000
+        : dubbingCueSeconds;
   const dubbingEndSeconds =
     activePrompt?.sourceTiming === undefined
       ? null
@@ -624,7 +629,7 @@ export function App() {
     () => promptText.split(/\s+/).filter(Boolean),
     [promptText],
   );
-  const continuousLyricsText = useMemo(
+  const continuousCorpusText = useMemo(
     () =>
       activeCorpus?.scenarios
         .flatMap((scenario) => scenario.prompts)
@@ -1590,10 +1595,7 @@ export function App() {
     setCaptureMode(mode);
     setSession(null);
     resetTakeOutputState();
-    if (mode !== "mastering") {
-      setContinuousLyricsEnabled(false);
-      setIsContinuousLyricsCapture(false);
-    }
+    setIsContinuousCorpusCapture(false);
 
     if (mode !== "mastering") {
       stopBackingTrackPlayback(true);
@@ -2106,7 +2108,7 @@ export function App() {
       setSession(null);
       isFreeCaptureRef.current = true;
       setIsFreeCapture(true);
-      setIsContinuousLyricsCapture(false);
+      setIsContinuousCorpusCapture(false);
       setSessionRoomTone(null);
       resetTakeOutputState();
       setIsDirectCaptureStarting(true);
@@ -2122,21 +2124,23 @@ export function App() {
       return;
     }
 
-    if (captureMode === "mastering" && continuousLyricsEnabled) {
-      if (continuousLyricsText.trim().length === 0) {
-        setMessage("Ajoute des paroles avant de lancer une prise continue.");
+    if (captureMode === "dubbing" || captureMode === "mastering") {
+      if (continuousCorpusText.trim().length === 0) {
+        setMessage("Ajoute un corpus avant de lancer la prise continue.");
         return;
       }
 
       setSession(null);
       isFreeCaptureRef.current = true;
       setIsFreeCapture(true);
-      setIsContinuousLyricsCapture(true);
+      setIsContinuousCorpusCapture(true);
       setSessionRoomTone(null);
       resetTakeOutputState();
       setScreen("permission");
       setMessage(
-        "Prise continue prête : chante toutes les paroles, puis appuie sur Stop.",
+        captureMode === "mastering"
+          ? "Prise continue prête : interprète tout le corpus, puis appuie sur Stop."
+          : "Prise continue prête : lis tout le corpus, puis appuie sur Stop.",
       );
       return;
     }
@@ -2165,7 +2169,7 @@ export function App() {
     setSession(nextSession);
     isFreeCaptureRef.current = false;
     setIsFreeCapture(false);
-    setIsContinuousLyricsCapture(false);
+    setIsContinuousCorpusCapture(false);
     setCurrentPromptIndex(0);
     hasCalibratedCurrentSessionRef.current = false;
     setSessionRoomTone(null);
@@ -3469,9 +3473,14 @@ export function App() {
   async function persistFreeCapture(recording: FinalizedRecording) {
     const recordedAt = new Date();
     const takeId = createTakeId(recordedAt);
+    const recordedMode =
+      isContinuousCorpusCapture &&
+      (captureMode === "dubbing" || captureMode === "mastering")
+        ? captureMode
+        : "free";
     const fileName = createRecordingFileName({
       extension: recording.extension,
-      sessionId: "free" as never,
+      sessionId: recordedMode as never,
       takeId,
     });
     const audioSaveResult = await saveRecordingToWorkspaceFolder(
@@ -3481,9 +3490,9 @@ export function App() {
     const audioUrl =
       recording.blob.size > 0 ? URL.createObjectURL(recording.blob) : null;
     const vocalPerformance = assessVocalPerformance({
-      captureMode: isContinuousLyricsCapture ? "mastering" : "free",
+      captureMode: recordedMode,
       metrics: recording.metrics,
-      sungIntent: isContinuousLyricsCapture,
+      sungIntent: isContinuousCorpusCapture && captureMode === "mastering",
     });
     const freeCaptureTranscript = createFreeCaptureTranscript({
       finalTranscript: recognizedFinalTranscriptRef.current,
@@ -3491,8 +3500,10 @@ export function App() {
       recognitionAvailable: freeSpeechRecognitionAvailableRef.current,
     });
     const metadata = {
-      schemaVersion: "voice.free_capture.v1",
-      mode: "free",
+      schemaVersion: isContinuousCorpusCapture
+        ? "voice.continuous_corpus_capture.v1"
+        : "voice.free_capture.v1",
+      mode: recordedMode,
       recordedAt: recordedAt.toISOString(),
       durationMs: recording.metrics.durationMs,
       fileName,
@@ -3509,8 +3520,13 @@ export function App() {
       language: selectedLanguage,
       processing: { localOnly: true, audioWorkletPreferred: true },
       vocalPerformance,
-      lyrics: isContinuousLyricsCapture
-        ? { text: continuousLyricsText, capture: "continuous-karaoke" }
+      corpus: isContinuousCorpusCapture
+        ? {
+            id: activeCorpus?.id ?? null,
+            version: activeCorpus?.version ?? null,
+            text: continuousCorpusText,
+            capture: "continuous",
+          }
         : null,
       transcript: freeCaptureTranscript,
     };
@@ -3530,20 +3546,20 @@ export function App() {
     );
     setLastTake(null);
     setFreeCaptureReviewTranscript(
-      isContinuousLyricsCapture
-        ? continuousLyricsText
+      isContinuousCorpusCapture
+        ? continuousCorpusText
         : freeCaptureTranscript.text,
     );
     setFreeCaptureReviewTranscriptCandidate(
-      !isContinuousLyricsCapture &&
+      !isContinuousCorpusCapture &&
         freeCaptureTranscript.status === "candidate-sung",
     );
     await refreshStoredRecordings();
     setScreen("done");
     setMessage(
       audioSaveResult.ok
-        ? isContinuousLyricsCapture
-          ? "Paroles complètes sauvegardées. Le WAV et le manifeste sont prêts."
+        ? isContinuousCorpusCapture
+          ? "Corpus complet sauvegardé en une prise. Le WAV et le manifeste sont prêts."
           : "Capture libre sauvegardée. Le WAV et le manifeste complet sont prêts."
         : "Capture prête. Télécharge le WAV et son manifeste JSON.",
     );
@@ -4051,8 +4067,6 @@ export function App() {
                   onBackingTrackClear={clearBackingTrack}
                   onBackingTrackLoopChange={setBackingTrackLoop}
                   onBackingTrackVolumeChange={setBackingTrackVolume}
-                  continuousLyricsEnabled={continuousLyricsEnabled}
-                  onContinuousLyricsChange={setContinuousLyricsEnabled}
                   message={message}
                   onChooseFolder={() =>
                     void runWithLoadingWave(
@@ -4151,8 +4165,11 @@ export function App() {
                   dubbingMediaMuted={dubbingMediaMuted}
                   dubbingStartSeconds={dubbingStartSeconds}
                   isFreeCapture={isFreeCapture}
-                  continuousLyricsText={
-                    isContinuousLyricsCapture ? continuousLyricsText : null
+                  continuousCorpusMode={
+                    isContinuousCorpusCapture ? captureMode : null
+                  }
+                  continuousCorpusText={
+                    isContinuousCorpusCapture ? continuousCorpusText : null
                   }
                   isFinalizing={isFinalizing}
                   onStop={finishRecording}
@@ -4213,7 +4230,7 @@ export function App() {
                       currentPromptIndex < session.plannedPromptIds.length - 1
                     }
                     isFreeCapture={isFreeCapture}
-                    isContinuousLyricsCapture={isContinuousLyricsCapture}
+                    isContinuousCorpusCapture={isContinuousCorpusCapture}
                     onAgain={prepareSession}
                     onNext={continueToNextPrompt}
                     onHome={() => setScreen("home")}
