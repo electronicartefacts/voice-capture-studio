@@ -106,12 +106,12 @@ export function KaraokeScreen(input: {
   readonly dubbingMediaMuted: boolean;
   readonly dubbingStartSeconds: number;
   readonly continuousCorpusMode: CaptureMode | null;
-  readonly continuousCorpusText: string | null;
   readonly isFreeCapture: boolean;
   readonly isFinalizing: boolean;
   readonly language: LanguageCode;
   readonly onStop: () => void;
   readonly prompt: PromptDefinition | undefined;
+  readonly readingGuideWordOffset: number;
   readonly readingGuideMode: ReadingGuideMode;
   readonly recognizedTranscript: string;
   readonly roomTone: RoomToneCalibration | null;
@@ -123,8 +123,8 @@ export function KaraokeScreen(input: {
     .split(/\s+/)
     .filter(Boolean).length;
   const guideLabel =
-    input.continuousCorpusText !== null
-      ? "Corpus complet"
+    input.continuousCorpusMode !== null
+      ? `Phrase ${input.currentPromptIndex + 1}/${Math.max(input.totalPrompts, 1)}`
       : input.isFreeCapture && input.readingGuideMode === "speech-recognition"
         ? `Mots · ${detectedWordCount}`
         : input.readingGuideMode === "speech-recognition"
@@ -136,7 +136,7 @@ export function KaraokeScreen(input: {
         <div className="recording-dot" aria-live="polite">
           {input.isFinalizing
             ? "Finalisation"
-            : input.continuousCorpusText !== null
+            : input.continuousCorpusMode !== null
               ? input.continuousCorpusMode === "dubbing"
                 ? "REC · Script complet"
                 : "REC · Corpus complet"
@@ -185,7 +185,7 @@ export function KaraokeScreen(input: {
           <span>{input.prompt.delivery.tone}</span>
         </div>
       )}
-      {input.continuousCorpusText !== null &&
+      {input.continuousCorpusMode !== null &&
       input.continuousCorpusMode === "dubbing" &&
       input.dubbingMedia !== null ? (
         <div className="dubbing-capture-layout">
@@ -198,22 +198,26 @@ export function KaraokeScreen(input: {
             startSeconds={input.dubbingStartSeconds}
           />
           <div className="dubbing-capture-prompt">
-            <p className="soft-label">Script complet · une seule prise</p>
-            <p className="karaoke-lyrics">{input.continuousCorpusText}</p>
+            <p className="soft-label">
+              Réplique {input.currentPromptIndex + 1} sur {input.totalPrompts}
+            </p>
+            <KaraokeText
+              activeWordIndex={input.activeWordIndex}
+              wordIndexOffset={input.readingGuideWordOffset}
+              words={input.words}
+            />
           </div>
         </div>
-      ) : input.continuousCorpusText !== null ? (
-        <div className="room-tone-copy">
-          <p className="soft-label">Corpus complet · une seule prise</p>
-          <h1>
-            {input.continuousCorpusMode === "mastering"
-              ? "Interprète tout le texte."
-              : "Lis tout le texte."}
-          </h1>
-          <p className="karaoke-lyrics">{input.continuousCorpusText}</p>
-        </div>
       ) : input.isFreeCapture ? (
-        <FreeCaptureSurface transcript={input.recognizedTranscript} />
+        input.continuousCorpusMode !== null ? (
+          <KaraokeText
+            activeWordIndex={input.activeWordIndex}
+            wordIndexOffset={input.readingGuideWordOffset}
+            words={input.words}
+          />
+        ) : (
+          <FreeCaptureSurface transcript={input.recognizedTranscript} />
+        )
       ) : input.dubbingMedia !== null ? (
         <div className="dubbing-capture-layout">
           <DubbingMediaStage
@@ -317,6 +321,7 @@ function RecordingElapsedTime(input: { readonly running: boolean }) {
 
 export const KaraokeText = memo(function KaraokeText(input: {
   readonly activeWordIndex: number;
+  readonly wordIndexOffset?: number;
   readonly words: readonly string[];
 }) {
   const lineRef = useRef<HTMLParagraphElement | null>(null);
@@ -375,12 +380,16 @@ export const KaraokeText = memo(function KaraokeText(input: {
 
       lastStyleUpdateAt = now;
       const energy = getLiveAudioLevel();
+      const localSignalWordIndex = Math.max(
+        0,
+        liveReadingGuideSignal.wordIndex - (input.wordIndexOffset ?? 0),
+      );
       const signalWordIndex = Math.max(
         activeWordIndexRef.current,
-        Math.min(input.words.length - 1, liveReadingGuideSignal.wordIndex),
+        Math.min(input.words.length - 1, localSignalWordIndex),
       );
       const targetProgress =
-        signalWordIndex === liveReadingGuideSignal.wordIndex
+        signalWordIndex === localSignalWordIndex
           ? liveReadingGuideSignal.wordProgress
           : 0;
       const renderedPosition = renderedPositionRef.current;
@@ -464,7 +473,7 @@ export const KaraokeText = memo(function KaraokeText(input: {
       window.cancelAnimationFrame(frameId);
       characterStyleValuesRef.current = [];
     };
-  }, [input.words, wordStartIndexes]);
+  }, [input.wordIndexOffset, input.words, wordStartIndexes]);
 
   return (
     <p

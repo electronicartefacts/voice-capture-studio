@@ -28,6 +28,60 @@ async function enterStudio(page: Page): Promise<void> {
   );
 }
 
+async function installProgressingSpeechRecognition(
+  page: Page,
+  transcripts: readonly string[],
+): Promise<void> {
+  await page.addInitScript(
+    (scriptedTranscripts) => {
+      class ScriptedSpeechRecognition {
+        continuous = false;
+        interimResults = false;
+        lang = "";
+        maxAlternatives = 1;
+        onend: (() => void) | null = null;
+        onerror: (() => void) | null = null;
+        onresult: ((event: unknown) => void) | null = null;
+
+        abort() {
+          this.onend?.();
+        }
+
+        start() {
+          scriptedTranscripts.forEach((transcript, index) => {
+            window.setTimeout(
+              () => {
+                const result = {
+                  0: { confidence: 0.98, transcript },
+                  isFinal: true,
+                  length: 1,
+                };
+
+                this.onresult?.({ results: { 0: result, length: 1 } });
+              },
+              600 + index * 700,
+            );
+          });
+        }
+
+        stop() {
+          this.onend?.();
+        }
+      }
+
+      Object.defineProperty(window, "SpeechRecognition", {
+        configurable: true,
+        value: ScriptedSpeechRecognition,
+      });
+      Object.defineProperty(window, "webkitSpeechRecognition", {
+        configurable: true,
+        value: ScriptedSpeechRecognition,
+      });
+    },
+    [...transcripts],
+  );
+}
+
 test("studio boots to the home screen with recording available", async ({
   page,
 }) => {
@@ -305,6 +359,10 @@ test("free capture removes unavailable controls and can replay the finished reco
 test("dubbing connects a YouTube scene to the scripted recording surface", async ({
   page,
 }) => {
+  await installProgressingSpeechRecognition(page, [
+    "On y va maintenant.",
+    "On y va maintenant. Je te suis.",
+  ]);
   await page.route("https://www.youtube-nocookie.com/**", (route) =>
     route.abort(),
   );
@@ -355,23 +413,30 @@ test("dubbing connects a YouTube scene to the scripted recording surface", async
   await expect(captureFrame).toHaveAttribute("src", /autoplay=1/);
   await expect(captureFrame).toHaveAttribute("src", /start=42/);
   await expect(page.getByText("REC · Script complet")).toBeVisible();
-  await expect(
-    page.getByText("Script complet · une seule prise"),
-  ).toBeVisible();
-  await expect(
-    page.getByText(/On y va maintenant\.[\s\S]*Je te suis\./),
-  ).toBeVisible();
+  await expect(page.getByText("Réplique 1 sur 2")).toBeVisible();
+  await expect(page.getByLabel("On y va maintenant.")).toBeVisible();
+  await expect(page.getByLabel("Je te suis.")).toHaveCount(0);
+  await expect(page.getByLabel("Je te suis.")).toBeVisible({
+    timeout: 10_000,
+  });
 });
 
 test("interpretation records the complete corpus without a phrase toggle", async ({
   page,
 }) => {
+  await installProgressingSpeechRecognition(page, [
+    "Premier mouvement.",
+    "Premier mouvement. Deuxième mouvement, sans couper le micro.",
+    "Premier mouvement. Deuxième mouvement, sans couper le micro. Troisième mouvement.",
+  ]);
   await enterStudio(page);
 
   await page.getByRole("button", { name: "Interprétation" }).click();
   await page
     .getByLabel("Texte du corpus local")
-    .fill("Premier mouvement.\n\nDeuxième mouvement, sans couper le micro.");
+    .fill(
+      "Premier mouvement.\nDeuxième mouvement, sans couper le micro.\nTroisième mouvement.",
+    );
 
   await expect(page.getByText("Paroles complètes en une prise")).toHaveCount(0);
   await page.locator("button.launch-button").click();
@@ -388,9 +453,15 @@ test("interpretation records the complete corpus without a phrase toggle", async
     timeout: 30_000,
   });
   await expect(page.getByText("REC · Corpus complet")).toBeVisible();
+  await expect(page.getByLabel("Premier mouvement.")).toBeVisible();
   await expect(
-    page.getByText(/Premier mouvement\.[\s\S]*Deuxième mouvement/),
-  ).toBeVisible();
+    page.getByLabel("Deuxième mouvement, sans couper le micro."),
+  ).toHaveCount(0);
+  await expect(
+    page.getByLabel("Deuxième mouvement, sans couper le micro."),
+  ).toBeVisible({
+    timeout: 10_000,
+  });
 });
 
 test("workspace progress survives a reload through IndexedDB", async ({

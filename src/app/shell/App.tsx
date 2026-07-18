@@ -629,6 +629,52 @@ export function App() {
     () => promptText.split(/\s+/).filter(Boolean),
     [promptText],
   );
+  const continuousCorpusPrompts = useMemo(
+    () => activeCorpus?.scenarios.flatMap((scenario) => scenario.prompts) ?? [],
+    [activeCorpus],
+  );
+  const continuousPromptRanges = useMemo(() => {
+    let wordOffset = 0;
+
+    return continuousCorpusPrompts.map((prompt) => {
+      const promptWords = (prompt.spokenText ?? prompt.text)
+        .split(/\s+/)
+        .filter(Boolean);
+      const range = {
+        prompt,
+        words: promptWords,
+        startWordIndex: wordOffset,
+        endWordIndex: wordOffset + Math.max(0, promptWords.length - 1),
+      };
+
+      wordOffset += promptWords.length;
+      return range;
+    });
+  }, [continuousCorpusPrompts]);
+  const continuousGuideWords = useMemo(
+    () => continuousPromptRanges.flatMap((range) => range.words),
+    [continuousPromptRanges],
+  );
+  const continuousPromptIndex = Math.max(
+    0,
+    continuousPromptRanges.findIndex(
+      (range) => activeWordIndex <= range.endWordIndex,
+    ),
+  );
+  const continuousPromptRange =
+    continuousPromptRanges[continuousPromptIndex] ?? null;
+  const visibleWords = isContinuousCorpusCapture
+    ? (continuousPromptRange?.words ?? [])
+    : words;
+  const visibleWordIndex = isContinuousCorpusCapture
+    ? Math.max(
+        0,
+        activeWordIndex - (continuousPromptRange?.startWordIndex ?? 0),
+      )
+    : activeWordIndex;
+  const visiblePrompt = isContinuousCorpusCapture
+    ? continuousPromptRange?.prompt
+    : activePrompt;
   const continuousCorpusText = useMemo(
     () =>
       activeCorpus?.scenarios
@@ -2134,6 +2180,7 @@ export function App() {
       isFreeCaptureRef.current = true;
       setIsFreeCapture(true);
       setIsContinuousCorpusCapture(true);
+      setCurrentPromptIndex(0);
       setSessionRoomTone(null);
       resetTakeOutputState();
       setScreen("permission");
@@ -2480,7 +2527,10 @@ export function App() {
       noiseFloorDbfs: calibratedRoomTone?.noiseFloorDbfs,
     });
 
-    if (!freeCapture) {
+    if (isContinuousCorpusCapture) {
+      startReadingGuide(continuousGuideWords, selectedLanguage);
+      scheduleFreeCaptureLimit();
+    } else if (!freeCapture) {
       startReadingGuide(words, selectedLanguage);
     } else {
       startFreeWordDetection(selectedLanguage);
@@ -2528,7 +2578,7 @@ export function App() {
     resetLiveReadingGuidePosition();
 
     const speechRecognitionStarted =
-      captureMode !== "mastering" &&
+      (captureMode !== "mastering" || isContinuousCorpusCapture) &&
       startSpeechRecognitionGuide(promptWords, language);
 
     setReadingGuideMode(
@@ -4157,9 +4207,13 @@ export function App() {
 
               {screen === "karaoke" && (
                 <KaraokeScreen
-                  activeWordIndex={activeWordIndex}
+                  activeWordIndex={visibleWordIndex}
                   audioLevel={audioLevel}
-                  currentPromptIndex={currentPromptIndex}
+                  currentPromptIndex={
+                    isContinuousCorpusCapture
+                      ? continuousPromptIndex
+                      : currentPromptIndex
+                  }
                   dubbingEndSeconds={dubbingEndSeconds}
                   dubbingMedia={captureMode === "dubbing" ? dubbingMedia : null}
                   dubbingMediaMuted={dubbingMediaMuted}
@@ -4168,18 +4222,24 @@ export function App() {
                   continuousCorpusMode={
                     isContinuousCorpusCapture ? captureMode : null
                   }
-                  continuousCorpusText={
-                    isContinuousCorpusCapture ? continuousCorpusText : null
-                  }
                   isFinalizing={isFinalizing}
                   onStop={finishRecording}
-                  prompt={activePrompt}
+                  prompt={visiblePrompt}
                   language={selectedLanguage}
+                  readingGuideWordOffset={
+                    isContinuousCorpusCapture
+                      ? (continuousPromptRange?.startWordIndex ?? 0)
+                      : 0
+                  }
                   readingGuideMode={readingGuideMode}
                   recognizedTranscript={recognizedTranscript}
                   roomTone={sessionRoomTone}
-                  totalPrompts={session?.plannedPromptIds.length ?? 0}
-                  words={words}
+                  totalPrompts={
+                    isContinuousCorpusCapture
+                      ? continuousPromptRanges.length
+                      : (session?.plannedPromptIds.length ?? 0)
+                  }
+                  words={visibleWords}
                 />
               )}
 
