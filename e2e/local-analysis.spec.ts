@@ -32,7 +32,7 @@ async function enterStudio(page: Page): Promise<void> {
   await expect(page.locator("main.screen-home")).toBeVisible();
 }
 
-test("a recorded take can be analyzed on-device with whisper and VAD", async ({
+test("a recorded take is analyzed automatically on-device with whisper and VAD", async ({
   page,
 }) => {
   await enterStudio(page);
@@ -56,9 +56,8 @@ test("a recorded take can be analyzed on-device with whisper and VAD", async ({
   });
 
   await expect(page.getByTestId("local-analysis")).toBeVisible();
-  await page.getByTestId("local-analysis-run").click();
 
-  // Model load plus inference: the fake microphone tone typically yields an
+  // Automatic model load plus inference: the fake microphone tone typically yields an
   // empty transcript and little or no detected speech, which the result panel
   // must present without failing.
   const result = page.getByTestId("local-analysis-result");

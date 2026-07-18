@@ -108,6 +108,14 @@ export type AudioCaptureProvenance = {
     readonly autoGainControl: boolean | null;
     readonly echoCancellation: boolean | null;
     readonly noiseSuppression: boolean | null;
+    readonly voiceIsolation?: boolean | null;
+    readonly ambientPreflight?: {
+      readonly schemaVersion: "voice.ambient_preflight.v1";
+      readonly observedDurationMs: number;
+      readonly sampleWindows: number;
+      readonly rmsDbfs: number;
+      readonly peakDbfs: number;
+    };
     /** Deterministic constant gain applied before 24-bit WAV quantization. */
     readonly digitalGain?: {
       readonly mode: "auto" | "manual";

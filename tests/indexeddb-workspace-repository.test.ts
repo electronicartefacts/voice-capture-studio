@@ -4,6 +4,8 @@ import "fake-indexeddb/auto";
 import { createBrowserWorkspaceRepository } from "../src/app/storage/browserWorkspaceRepository";
 import {
   getBrowserRecording,
+  listBrowserRecordings,
+  saveBrowserRecordingMetadata,
   saveRecordingToBrowserStorage,
   saveRecordingsToBrowserStorage,
 } from "../src/app/storage/browserRecordingStorage";
@@ -135,6 +137,21 @@ test("recording archive import is atomic when a file name already exists", async
     await getBrowserRecording("existing.wav")?.then((blob) => blob?.text()),
     "existing",
   );
+});
+
+test("standalone capture metadata persists beside its immutable recording", async () => {
+  await resetIndexedDb();
+  await saveRecordingToBrowserStorage("free.wav", new Blob(["voice"]));
+  await saveBrowserRecordingMetadata("free.wav", {
+    schemaVersion: "voice.free_capture.v1",
+    timing: { words: [{ word: "voix", startMs: 10, endMs: 200 }] },
+  });
+
+  const recording = (await listBrowserRecordings()).find(
+    (candidate) => candidate.fileName === "free.wav",
+  );
+  assert.equal(recording?.metadata?.schemaVersion, "voice.free_capture.v1");
+  assert.equal(await recording?.blob.text(), "voice");
 });
 
 test("workspace archive restore commits workspace and WAVs together", async () => {

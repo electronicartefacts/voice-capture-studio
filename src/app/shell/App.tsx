@@ -46,6 +46,10 @@ import { type IsoDateTime, type LanguageCode } from "@shared/index";
 import { createPcmRecorder, type PcmRecorder } from "../audio/pcmRecorder";
 import type { InputGainMode } from "../audio/inputGain";
 import { createBrowserAsrObservation } from "../analysis/browserAsrObservation";
+import {
+  applyLocalAcousticTiming,
+  createAcousticPhraseTimings,
+} from "../analysis/acousticTimingFusion";
 import type { BrowserAsrHypothesis } from "@domains/observations";
 import {
   createRecordingFileName,
@@ -72,6 +76,12 @@ import {
 import { measureAcousticField } from "../rendering/acousticField";
 import { FREE_CAPTURE_MAX_DURATION_MS } from "../recording/captureLimits";
 import {
+  AMBIENT_MEASUREMENT_CONSTRAINTS,
+  createAmbientNoiseProfile,
+  createVoiceCaptureConstraints,
+  type AmbientNoiseProfile,
+} from "../recording/microphoneCapturePolicy";
+import {
   createRealtimeSpeechActivityDetector,
   type RealtimeSpeechActivityDetector,
 } from "../recording/realtimeSpeechActivity";
@@ -87,7 +97,10 @@ import {
   type VoiceCapturePackageScope,
 } from "../export/voiceCapturePackage";
 import { createBrowserWorkspaceRepository } from "../storage/browserWorkspaceRepository";
-import { listBrowserRecordings } from "../storage/browserRecordingStorage";
+import {
+  listBrowserRecordings,
+  saveBrowserRecordingMetadata,
+} from "../storage/browserRecordingStorage";
 import { sha256Blob } from "../storage/sha256";
 import {
   canChooseSystemFolder,
@@ -229,6 +242,7 @@ type NavigatorWithWakeLock = Navigator & {
 };
 type AmbientMicrophoneMonitor = {
   readonly stream: MediaStream;
+  readonly snapshot: () => AmbientNoiseProfile | null;
   readonly stop: () => void;
 };
 
@@ -236,14 +250,6 @@ const workspaceId = "workspace.local.main" as WorkspaceId;
 const workspaceRepository = createBrowserWorkspaceRepository();
 const ROOM_TONE_CAPTURE_MS = 3000;
 const WAVEFORM_WARMUP_DELAY_MS = 140;
-const RAW_MICROPHONE_CONSTRAINTS: MediaTrackConstraints = {
-  autoGainControl: false,
-  channelCount: { ideal: 1 },
-  echoCancellation: false,
-  noiseSuppression: false,
-  sampleRate: { ideal: 48_000 },
-  sampleSize: { ideal: 24 },
-};
 
 function readStoredInputSensitivity(): number {
   try {
@@ -452,6 +458,7 @@ export function App() {
     readonly BrowserAsrHypothesis[]
   >([]);
   const freeSpeechRecognitionAvailableRef = useRef(false);
+  const freeCaptureMetadataRef = useRef<Record<string, unknown> | null>(null);
   const wakeLockRef = useRef<RecordingWakeLockSentinel | null>(null);
   const backingAudioRef = useRef<HTMLAudioElement | null>(null);
   const downloadUrlRef = useRef<string | null>(null);
@@ -466,6 +473,7 @@ export function App() {
   const lexicalSegmentationUrlRef = useRef<string | null>(null);
   const lexicalSegmentationAbortRef = useRef<AbortController | null>(null);
   const ambientMonitorRef = useRef<AmbientMicrophoneMonitor | null>(null);
+  const ambientNoiseProfileRef = useRef<AmbientNoiseProfile | null>(null);
   const isPersistingRef = useRef(false);
   const roomToneCaptureTimerRef = useRef<number | null>(null);
   const roomToneProgressTimerRef = useRef<number | null>(null);
@@ -1157,7 +1165,7 @@ export function App() {
     }
 
     const stream = await navigator.mediaDevices.getUserMedia({
-      audio: RAW_MICROPHONE_CONSTRAINTS,
+      audio: AMBIENT_MEASUREMENT_CONSTRAINTS,
     });
     setMicrophoneLabel(createMicrophoneLabel(stream));
 
@@ -1174,6 +1182,8 @@ export function App() {
     let pausedTimerId: number | null = null;
     let acousticFieldReadAt = -Infinity;
     let smoothedLevel = 0;
+    const ambientStartedAt = performance.now();
+    const ambientRmsWindows: number[] = [];
 
     analyser.fftSize = 2048;
     analyser.minDecibels = -100;
@@ -1235,6 +1245,8 @@ export function App() {
       }
 
       const rms = Math.sqrt(sumSquares / Math.max(1, timeData.length));
+      ambientRmsWindows.push(rms);
+      if (ambientRmsWindows.length > 300) ambientRmsWindows.shift();
       smoothedLevel += (rms - smoothedLevel) * 0.3;
 
       if (pcmRecorderRef.current === null && !isPersistingRef.current) {
@@ -1265,6 +1277,11 @@ export function App() {
 
     return {
       stream,
+      snapshot: () =>
+        createAmbientNoiseProfile(
+          ambientRmsWindows,
+          performance.now() - ambientStartedAt,
+        ),
       stop() {
         window.cancelAnimationFrame(frameId);
         if (pausedTimerId !== null) {
@@ -1363,21 +1380,38 @@ export function App() {
   }
 
   async function downloadDatasetPackage() {
-    if (workspace === null || activeCorpus === null) {
+    if (workspace === null) {
       return;
     }
 
     setDatasetExportState({ status: "preparing" });
 
     try {
-      const scope = createCurrentVoicePackageScope(workspace, activeCorpus);
+      const exportCorpus = activeCorpus ?? canonicalCorpus;
+      const standaloneCaptures = (await listBrowserRecordings())
+        .filter((recording) => recording.metadata !== undefined)
+        .map((recording) => ({
+          blob: recording.blob,
+          fileName: recording.fileName,
+          metadata: recording.metadata ?? {},
+        }));
+      const scope = createCurrentVoicePackageScope(
+        workspace,
+        exportCorpus,
+        standaloneCaptures.length > 0,
+      );
       const plan = await createVoiceCapturePackagePlan({
-        corpus: activeCorpus,
+        corpus: exportCorpus,
         getAudioBlob: getWorkspaceRecording,
+        processAudioBlob: (audioBlob) =>
+          import("../analysis/processedVoiceArtifact").then((module) =>
+            module.createProcessedVoiceArtifact({ audioBlob }),
+          ),
         licenses: workspace.rights.licenses,
         rights: workspace.rights.consents,
         scope,
         speakerProfiles,
+        standaloneCaptures,
         workspace,
       });
       const zip = await createVoiceCapturePackageZip({ plan });
@@ -1457,21 +1491,38 @@ export function App() {
   }
 
   async function writeDatasetPackageToFolder() {
-    if (workspace === null || activeCorpus === null) {
+    if (workspace === null) {
       return;
     }
 
     setDatasetExportState({ status: "preparing" });
 
     try {
-      const scope = createCurrentVoicePackageScope(workspace, activeCorpus);
+      const exportCorpus = activeCorpus ?? canonicalCorpus;
+      const standaloneCaptures = (await listBrowserRecordings())
+        .filter((recording) => recording.metadata !== undefined)
+        .map((recording) => ({
+          blob: recording.blob,
+          fileName: recording.fileName,
+          metadata: recording.metadata ?? {},
+        }));
+      const scope = createCurrentVoicePackageScope(
+        workspace,
+        exportCorpus,
+        standaloneCaptures.length > 0,
+      );
       const plan = await createVoiceCapturePackagePlan({
-        corpus: activeCorpus,
+        corpus: exportCorpus,
         getAudioBlob: getWorkspaceRecording,
+        processAudioBlob: (audioBlob) =>
+          import("../analysis/processedVoiceArtifact").then((module) =>
+            module.createProcessedVoiceArtifact({ audioBlob }),
+          ),
         licenses: workspace.rights.licenses,
         rights: workspace.rights.consents,
         scope,
         speakerProfiles,
+        standaloneCaptures,
         workspace,
       });
       const result = await saveVoiceCapturePackageToWorkspaceFolder({
@@ -1590,6 +1641,7 @@ export function App() {
   function createCurrentVoicePackageScope(
     currentWorkspace: VoiceWorkspace,
     corpus: CorpusManifest,
+    hasStandaloneCaptures = false,
   ): VoiceCapturePackageScope {
     const sessionIds = currentWorkspace.capturedSessions
       .filter(
@@ -1600,7 +1652,7 @@ export function App() {
       )
       .map((candidate) => candidate.id);
 
-    if (sessionIds.length === 0) {
+    if (sessionIds.length === 0 && !hasStandaloneCaptures) {
       throw new Error(
         "Aucune session enregistrée dans le scope actuel. Sélectionne une voix, une langue et un corpus avec au moins une prise gardée.",
       );
@@ -1908,8 +1960,66 @@ export function App() {
   async function persistLocalTakeAnalysis(analysis: LocalTakeAnalysis) {
     const takeId = lastTake?.id;
     const currentWorkspace = workspaceRef.current ?? workspace;
+    const persistedAnalysis = {
+      schemaVersion: "voice.local_acoustic_analysis.v1" as const,
+      engine:
+        analysis.strategy === undefined
+          ? ("whisper-tiny" as const)
+          : ("whisper-adaptive" as const),
+      transcript: analysis.transcript,
+      analyzedAt: new Date().toISOString(),
+      ...(analysis.strategy === undefined
+        ? {}
+        : { strategy: analysis.strategy }),
+      words: analysis.whisperWords,
+      speechSegments: analysis.speechSegments.map((segment) => ({
+        ...segment,
+        source: "silero_vad" as const,
+      })),
+      alignmentComparison: analysis.alignmentComparison,
+    };
 
-    if (takeId === undefined || currentWorkspace === null) {
+    if (takeId === undefined) {
+      const metadata = freeCaptureMetadataRef.current;
+      if (metadata === null) return;
+      const expectedText = freeCaptureReviewTranscript ?? analysis.transcript;
+      const durationMs =
+        typeof metadata.durationMs === "number" ? metadata.durationMs : 0;
+      const nextMetadata = {
+        ...metadata,
+        localAcousticAnalysis: persistedAnalysis,
+        timing: {
+          schemaVersion: "voice.standalone_timing.v1",
+          words: analysis.whisperWords,
+          phrases: createAcousticPhraseTimings(
+            expectedText,
+            analysis.whisperWords,
+            durationMs,
+          ),
+          speechSegments: persistedAnalysis.speechSegments,
+        },
+      };
+      freeCaptureMetadataRef.current = nextMetadata;
+      if (typeof metadata.fileName === "string") {
+        await saveBrowserRecordingMetadata(
+          metadata.fileName,
+          nextMetadata,
+        ).catch(() => undefined);
+      }
+      replaceMetadataDownloadUrl(
+        URL.createObjectURL(
+          new Blob([JSON.stringify(nextMetadata, null, 2)], {
+            type: "application/json",
+          }),
+        ),
+      );
+      setMessage(
+        "Analyse acoustique terminée : mots, phrases et segments vocaux sont intégrés au manifeste.",
+      );
+      return;
+    }
+
+    if (currentWorkspace === null) {
       return;
     }
 
@@ -1922,30 +2032,10 @@ export function App() {
           ...capturedSession,
           takes: capturedSession.takes.map((take) => {
             if (take.id !== takeId) return take;
-            updatedTake = {
-              ...take,
-              timing: {
-                ...take.timing,
-                localAcousticAnalysis: {
-                  schemaVersion: "voice.local_acoustic_analysis.v1",
-                  engine:
-                    analysis.strategy === undefined
-                      ? "whisper-tiny"
-                      : "whisper-adaptive",
-                  transcript: analysis.transcript,
-                  analyzedAt: new Date().toISOString(),
-                  ...(analysis.strategy === undefined
-                    ? {}
-                    : { strategy: analysis.strategy }),
-                  words: analysis.whisperWords,
-                  speechSegments: analysis.speechSegments.map((segment) => ({
-                    ...segment,
-                    source: "silero_vad" as const,
-                  })),
-                  alignmentComparison: analysis.alignmentComparison,
-                },
-              },
-            };
+            updatedTake = applyLocalAcousticTiming({
+              take,
+              analysis: persistedAnalysis,
+            });
             return updatedTake;
           }),
         }),
@@ -2155,7 +2245,9 @@ export function App() {
       isFreeCaptureRef.current = true;
       setIsFreeCapture(true);
       setIsContinuousCorpusCapture(false);
+      setCurrentPromptIndex(0);
       setSessionRoomTone(null);
+      hasCalibratedCurrentSessionRef.current = false;
       resetTakeOutputState();
       setIsDirectCaptureStarting(true);
       setMessage("La capture démarre…");
@@ -2182,6 +2274,7 @@ export function App() {
       setIsContinuousCorpusCapture(true);
       setCurrentPromptIndex(0);
       setSessionRoomTone(null);
+      hasCalibratedCurrentSessionRef.current = false;
       resetTakeOutputState();
       setScreen("permission");
       setMessage(
@@ -2435,19 +2528,15 @@ export function App() {
     microphoneRequestPendingRef.current = true;
 
     try {
-      const ambientStream = ambientMonitorRef.current?.stream ?? null;
-      const ambientStreamIsLive =
-        ambientStream
-          ?.getAudioTracks()
-          .some((track) => track.readyState === "live") ?? false;
-
-      if (ambientStream !== null && ambientStreamIsLive) {
-        stream = ambientStream.clone();
-      } else {
-        stream = await navigator.mediaDevices.getUserMedia({
-          audio: RAW_MICROPHONE_CONSTRAINTS,
-        });
-      }
+      // The ambient monitor is deliberately raw. Never clone it into a take:
+      // acquire a fresh voice-optimised stream so browser AEC/NS can reject
+      // loudspeaker and stationary room spill before PCM capture begins.
+      ambientNoiseProfileRef.current =
+        ambientMonitorRef.current?.snapshot() ?? ambientNoiseProfileRef.current;
+      stopAmbientMicrophoneMonitor();
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: createVoiceCaptureConstraints(),
+      });
 
       if (
         leaseEpoch !== microphoneLeaseEpochRef.current ||
@@ -2463,10 +2552,9 @@ export function App() {
       setMicrophoneLabel(createMicrophoneLabel(stream));
 
       const needsRoomToneCalibration =
-        !captureIsFree &&
-        !hasCalibratedCurrentSessionRef.current &&
-        currentPromptIndex === 0;
+        !hasCalibratedCurrentSessionRef.current && currentPromptIndex === 0;
       const recorder = await createPcmRecorder(stream, {
+        ambientPreflight: ambientNoiseProfileRef.current,
         maxDurationMs: captureIsFree ? FREE_CAPTURE_MAX_DURATION_MS : undefined,
         ...(needsRoomToneCalibration ? {} : createInputGainOptions()),
         onLevel: updateVisualAudioLevel,
@@ -2479,11 +2567,7 @@ export function App() {
       pcmRecorderRef.current = recorder;
 
       await requestRecordingWakeLock();
-      if (
-        !captureIsFree &&
-        !hasCalibratedCurrentSessionRef.current &&
-        currentPromptIndex === 0
-      ) {
+      if (!hasCalibratedCurrentSessionRef.current && currentPromptIndex === 0) {
         startRoomToneCalibration(stream, recorder);
         return;
       }
@@ -3294,6 +3378,10 @@ export function App() {
       }
 
       const nextRecorder = await createPcmRecorder(stream, {
+        ambientPreflight: ambientNoiseProfileRef.current,
+        ...(isFreeCaptureRef.current
+          ? { maxDurationMs: FREE_CAPTURE_MAX_DURATION_MS }
+          : {}),
         ...createInputGainOptions(),
         onLevel: updateVisualAudioLevel,
         onSamples: pushLiveWaveform,
@@ -3306,6 +3394,7 @@ export function App() {
           ? `Salle calibrée : bruit de fond ${calibration.noiseFloorDbfs} dBFS. Enregistrement de l'interprétation chantée.`
           : `Salle calibrée : bruit de fond ${calibration.noiseFloorDbfs} dBFS. Enregistrement de la phrase parlée ou chantée.`,
         calibration,
+        isFreeCaptureRef.current,
       );
     } catch {
       if (pcmRecorderRef.current === recorder) {
@@ -3580,6 +3669,12 @@ export function App() {
         : null,
       transcript: freeCaptureTranscript,
     };
+    freeCaptureMetadataRef.current = metadata;
+    if (audioSaveResult.ok) {
+      await saveBrowserRecordingMetadata(fileName, metadata).catch(
+        () => undefined,
+      );
+    }
     replaceDownloadUrl(audioUrl);
     replaceMetadataDownloadUrl(
       URL.createObjectURL(
@@ -3705,6 +3800,7 @@ export function App() {
     setFreeCaptureReviewTranscript(null);
     setFreeCaptureReviewTranscriptCandidate(false);
     recognizedFinalTranscriptRef.current = "";
+    freeCaptureMetadataRef.current = null;
     speechRecognitionHypothesesRef.current = [];
     freeSpeechRecognitionAvailableRef.current = false;
     setLastTake(null);
@@ -4177,7 +4273,10 @@ export function App() {
 
               {screen === "permission" && (
                 <PermissionScreen
-                  calibratesRoomTone={!isFreeCapture}
+                  calibratesRoomTone={
+                    !hasCalibratedCurrentSessionRef.current &&
+                    currentPromptIndex === 0
+                  }
                   dubbingEndSeconds={dubbingEndSeconds}
                   dubbingMedia={captureMode === "dubbing" ? dubbingMedia : null}
                   dubbingMediaMuted={dubbingMediaMuted}

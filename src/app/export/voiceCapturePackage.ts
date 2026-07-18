@@ -13,6 +13,7 @@ import {
   validatePcmWavBlob,
   type PcmWavValidation,
 } from "../audio/wavValidation";
+import type { ProcessedVoiceArtifact } from "../analysis/processedVoiceArtifact";
 
 export const VOICE_CAPTURE_PACKAGE_SCHEMA = "voice.capture.package.v1" as const;
 export const VOICE_CAPTURE_PACKAGE_VERSION = "1.0.0" as const;
@@ -120,6 +121,16 @@ export type VoiceCapturePackageSample = {
     readonly source_signal_retained: false;
     /** Legacy field: the delivered WAV is immutable, but may carry declared constant gain. */
     readonly raw_immutable: true;
+  };
+  readonly derived_voice?: {
+    readonly path: string;
+    readonly metadata_path: string;
+    readonly sha256: string;
+    readonly sample_rate_hz: 16000;
+    readonly channels: 1;
+    readonly bit_depth: 24;
+    readonly timing_preserved: true;
+    readonly training_default: false;
   };
   readonly text: {
     readonly expected: string;
@@ -252,10 +263,20 @@ export type VoiceCapturePackageValidation = {
   readonly errors: readonly string[];
 };
 
+export type StandaloneCaptureArtifact = {
+  readonly blob: Blob;
+  readonly fileName: string;
+  readonly metadata: Record<string, unknown>;
+};
+
 export async function createVoiceCapturePackagePlan(input: {
   readonly corpus: CorpusManifest;
   readonly corpora?: readonly CorpusManifest[];
   readonly getAudioBlob: (fileName: string) => Promise<Blob | undefined>;
+  readonly processAudioBlob?: (
+    audioBlob: Blob,
+  ) => Promise<ProcessedVoiceArtifact>;
+  readonly standaloneCaptures?: readonly StandaloneCaptureArtifact[];
   readonly now?: Date;
   readonly producer?: Partial<VoiceCapturePackageManifest["producer"]>;
   readonly rights?: readonly ConsentRecord[];
@@ -265,7 +286,10 @@ export async function createVoiceCapturePackagePlan(input: {
   readonly workspace: VoiceWorkspace;
 }): Promise<VoiceCapturePackagePlan> {
   const createdAt = (input.now ?? new Date()).toISOString();
-  const scope = normalizeScope(input.scope);
+  const scope = normalizeScope(
+    input.scope,
+    (input.standaloneCaptures?.length ?? 0) > 0,
+  );
   const packageId = scope.packageId ?? createUuid();
   const corpora = uniqueCorpora([input.corpus, ...(input.corpora ?? [])]);
   const corpusByRef = new Map(
@@ -309,7 +333,8 @@ export async function createVoiceCapturePackagePlan(input: {
       .map((take) => ({ session, take })),
   );
 
-  if (selectedTakes.length === 0) {
+  const standaloneCaptures = input.standaloneCaptures ?? [];
+  if (selectedTakes.length === 0 && standaloneCaptures.length === 0) {
     throw new Error("The explicit export scope contains no matching takes.");
   }
 
@@ -325,6 +350,62 @@ export async function createVoiceCapturePackagePlan(input: {
   const roomTonePathBySession = new Map<string, string>();
   const legacyWarnings: string[] = [];
   let audioBytes = 0;
+
+  const standaloneIndex: unknown[] = [];
+  for (const capture of standaloneCaptures) {
+    const wav = await validatePcmWavBlob(capture.blob);
+    const sourceHash = await sha256Blob(capture.blob);
+    const key = pathToken(capture.fileName.replace(/\.[^.]+$/u, ""));
+    const rawPath = `standalone/raw/${key}_${sourceHash}.wav`;
+    const metadataPath = `standalone/metadata/${key}.json`;
+    addAudioFileOnce(files, rawPath, capture.blob);
+    addJsonFile(files, metadataPath, {
+      ...capture.metadata,
+      packageAudio: {
+        rawPath,
+        sha256: sourceHash,
+        sampleRateHz: wav.sampleRateHz,
+        channels: wav.channels,
+        bitDepth: wav.bitDepth,
+        durationMs: wav.durationMs,
+      },
+    });
+    let derivedPath: string | null = null;
+    let processingPath: string | null = null;
+    if (input.processAudioBlob !== undefined) {
+      const processed = await input.processAudioBlob(capture.blob);
+      await validatePcmWavBlob(processed.blob, {
+        sampleRateHz: 16_000,
+        channels: 1,
+        bitDepth: 24,
+      });
+      const processedHash = await sha256Blob(processed.blob);
+      derivedPath = `standalone/derived/${key}_${processedHash}.wav`;
+      processingPath = `standalone/processing/${key}.json`;
+      addAudioFileOnce(files, derivedPath, processed.blob);
+      addJsonFile(files, processingPath, {
+        ...processed.metadata,
+        sourceAudioPath: rawPath,
+        sourceSha256: sourceHash,
+        derivedAudioPath: derivedPath,
+        derivedSha256: processedHash,
+      });
+    }
+    standaloneIndex.push({
+      fileName: capture.fileName,
+      rawPath,
+      metadataPath,
+      derivedPath,
+      processingPath,
+    });
+    audioBytes += capture.blob.size;
+  }
+  if (standaloneIndex.length > 0) {
+    addJsonFile(files, "standalone/index.json", {
+      schemaVersion: "voice.standalone_capture_index.v1",
+      captures: standaloneIndex,
+    });
+  }
 
   for (const session of sessions) {
     const sessionKey = pathToken(session.id);
@@ -479,6 +560,46 @@ export async function createVoiceCapturePackagePlan(input: {
     const takeKey = pathToken(take.id);
     const audioId = `audio_${audioHash}`;
     const audioPath = `audio/${audioId}.wav`;
+    let derivedVoice: VoiceCapturePackageSample["derived_voice"];
+    if (input.processAudioBlob !== undefined) {
+      const processed = await input.processAudioBlob(audioBlob);
+      const processedValidation = await validatePcmWavBlob(processed.blob, {
+        sampleRateHz: 16_000,
+        channels: 1,
+        bitDepth: 24,
+      });
+      if (
+        processedValidation.sampleRateHz !== 16_000 ||
+        processedValidation.channels !== 1 ||
+        processedValidation.bitDepth !== 24
+      ) {
+        throw new Error(
+          `Processed vocal artifact is not canonical for take ${take.id}.`,
+        );
+      }
+      const processedHash = await sha256Blob(processed.blob);
+      const processedPath = `derived/voice_${processedHash}.wav`;
+      const processingPath = `processing/${takeKey}.json`;
+      addAudioFileOnce(files, processedPath, processed.blob);
+      addJsonFile(files, processingPath, {
+        ...processed.metadata,
+        takeId: take.id,
+        sourceAudioPath: audioPath,
+        sourceSha256: audioHash,
+        derivedAudioPath: processedPath,
+        derivedSha256: processedHash,
+      });
+      derivedVoice = {
+        path: processedPath,
+        metadata_path: processingPath,
+        sha256: processedHash,
+        sample_rate_hz: 16_000,
+        channels: 1,
+        bit_depth: 24,
+        timing_preserved: true,
+        training_default: false,
+      };
+    }
     const utteranceText =
       take.transcript.spokenText || take.transcript.originalText;
     const normalizedText = normalizeText(utteranceText);
@@ -576,6 +697,7 @@ export async function createVoiceCapturePackagePlan(input: {
         source_signal_retained: false,
         raw_immutable: true,
       },
+      ...(derivedVoice === undefined ? {} : { derived_voice: derivedVoice }),
       text: {
         expected: take.transcript.originalText,
         normalized: normalizedText,
@@ -663,6 +785,9 @@ export async function createVoiceCapturePackagePlan(input: {
   const duplicationAudit = createDuplicationAudit(samples);
   const rightsStatus = getRightsStatus(consents, licenses);
   const downstreamRequired = uniqueStrings([
+    ...(standaloneCaptures.length > 0
+      ? ["standalone_capture_curation_before_training_acceptance"]
+      : []),
     ...samples
       .filter(
         (sample) =>
@@ -675,6 +800,9 @@ export async function createVoiceCapturePackagePlan(input: {
       .map(() => "human_review_before_training_acceptance"),
   ]);
   const blockingReasons = uniqueStrings([
+    ...(standaloneCaptures.length > 0 && selectedTakes.length === 0
+      ? ["standalone_captures_not_yet_curated_as_training_samples"]
+      : []),
     ...(rightsStatus === "resolved" ? [] : ["rights_not_resolved"]),
     ...(samples.some((sample) => sample.audio.sha256.length === 0)
       ? ["audio_hash_missing"]
@@ -1345,6 +1473,7 @@ function textBlob(text: string): Blob {
 
 function normalizeScope(
   scope: VoiceCapturePackageScope,
+  allowEmptySessions = false,
 ): VoiceCapturePackageScope {
   if (scope.datasetId.trim() === "" || scope.projectId.trim() === "")
     throw new Error("Dataset and project IDs are required.");
@@ -1352,7 +1481,7 @@ function normalizeScope(
     scope.speakerIds.length === 0 ||
     scope.languages.length === 0 ||
     scope.corpusRefs.length === 0 ||
-    scope.sessionIds.length === 0 ||
+    (!allowEmptySessions && scope.sessionIds.length === 0) ||
     scope.takeStatuses.length === 0
   ) {
     throw new Error(
@@ -1458,6 +1587,8 @@ function createPackageReadme(
     `Forge ingestion ready: ${compatibility.ready ? "yes" : "no"}`,
     "",
     "This package is explicit about scope, immutable raw WAV identity, provenance, quality, lifecycle, rights, and split assignment.",
+    "",
+    "When present, derived/ contains a timing-preserving voice-first 16 kHz WAV and processing/ records its exact local method and source hash. It is inspection/ASR evidence, not the default replacement for immutable raw audio.",
     "",
     "The manifest describes all payload artifacts. checksums.sha256 also covers manifest.json; checksums.sha256 is intentionally self-excluded to avoid a circular hash.",
     "",

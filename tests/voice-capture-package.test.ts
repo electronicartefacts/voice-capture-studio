@@ -133,6 +133,86 @@ test("voice capture package v1 rejects missing audio instead of creating partial
   );
 });
 
+test("voice capture package retains a derived voice-first WAV beside immutable raw audio", async () => {
+  const fixture = await createFixture({ speakerIndex: 0, language: "fr" });
+  const processed = encodeWav24(new Float32Array(1_600).fill(0.04), 16_000);
+  const plan = await createVoiceCapturePackagePlan({
+    corpus: canonicalCorpus,
+    getAudioBlob: async (fileName) => fixture.audioByFileName.get(fileName),
+    processAudioBlob: async () => ({
+      blob: processed,
+      metadata: {
+        schemaVersion: "voice.processed_vocal.v1",
+        localOnly: true,
+        sampleRateHz: 16_000,
+        bitDepth: 24,
+        channels: 1,
+        method: "spectral_mid_side_residual_vocal_band",
+        timingPreserved: true,
+        centerEnergyRatio: 0.82,
+        residualEnergyRatio: 0.46,
+      },
+    }),
+    scope: createScope(fixture.workspace, {
+      speakerId: frSpeaker.id,
+      language: "fr",
+      sessionIds: [fixture.session.id],
+    }),
+    workspace: fixture.workspace,
+  });
+
+  const derived = plan.samples[0].derived_voice;
+  assert.ok(derived);
+  assert.equal(derived.sample_rate_hz, 16_000);
+  assert.equal(derived.timing_preserved, true);
+  assert.equal(derived.training_default, false);
+  assert.ok(plan.files.some((entry) => entry.path === derived.path));
+  assert.ok(plan.files.some((entry) => entry.path === derived.metadata_path));
+  assert.equal(plan.samples[0].audio.raw_immutable, true);
+  const validation = await validateVoiceCapturePackagePlan(plan);
+  assert.equal(validation.valid, true, validation.errors.join("\n"));
+});
+
+test("voice capture package includes free and continuous captures as curated standalone artifacts", async () => {
+  const fixture = await createFixture({ speakerIndex: 0, language: "fr" });
+  const standaloneWav = createWav(0.07);
+  const scope = createScope(fixture.workspace, {
+    speakerId: frSpeaker.id,
+    language: "fr",
+    sessionIds: [],
+  });
+  const plan = await createVoiceCapturePackagePlan({
+    corpus: canonicalCorpus,
+    getAudioBlob: async () => undefined,
+    scope,
+    standaloneCaptures: [
+      {
+        blob: standaloneWav,
+        fileName: "free.capture.wav",
+        metadata: {
+          schemaVersion: "voice.free_capture.v1",
+          mode: "free",
+          timing: { words: [], phrases: [] },
+        },
+      },
+    ],
+    workspace: fixture.workspace,
+  });
+
+  assert.equal(plan.samples.length, 0);
+  assert.ok(plan.files.some((entry) => entry.path === "standalone/index.json"));
+  assert.ok(
+    plan.files.some((entry) => entry.path.startsWith("standalone/raw/")),
+  );
+  assert.ok(
+    plan.forgeCompatibility.errors.includes(
+      "standalone_captures_not_yet_curated_as_training_samples",
+    ),
+  );
+  const validation = await validateVoiceCapturePackagePlan(plan);
+  assert.equal(validation.valid, true, validation.errors.join("\n"));
+});
+
 test("voice capture package audits repeated text and blocks exact audio duplicates", async () => {
   const fixture = await createFixture({ speakerIndex: 0, language: "fr" });
   const duplicateTake = {

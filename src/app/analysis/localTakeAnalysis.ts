@@ -14,9 +14,12 @@ import type {
 } from "./types";
 import { createStereoVocalFocusSignal } from "./vocalFocus";
 import {
+  classifyCaptureAcousticScene,
   runAdaptiveTakeAnalysis,
+  selectTakeAnalysisHypothesis,
   type CaptureAnalysisContext,
 } from "./adaptiveAnalysis";
+import { separateVocalsOffThread } from "./localSpectralVocalSeparation";
 
 const ANALYSIS_SAMPLE_RATE = 16_000;
 
@@ -54,10 +57,10 @@ export async function analyzeTakeAudio(input: {
   readonly signal?: AbortSignal;
 }): Promise<LocalTakeAnalysis> {
   throwIfAnalysisAborted(input.signal);
-  const audio = await decodeAudioToMono16k(input.audioBlob);
+  const signals = await decodeAudioToVocalSignals16k(input.audioBlob);
   throwIfAnalysisAborted(input.signal);
-  return runAdaptiveTakeAnalysis({
-    audio,
+  const original = await runAdaptiveTakeAnalysis({
+    audio: signals.mono,
     context: input.context,
     onProgress: input.onProgress,
     analyze: ({ audio: candidateAudio, model, decoding }) =>
@@ -71,6 +74,96 @@ export async function analyzeTakeAudio(input: {
         signal: input.signal,
       }),
   });
+  return runCapturedVocalEnsemble({
+    signals,
+    original,
+    context: input.context,
+    onProgress: input.onProgress,
+    analyze: (audio) =>
+      analyzeDecodedAudio({
+        audio,
+        expectedText: input.expectedText,
+        language: input.language,
+        transcriptionModel: "base",
+        decodingStrategy: "greedy",
+        onProgress: input.onProgress,
+        signal: input.signal,
+      }),
+    separate: () =>
+      separateVocalsOffThread({
+        ...signals.spectralInput!,
+        onProgress: (progressPercent) =>
+          input.onProgress({ stage: "separating-vocals", progressPercent }),
+        signal: input.signal,
+      }).then((result) => result.signal),
+  });
+}
+
+export async function runCapturedVocalEnsemble(input: {
+  readonly signals: Awaited<ReturnType<typeof decodeAudioToVocalSignals16k>>;
+  readonly original: LocalTakeAnalysis;
+  readonly context?: CaptureAnalysisContext;
+  readonly onProgress: (progress: LocalAnalysisProgress) => void;
+  readonly analyze: (audio: Float32Array) => Promise<LocalTakeAnalysis>;
+  readonly separate: () => Promise<Float32Array>;
+}): Promise<LocalTakeAnalysis> {
+  const scene = classifyCaptureAcousticScene(input.context);
+  const needsVocalEnsemble =
+    scene !== "clean_voice" &&
+    input.signals.vocalFocus.length <= ANALYSIS_SAMPLE_RATE * 5 * 60;
+
+  if (!needsVocalEnsemble) return input.original;
+
+  input.onProgress({ stage: "enhancing-vocals" });
+  const vocalFocusAnalysis = await input.analyze(input.signals.vocalFocus);
+  const hypotheses: Array<{
+    readonly model: LocalTranscriptionModel;
+    readonly decoding: LocalDecodingStrategy;
+    readonly analysis: LocalTakeAnalysis;
+  }> = [
+    {
+      model: input.original.strategy?.selectedModel ?? "tiny",
+      decoding:
+        input.original.strategy?.selectedModel === "base" ? "beam" : "greedy",
+      analysis: input.original,
+    },
+    { model: "base", decoding: "greedy", analysis: vocalFocusAnalysis },
+  ];
+
+  if (
+    input.signals.spectralInput !== null &&
+    (scene === "sung_voice" || (input.context?.snrDb ?? 99) < 16)
+  ) {
+    input.onProgress({ stage: "separating-vocals", progressPercent: 0 });
+    const spectralAnalysis = await input.analyze(await input.separate());
+    hypotheses.push({
+      model: "base",
+      decoding: "greedy",
+      analysis: spectralAnalysis,
+    });
+  }
+
+  input.onProgress({ stage: "validating-result" });
+  const selection = selectTakeAnalysisHypothesis(hypotheses);
+  return {
+    ...selection.selected.analysis,
+    strategy: {
+      schemaVersion: "voice.adaptive_analysis.v1",
+      scene,
+      depth: hypotheses.length >= 3 ? "deep" : "verified",
+      selectedModel: selection.selected.model,
+      selectionReason: selection.selectionReason,
+      hypotheses: hypotheses.map((hypothesis, index) => ({
+        model: hypothesis.model,
+        provider: hypothesis.analysis.executionProvider,
+        decoding: hypothesis.decoding,
+        transcript: hypothesis.analysis.transcript,
+        wordCount: hypothesis.analysis.whisperWords.length,
+        matchedWordCount: hypothesis.analysis.matchedWordCount,
+        score: selection.scores[index],
+      })),
+    },
+  };
 }
 
 export async function analyzeDecodedAudio(input: {

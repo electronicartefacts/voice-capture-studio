@@ -1,6 +1,7 @@
 export type {
   AudioCaptureProvenance,
   CaptureSession,
+  LocalAcousticAnalysis,
   PerformanceQualityMetrics,
   PhraseTiming,
   RecordedTake,

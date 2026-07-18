@@ -9,7 +9,32 @@ export type StoredRecording = {
   readonly blob: Blob;
   readonly fileName: string;
   readonly savedAt: string;
+  readonly metadata?: Record<string, unknown>;
 };
+
+export async function saveBrowserRecordingMetadata(
+  fileName: string,
+  metadata: Record<string, unknown>,
+): Promise<void> {
+  const database = await openDatabase();
+  try {
+    const transaction = database.transaction(
+      RECORDINGS_STORE_NAME,
+      "readwrite",
+    );
+    const store = transaction.objectStore(RECORDINGS_STORE_NAME);
+    const existing = await requestResult<StoredRecording | undefined>(
+      store.get(fileName),
+    );
+    if (existing === undefined) {
+      throw new Error(`Recording ${fileName} does not exist.`);
+    }
+    store.put({ ...existing, metadata }, fileName);
+    await transactionDone(transaction);
+  } finally {
+    database.close();
+  }
+}
 
 export async function saveRecordingToBrowserStorage(
   fileName: string,

@@ -17,6 +17,7 @@ export type DatasetTextFile = {
 export type DatasetAudioFile = {
   readonly path: string;
   readonly sourceFileName: string;
+  readonly processing?: "raw" | "voice_isolated";
 };
 
 export type DatasetPackagePlan = {
@@ -61,10 +62,12 @@ export function createDatasetPackagePlan(input: {
       audioFiles.push({
         path: `raw/${takeSlug}.wav`,
         sourceFileName: take.fileName,
+        processing: "raw",
       });
       audioFiles.push({
         path: `processed/${takeSlug}.wav`,
         sourceFileName: take.fileName,
+        processing: "voice_isolated",
       });
       textFiles.push({
         path: `transcripts/${takeSlug}.txt`,
@@ -302,8 +305,9 @@ Keeper takes: ${input.keeperCount} / ${input.takeCount} recorded takes
 ## Structure
 
 - \`raw/\` - Original captured WAV audio (PCM mono, 48 kHz, 24-bit where supported).
-- \`processed/\` - Placeholder for post-processed audio. Currently identical to \`raw/\`;
-  reserved for future normalization or denoising passes.
+- \`processed/\` - Derived 16 kHz / 24-bit voice-first signal using deterministic
+  spectral residual separation and vocal-band transient reduction. Timing is preserved;
+  the immutable source remains in \`raw/\`.
 - \`transcripts/\` - Plain text transcript per keeper take.
 - \`metadata/\` - Immutable media identity (SHA-256), capture provenance, transcript,
   timing, intent, quality, and review metadata per keeper take.

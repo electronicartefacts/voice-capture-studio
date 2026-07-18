@@ -47,13 +47,21 @@ export async function createDatasetZip(input: {
   }
 
   for (const file of input.plan.audioFiles) {
-    const blob = await input.getAudioBlob(file.sourceFileName);
+    const sourceBlob = await input.getAudioBlob(file.sourceFileName);
 
-    if (blob === undefined) {
+    if (sourceBlob === undefined) {
       missingAudioFiles.push(file.sourceFileName);
       continue;
     }
 
+    const blob =
+      file.processing === "voice_isolated"
+        ? (
+            await (
+              await import("../analysis/processedVoiceArtifact")
+            ).createProcessedVoiceArtifact({ audioBlob: sourceBlob })
+          ).blob
+        : sourceBlob;
     entries.push({ path: file.path, data: blob });
   }
 

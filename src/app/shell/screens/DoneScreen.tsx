@@ -1055,22 +1055,27 @@ export function DoneScreen(input: {
           </div>
         </details>
       )}
-      {input.take !== null &&
+      {(input.take !== null || input.freeCaptureTranscript !== null) &&
         input.downloadUrl !== null &&
         isLocalAnalysisSupported() && (
           <LocalAnalysisPanel
             audioUrl={input.downloadUrl}
             context={{
               performanceKind:
-                input.take.captureContext?.vocalPerformance?.kind,
-              snrDb: input.take.quality.technical.snrDb,
-              reverbScore: input.take.quality.technical.reverbScore,
-              activeSpeechRatio: input.take.quality.technical.activeSpeechRatio,
+                input.take?.captureContext?.vocalPerformance?.kind,
+              snrDb: input.take?.quality.technical.snrDb,
+              reverbScore: input.take?.quality.technical.reverbScore,
+              activeSpeechRatio:
+                input.take?.quality.technical.activeSpeechRatio,
             }}
-            expectedText={input.take.transcript.spokenText}
+            expectedText={
+              input.take?.transcript.spokenText ??
+              input.freeCaptureTranscript ??
+              ""
+            }
             language={input.language}
             onAnalysis={input.onLocalAnalysis}
-            takeId={input.take.id}
+            takeId={input.take?.id ?? input.fileName ?? "standalone-capture"}
           />
         )}
       {(input.location !== null || input.fileName !== null) && (
@@ -1102,13 +1107,18 @@ function LocalAnalysisPanel(input: {
 }) {
   const [state, setState] = useState<LocalAnalysisState>({ status: "idle" });
   const abortControllerRef = useRef<AbortController | null>(null);
+  const runAnalysisRef = useRef<() => Promise<void>>(async () => undefined);
   const loadingWaveId = `take-analysis:${input.takeId}`;
 
   useEffect(() => {
     abortControllerRef.current?.abort();
     setState({ status: "idle" });
+    const autoRunTimer = window.setTimeout(() => {
+      void runAnalysisRef.current();
+    }, 120);
 
     return () => {
+      window.clearTimeout(autoRunTimer);
       abortControllerRef.current?.abort();
       cancelLoadingWave(loadingWaveId);
     };
@@ -1167,6 +1177,8 @@ function LocalAnalysisPanel(input: {
     }
   }
 
+  runAnalysisRef.current = runAnalysis;
+
   function cancelAnalysis() {
     abortControllerRef.current?.abort();
     cancelLocalAnalysis();
@@ -1205,7 +1217,7 @@ function LocalAnalysisPanel(input: {
           type="button"
         >
           <AudioLines aria-hidden="true" size={18} />
-          <span>Analyser la prise</span>
+          <span>Lancer l’analyse maintenant</span>
         </button>
       )}
 
@@ -1338,6 +1350,14 @@ function formatAnalysisProgress(progress: LocalAnalysisProgress): string {
 
   if (progress.stage === "validating-result") {
     return "Comparaison des hypothèses locales…";
+  }
+
+  if (progress.stage === "enhancing-vocals") {
+    return "Focalisation de la nappe vocale…";
+  }
+
+  if (progress.stage === "separating-vocals") {
+    return `Séparation spectrale de la voix… ${progress.progressPercent}%`;
   }
 
   return "Mesure des segments de parole…";

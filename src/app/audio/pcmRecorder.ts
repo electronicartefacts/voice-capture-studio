@@ -10,6 +10,10 @@ import { validatePcmWavBlob } from "./wavValidation";
 import type { AudioCaptureProvenance } from "@domains/sessions";
 import { FREE_CAPTURE_MAX_DURATION_MS } from "../recording/captureLimits";
 import { applyInputGain, planInputGain, type InputGainMode } from "./inputGain";
+import {
+  microphoneProcessingSummary,
+  type AmbientNoiseProfile,
+} from "../recording/microphoneCapturePolicy";
 
 export type { PcmRecordingMetrics } from "./pcmAudio";
 
@@ -34,6 +38,7 @@ export type PcmRecorderOptions = {
     readonly mode: InputGainMode;
     readonly manualFactor: number;
   };
+  readonly ambientPreflight?: AmbientNoiseProfile | null;
 };
 
 type WindowWithAudioContext = Window &
@@ -218,6 +223,10 @@ export async function createPcmRecorder(
             ...captureSettings,
             processing: {
               ...captureSettings.processing,
+              ...(options.ambientPreflight === null ||
+              options.ambientPreflight === undefined
+                ? {}
+                : { ambientPreflight: options.ambientPreflight }),
               ...(gainPlan === null
                 ? {}
                 : {
@@ -246,6 +255,7 @@ function readCaptureProvenance(
 ): AudioCaptureProvenance {
   const track = stream.getAudioTracks()[0];
   const settings = track?.getSettings();
+  const processing = microphoneProcessingSummary(settings ?? {});
 
   return {
     schemaVersion: "voice.capture_provenance.v1",
@@ -262,8 +272,7 @@ function readCaptureProvenance(
     },
     processing: {
       autoGainControl: booleanOrNull(settings?.autoGainControl),
-      echoCancellation: booleanOrNull(settings?.echoCancellation),
-      noiseSuppression: booleanOrNull(settings?.noiseSuppression),
+      ...processing,
     },
     sourceSampleRateHz,
     targetSampleRateHz: PCM_TARGET_SAMPLE_RATE,
