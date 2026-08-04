@@ -28,6 +28,11 @@ The observation-pipeline pass moves the app to a better intermediate contract:
 13. Standalone exports are filtered by their declared speaker, language, and continuous-corpus identity.
 14. Package hashing is sequential and deduplicated so large WAV collections do not create avoidable
     concurrent memory spikes on constrained mobile browsers.
+15. Dataset planning, voice derivation, hashing, ZIP serialization, archive reopening, and direct
+    folder writing all observe the same cancellation signal.
+16. Direct folder export creates a package-id-specific directory, keeps `EXPORT_INCOMPLETE` until
+    every atomic write succeeds, then replaces it with `EXPORT_COMPLETE`; cancellation propagates
+    instead of being disguised as a generic storage failure.
 
 ## Capture and isolation pipeline
 

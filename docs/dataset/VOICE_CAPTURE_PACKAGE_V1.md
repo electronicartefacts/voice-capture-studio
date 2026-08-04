@@ -86,6 +86,14 @@ it for the manifest and checksum table. Self-validation performs one independent
 digest pass. This keeps integrity verification independent while avoiding
 parallel `Blob.arrayBuffer()` spikes across several large WAV files on mobile.
 
+The UI applies one `AbortSignal` to recording discovery, raw and derived audio
+validation, sequential hashing, self-validation, ZIP serialization, ZIP
+reopening, and direct folder writes. A cancelled download never creates or
+clicks a partial ZIP. Each direct export uses a new
+`voice-capture-package-<package_id>/` directory so old artifacts cannot leak
+into a later package, retains `EXPORT_INCOMPLETE` until all atomic writes
+succeed, and writes `EXPORT_COMPLETE` only at the end.
+
 Package validation fails on:
 
 - unsafe paths, absolute paths, `..`, backslashes, control characters, or long

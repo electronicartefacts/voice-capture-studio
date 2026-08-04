@@ -10,6 +10,11 @@ import {
   saveRecordingToBrowserStorage,
 } from "./browserRecordingStorage";
 import { sha256Blob } from "./sha256";
+import {
+  beginMarkedAtomicExport,
+  completeMarkedAtomicExport,
+  writeBlobAtomically,
+} from "./atomicFileWriter";
 
 type DirectoryHandle = {
   readonly name: string;
@@ -201,7 +206,7 @@ export async function saveRecordingToWorkspaceFolder(
           };
     }
 
-    await writeBlob(takesDirectory, fileName, audioBlob);
+    await writeBlobAtomically(takesDirectory, fileName, audioBlob);
 
     return {
       ok: true,
@@ -406,7 +411,7 @@ export async function saveTakeMetadataToWorkspaceFolder(input: {
       jsonBlob(input.reportsJson.datasetReadiness),
       "reports/report.dataset_readiness.json",
     );
-    await writeBlob(
+    await writeBlobAtomically(
       sessionDirectory,
       "manifest.json",
       jsonBlob({ ...input.manifestJson, artifacts }),
@@ -474,7 +479,11 @@ export async function saveDatasetPackageToWorkspaceFolder(input: {
     let writtenFiles = 0;
     const missingAudioFiles: string[] = [];
 
-    await writeBlob(datasetDirectory, "README.md", textBlob(input.readme));
+    await writeBlobAtomically(
+      datasetDirectory,
+      "README.md",
+      textBlob(input.readme),
+    );
     writtenFiles++;
 
     for (const file of input.jsonFiles) {
@@ -518,9 +527,15 @@ export async function saveDatasetPackageToWorkspaceFolder(input: {
 
 export async function saveVoiceCapturePackageToWorkspaceFolder(input: {
   readonly files: readonly { readonly path: string; readonly data: Blob }[];
+  readonly packageId: string;
+  readonly signal?: AbortSignal;
 }): Promise<
   Result<
-    { readonly target: "folder"; readonly writtenFiles: number },
+    {
+      readonly directoryName: string;
+      readonly target: "folder";
+      readonly writtenFiles: number;
+    },
     "folder-unavailable" | "folder-save-failed"
   >
 > {
@@ -544,35 +559,34 @@ export async function saveVoiceCapturePackageToWorkspaceFolder(input: {
   }
 
   try {
-    const packageDirectory = await ensureDirectory(
-      handle,
-      "voice-capture-package",
-    );
-    await writeBlob(
-      packageDirectory,
-      "EXPORT_INCOMPLETE",
-      textBlob(
-        "Package creation started; absence of EXPORT_COMPLETE means incomplete.",
-      ),
-    );
+    throwIfAborted(input.signal);
+    const directoryName = `voice-capture-package-${sanitizePathSegment(input.packageId)}`;
+    const packageDirectory = await ensureDirectory(handle, directoryName);
+    await beginMarkedAtomicExport(packageDirectory, input.signal);
 
     for (const entry of input.files) {
+      throwIfAborted(input.signal);
       assertSafePackagePath(entry.path);
-      await writeNestedBlob(packageDirectory, entry.path, entry.data);
+      await writeNestedBlob(
+        packageDirectory,
+        entry.path,
+        entry.data,
+        input.signal,
+      );
     }
 
-    await writeBlob(
-      packageDirectory,
-      "EXPORT_COMPLETE",
-      textBlob("voice.capture.package.v1 complete"),
-    );
-    await packageDirectory.removeEntry?.("EXPORT_INCOMPLETE");
+    await completeMarkedAtomicExport(packageDirectory, input.signal);
 
     return {
       ok: true,
-      value: { target: "folder", writtenFiles: input.files.length },
+      value: {
+        directoryName,
+        target: "folder",
+        writtenFiles: input.files.length,
+      },
     };
-  } catch {
+  } catch (error) {
+    if (isAbortError(error) || input.signal?.aborted) throw error;
     return {
       ok: false,
       error: "folder-save-failed",
@@ -585,6 +599,7 @@ async function writeNestedBlob(
   root: DirectoryHandle,
   path: string,
   blob: Blob,
+  signal?: AbortSignal,
 ): Promise<void> {
   const segments = path.split("/").map(sanitizePathSegment);
   const fileName = segments.pop();
@@ -599,7 +614,7 @@ async function writeNestedBlob(
     directory = await ensureDirectory(directory, segment);
   }
 
-  await writeBlob(directory, fileName, blob);
+  await writeBlobAtomically(directory, fileName, blob, signal);
 }
 
 type VoiceCaptureSessionManifest = {
@@ -696,27 +711,6 @@ async function ensureDirectory(
   return parent.getDirectoryHandle(name, { create: true });
 }
 
-async function writeBlob(
-  directory: DirectoryHandle,
-  fileName: string,
-  blob: Blob,
-): Promise<void> {
-  if (directory.getFileHandle === undefined) {
-    throw new Error("File handles are not supported.");
-  }
-
-  const fileHandle = await directory.getFileHandle(fileName, { create: true });
-  const writable = await fileHandle.createWritable();
-
-  try {
-    await writable.write(blob);
-    await writable.close();
-  } catch (error) {
-    await writable.abort?.().catch(() => undefined);
-    throw error;
-  }
-}
-
 async function requestReadWritePermission(
   handle: DirectoryHandle,
 ): Promise<boolean> {
@@ -754,7 +748,7 @@ async function writeTrackedBlob(
   blob: Blob,
   path = fileName,
 ): Promise<void> {
-  await writeBlob(directory, fileName, blob);
+  await writeBlobAtomically(directory, fileName, blob);
   artifacts.push({
     path,
     mediaType: blob.type || "application/octet-stream",
@@ -794,6 +788,17 @@ function assertSafePackagePath(path: string): void {
   ) {
     throw new Error(`Unsafe package path: ${path}`);
   }
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (!signal?.aborted) return;
+  throw signal.reason instanceof Error
+    ? signal.reason
+    : new DOMException("Export annulé.", "AbortError");
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
 }
 
 function hasControlCharacter(value: string): boolean {

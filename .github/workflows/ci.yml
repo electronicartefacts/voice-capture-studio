@@ -42,6 +42,27 @@ jobs:
       - name: End-to-end tests
         run: npm run test:e2e
 
+      - name: Build immutable release evidence
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          artifact="voice-capture-studio-${GITHUB_SHA}.tar.gz"
+          tar -C dist -czf "${RUNNER_TEMP}/${artifact}" .
+          cd "${RUNNER_TEMP}"
+          sha256sum "${artifact}" > "${artifact}.sha256"
+          npm sbom --sbom-format cyclonedx > "voice-capture-studio-${GITHUB_SHA}.cdx.json"
+
+      - name: Upload immutable release evidence
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v6
+        with:
+          name: release-evidence-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/voice-capture-studio-${{ github.sha }}.tar.gz
+            ${{ runner.temp }}/voice-capture-studio-${{ github.sha }}.tar.gz.sha256
+            ${{ runner.temp }}/voice-capture-studio-${{ github.sha }}.cdx.json
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Upload browser traces on failure
         if: failure()
         uses: actions/upload-artifact@v6

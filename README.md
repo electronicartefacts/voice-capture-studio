@@ -35,6 +35,10 @@ open-source foundation for privacy-preserving voice capture workflows.
 - Browser-private workspace storage with explicit downloads and folder export where supported.
 - Verified workspace archives that restore progression and every referenced WAV without overwriting
   existing audio.
+- Cancellable dataset and folder exports that never offer an incomplete archive and use an explicit
+  incomplete marker around atomic File System Access writes.
+- Privacy-safe support profiles containing capabilities and storage health but no audio, transcript,
+  speaker identity, corpus text, room description, or microphone label.
 - Static GitHub Pages deployment with PWA manifest and service worker support.
 - Domain-oriented TypeScript architecture with unit coverage for corpus, workspace, recording, and
   export behavior.
@@ -107,7 +111,8 @@ npm run validate
 references, coverage thresholds, bundle budgets, and the production build. `npm run test:e2e`
 drives the full capture flow in Chromium, verifies responsive layouts in Chromium, Firefox, and
 WebKit, checks the PWA offline restart, and runs automated WCAG A/AA checks; CI runs it after
-`validate`.
+`validate`. Successful `main` runs also retain the exact static build, a SHA-256 checksum, and a
+CycloneDX SBOM under the immutable commit SHA for 30 days.
 
 ## Architecture
 
@@ -136,6 +141,7 @@ Important documents:
 - [Capture technology audit](docs/capture-technology-audit.md)
 - [Production engineering audit](docs/production-engineering-audit.md)
 - [Repository maturity scorecard](docs/repository-scorecard.md)
+- [Release and recovery](docs/release-and-recovery.md)
 - [Mode experience grid](docs/mode-experience-grid.md)
 - [Android and GitHub Pages](docs/android-github-pages.md)
 
@@ -172,7 +178,7 @@ HTTPS, which GitHub Pages provides.
 - Corpus tombstone support for long-lived compatibility.
 - Stronger File System Access first-run flow where supported.
 - More export targets once the `voice.capture_session` contract stabilizes.
-- Screenshot and release artifact automation for tagged releases.
+- Tagged release provenance, deployment rollback rehearsal, and screenshot automation.
 
 ## Contributing
 

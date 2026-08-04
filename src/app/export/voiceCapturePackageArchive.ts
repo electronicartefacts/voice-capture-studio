@@ -12,12 +12,15 @@ const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 
 export async function validateVoiceCapturePackageArchive(
   archive: Blob,
+  signal?: AbortSignal,
 ): Promise<VoiceCapturePackageValidation> {
+  throwIfAborted(signal);
   const errors: string[] = [];
   let entries: ReadonlyMap<string, Blob>;
   try {
-    entries = await readStoredZipEntries(archive);
+    entries = await readStoredZipEntries(archive, signal);
   } catch (error) {
+    if (isAbortError(error) || signal?.aborted) throw error;
     return {
       valid: false,
       errors: [
@@ -25,6 +28,19 @@ export async function validateVoiceCapturePackageArchive(
       ],
     };
   }
+  throwIfAborted(signal);
+  const hashes = new Map<Blob, Promise<string>>();
+  const getHash = async (blob: Blob): Promise<string> => {
+    throwIfAborted(signal);
+    let pending = hashes.get(blob);
+    if (pending === undefined) {
+      pending = sha256Blob(blob);
+      hashes.set(blob, pending);
+    }
+    const hash = await pending;
+    throwIfAborted(signal);
+    return hash;
+  };
 
   const manifest = await readJson<VoiceCapturePackageManifest>(
     entries,
@@ -49,20 +65,23 @@ export async function validateVoiceCapturePackageArchive(
     manifest?.artifacts.map((item) => item.path) ?? [],
   );
   for (const path of payloadPaths) {
+    throwIfAborted(signal);
     if (!artifactPaths.has(path))
       errors.push(`Unmanifested archive entry: ${path}`);
   }
   for (const path of artifactPaths) {
+    throwIfAborted(signal);
     if (!entries.has(path))
       errors.push(`Manifest artifact is missing: ${path}`);
   }
 
   for (const [path, blob] of entries) {
+    throwIfAborted(signal);
     if (path === "checksums.sha256") continue;
     const expected = checksums.get(path);
     if (expected === undefined) {
       errors.push(`Checksum row missing: ${path}`);
-    } else if ((await sha256Blob(blob)) !== expected) {
+    } else if ((await getHash(blob)) !== expected) {
       errors.push(`Checksum mismatch: ${path}`);
     }
   }
@@ -72,11 +91,12 @@ export async function validateVoiceCapturePackageArchive(
   }
 
   for (const artifact of manifest?.artifacts ?? []) {
+    throwIfAborted(signal);
     const blob = entries.get(artifact.path);
     if (blob === undefined) continue;
     if (blob.size !== artifact.byteSize)
       errors.push(`Artifact size mismatch: ${artifact.path}`);
-    if ((await sha256Blob(blob)) !== artifact.sha256)
+    if ((await getHash(blob)) !== artifact.sha256)
       errors.push(`Artifact hash mismatch: ${artifact.path}`);
   }
 
@@ -100,6 +120,8 @@ export async function validateVoiceCapturePackageArchive(
       consentIds,
       licenseIds,
       errors,
+      getHash,
+      signal,
     );
   }
   if (manifest !== null && samples.length !== manifest.counts.samples) {
@@ -116,7 +138,10 @@ async function validateSample(
   consentIds: ReadonlySet<string>,
   licenseIds: ReadonlySet<string>,
   errors: string[],
+  getHash: (blob: Blob) => Promise<string>,
+  signal?: AbortSignal,
 ): Promise<void> {
+  throwIfAborted(signal);
   const prefix = `Sample ${index}`;
   const audio = entries.get(sample.audio?.path);
   if (audio === undefined) {
@@ -124,12 +149,11 @@ async function validateSample(
   } else {
     if (audio.size !== sample.audio.byte_size)
       errors.push(`${prefix} audio byte size is inconsistent.`);
-    if ((await sha256Blob(audio)) !== sample.audio.sha256)
+    if ((await getHash(audio)) !== sample.audio.sha256)
       errors.push(`${prefix} audio SHA-256 is inconsistent.`);
     try {
-      const wav = await validatePcmWavBlob(
-        new Blob([await audio.arrayBuffer()], { type: "audio/wav" }),
-      );
+      const wav = await validatePcmWavBlob(audio);
+      throwIfAborted(signal);
       if (
         wav.sampleRateHz !== sample.audio.sample_rate_hz ||
         wav.channels !== sample.audio.channels ||
@@ -139,6 +163,7 @@ async function validateSample(
         errors.push(`${prefix} audio declaration does not match its WAV.`);
       }
     } catch (error) {
+      if (isAbortError(error) || signal?.aborted) throw error;
       errors.push(
         `${prefix} WAV is invalid: ${error instanceof Error ? error.message : "invalid audio"}`,
       );
@@ -162,6 +187,17 @@ async function validateSample(
     if (!licenseIds.has(id))
       errors.push(`${prefix} license ref is missing: ${id}`);
   }
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (!signal?.aborted) return;
+  throw signal.reason instanceof Error
+    ? signal.reason
+    : new DOMException("Validation de l'archive annulée.", "AbortError");
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
 }
 
 async function readChecksums(

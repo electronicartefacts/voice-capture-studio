@@ -78,14 +78,17 @@ an explicit migration exists.
 ## Current Tensions
 
 - `App.tsx` contains orchestration, UI state, and the browser capture lifecycle. Capture
-  finalization, export bundle/report generation, and take construction now live in app-level
-  services, but they are not yet promoted behind the domain recording/export ports.
+  finalization, package planning, export bundle/report generation, and take construction now live
+  in app-level services, and the technical screen plus its styles load on demand, but the remaining
+  capture lifecycle is not yet promoted behind domain ports.
 - Workspace persistence prefers IndexedDB (with a one-time migration from the legacy
   `localStorage` payload and a `navigator.storage.persist()` request against eviction), falling
   back to `localStorage` and then memory-only when browser storage fails. The repository contract
-  exposes this durability explicitly, and the shell exposes a workspace backup download, but there
-  is no restore/import flow yet.
-- Export reports are generated in an app-level service rather than behind the domain export port.
+  exposes this durability explicitly. The shell exports and restores a self-verifying workspace
+  archive containing every referenced WAV without overwriting conflicting audio.
+- Export reports are generated through an app-level package preparation service rather than behind
+  the domain export port. Its download and folder paths share one explicit scope and cancellation
+  boundary.
 - Browser private storage is still the default initial workspace mode even though the doctrine says
   File System Access should be preferred where available.
 - Corpus compatibility policy reserves tombstones, but the corpus model has no tombstone type yet.
@@ -118,9 +121,10 @@ does not erase an otherwise valid recording.
 
 1. Add an explicit future-version migration policy for `VoiceWorkspace.schemaVersion`.
 2. Extend corpus integrity tests with future tombstone and compatibility migration rules.
-3. Add a restore/import path for downloaded memory-only workspace backups.
+3. Add transform-based migrations for future workspace and archive schema versions.
 4. Promote app-level recording/export services behind domain ports when a second implementation or
    export shape appears.
-5. Audit bundle size and route splitting once more app-level services are introduced.
+5. Continue extracting stable capture lifecycle seams from the application orchestrator without
+   fragmenting the capture state machine.
 6. Extend the existing external forced-alignment import path with TextGrid support and explicit
    provenance adapters for MFA, WhisperX, or another acoustic aligner.

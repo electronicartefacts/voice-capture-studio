@@ -11,13 +11,20 @@ export type DatasetZipResult = {
 
 export async function createVoiceCapturePackageZip(input: {
   readonly plan: VoiceCapturePackagePlan;
+  readonly signal?: AbortSignal;
 }): Promise<{ readonly blob: Blob; readonly writtenFiles: number }> {
   const blob = await createZipBlobOffThread(
     input.plan.files.map((entry) => ({ path: entry.path, data: entry.data })),
+    input.signal,
   );
+  throwIfAborted(input.signal);
   const { validateVoiceCapturePackageArchive } =
     await import("./voiceCapturePackageArchive");
-  const validation = await validateVoiceCapturePackageArchive(blob);
+  const validation = await validateVoiceCapturePackageArchive(
+    blob,
+    input.signal,
+  );
+  throwIfAborted(input.signal);
   if (!validation.valid) {
     throw new Error(
       `Serialized package failed validation: ${validation.errors.join("; ")}`,
@@ -27,6 +34,13 @@ export async function createVoiceCapturePackageZip(input: {
     blob,
     writtenFiles: input.plan.files.length,
   };
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (!signal?.aborted) return;
+  throw signal.reason instanceof Error
+    ? signal.reason
+    : new DOMException("Création de l'archive annulée.", "AbortError");
 }
 
 export async function createDatasetZip(input: {

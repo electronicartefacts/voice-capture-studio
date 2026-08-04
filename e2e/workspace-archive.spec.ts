@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { expect, test, type Page } from "@playwright/test";
 
 const APP_PATH = "/voice-capture-studio/";
@@ -93,4 +94,95 @@ test("workspace archive controls stay usable on a narrow mobile surface", async 
   await expect(
     page.getByRole("button", { name: "Restaurer une archive" }),
   ).toBeVisible();
+});
+
+test("the downloadable support profile contains no recording or identity data", async ({
+  page,
+}) => {
+  await enterStudio(page);
+  await openQualityPage(page);
+
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Télécharger le diagnostic" }).click();
+  const download = await downloadPromise;
+  const supportPath = await download.path();
+
+  expect(download.suggestedFilename()).toMatch(
+    /^voice-capture-studio-support-\d{4}-\d{2}-\d{2}\.json$/,
+  );
+  expect(supportPath).not.toBeNull();
+
+  const bundle = JSON.parse(await readFile(supportPath!, "utf8")) as {
+    privacy?: { localOnly?: boolean; excluded?: string[] };
+    runtime?: { checks?: Array<Record<string, unknown>> };
+  };
+  expect(bundle.privacy?.localOnly).toBe(true);
+  expect(bundle.privacy?.excluded).toEqual(
+    expect.arrayContaining([
+      "audio",
+      "transcripts",
+      "speaker names",
+      "microphone labels",
+      "room descriptions",
+      "corpus text",
+    ]),
+  );
+  expect(bundle.runtime?.checks?.every((check) => !("detail" in check))).toBe(
+    true,
+  );
+});
+
+test("a long local package export can be cancelled without offering a partial archive", async ({
+  page,
+}) => {
+  await enterStudio(page);
+  await page.getByRole("button", { name: /Capture libre/ }).click();
+  await page.locator("button.launch-button").click();
+  await expect(page.locator("main.screen-karaoke")).toBeVisible({
+    timeout: 30_000,
+  });
+  await page.waitForTimeout(1_000);
+  await page.locator("button.stop-button").click();
+  await expect(page.locator("main.screen-done")).toBeVisible({
+    timeout: 30_000,
+  });
+
+  await openQualityPage(page);
+  let offeredDownloads = 0;
+  page.on("download", () => {
+    offeredDownloads += 1;
+  });
+  await page.evaluate(() => {
+    const clickCancellationControl = () => {
+      const button = Array.from(document.querySelectorAll("button")).find(
+        (candidate) => candidate.textContent?.trim() === "Annuler l’export",
+      );
+      if (!(button instanceof HTMLButtonElement)) return false;
+      document.documentElement.dataset.exportCancellation = "clicked";
+      button.click();
+      return true;
+    };
+    if (clickCancellationControl()) return;
+    const observer = new MutationObserver(() => {
+      if (!clickCancellationControl()) return;
+      observer.disconnect();
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+  });
+  await page
+    .getByRole("button", { name: "Télécharger le dataset (.zip)" })
+    .click();
+
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-export-cancellation",
+    "clicked",
+  );
+  await expect(
+    page.getByRole("button", { name: "Annuler l’export" }),
+  ).toHaveCount(0);
+  await page.waitForTimeout(1_000);
+  expect(offeredDownloads).toBe(0);
+  await expect(
+    page.getByRole("button", { name: "Télécharger le dataset (.zip)" }),
+  ).toBeEnabled();
 });

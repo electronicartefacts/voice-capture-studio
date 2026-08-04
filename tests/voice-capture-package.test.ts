@@ -3,6 +3,7 @@ import test from "node:test";
 import { encodeWav24 } from "../src/app/audio/pcmAudio";
 import { validatePcmWavBlob } from "../src/app/audio/wavValidation";
 import { createVoiceCapturePackageZip } from "../src/app/export/downloadDatasetPackage";
+import { prepareVoiceCapturePackage } from "../src/app/export/prepareVoiceCapturePackage";
 import { validateVoiceCapturePackageArchive } from "../src/app/export/voiceCapturePackageArchive";
 import { readStoredZipEntries } from "../src/app/export/zipReader";
 import { createZipBlobOffThread } from "../src/app/export/zipService";
@@ -34,6 +35,46 @@ import type { IsoDateTime, LanguageCode } from "../src/shared";
 
 const frSpeaker = initialSpeakers[0];
 const enSpeaker = initialSpeakers[1];
+
+test("application export orchestration builds the scoped package through one shared path", async () => {
+  const fixture = await createFixture({ speakerIndex: 0, language: "fr" });
+  const processed = encodeWav24(new Float32Array(1_600).fill(0.04), 16_000);
+  const plan = await prepareVoiceCapturePackage({
+    corpus: canonicalCorpus,
+    getAudioBlob: async (fileName) => fixture.audioByFileName.get(fileName),
+    language: "fr",
+    listRecordings: async () => [],
+    processAudioBlob: async () => ({
+      blob: processed,
+      metadata: {
+        schemaVersion: "voice.processed_vocal.v1",
+        localOnly: true,
+        sampleRateHz: 16_000,
+        bitDepth: 24,
+        channels: 1,
+        method: "vocal_band_transient_reduction",
+        timingPreserved: true,
+        centerEnergyRatio: null,
+        residualEnergyRatio: null,
+        noiseReference: {
+          status: "unavailable",
+          sourceRef: null,
+          frameCount: 0,
+        },
+        measuredSeparationRealtimeFactor: null,
+        priorSeparationRealtimeFactor: null,
+      },
+    }),
+    speakerId: frSpeaker.id,
+    speakerProfiles: initialSpeakers,
+    workspace: fixture.workspace,
+  });
+
+  assert.equal(plan.samples.length, 1);
+  assert.deepEqual(plan.manifest.scope.speakerIds, [frSpeaker.id]);
+  assert.deepEqual(plan.manifest.scope.languages, ["fr"]);
+  assert.ok(plan.samples[0].derived_voice);
+});
 
 test("voice capture package v1 exports a self-validating Forge contract with explicit unresolved rights", async () => {
   const fixture = await createFixture({ speakerIndex: 0, language: "fr" });
@@ -304,6 +345,66 @@ test("standalone package artifacts stay inside the explicit speaker, language, a
         !entry.path.includes("other-corpus"),
     ),
   );
+});
+
+test("voice capture package creation honors cancellation before reading audio", async () => {
+  const fixture = await createFixture({ speakerIndex: 0, language: "fr" });
+  const abortController = new AbortController();
+  abortController.abort(new DOMException("Export annulé.", "AbortError"));
+
+  await assert.rejects(
+    createVoiceCapturePackagePlan({
+      corpus: canonicalCorpus,
+      getAudioBlob: async () => {
+        throw new Error("Audio should not be read after cancellation.");
+      },
+      scope: createScope(fixture.workspace, {
+        speakerId: frSpeaker.id,
+        language: "fr",
+        sessionIds: [fixture.session.id],
+      }),
+      signal: abortController.signal,
+      workspace: fixture.workspace,
+    }),
+    (error: unknown) => error instanceof Error && error.name === "AbortError",
+  );
+});
+
+test("large standalone collections are hashed sequentially without redundant payload reads", async () => {
+  const fixture = await createFixture({ speakerIndex: 0, language: "fr" });
+  const tracker = { active: 0, maxActive: 0, reads: 0 };
+  const captures = await Promise.all(
+    Array.from({ length: 12 }, (_, index) => 0.02 + index * 0.004).map(
+      async (amplitude, index) => ({
+        blob: new TrackedBlob(createWav(amplitude, 240_000), tracker),
+        fileName: `stress-${index}.wav`,
+        metadata: {
+          mode: "free",
+          speaker: frSpeaker,
+          language: "fr",
+        },
+      }),
+    ),
+  );
+
+  const plan = await createVoiceCapturePackagePlan({
+    corpus: canonicalCorpus,
+    getAudioBlob: async () => undefined,
+    scope: createScope(fixture.workspace, {
+      speakerId: frSpeaker.id,
+      language: "fr",
+      sessionIds: [],
+    }),
+    standaloneCaptures: captures,
+    workspace: fixture.workspace,
+  });
+
+  assert.equal(
+    plan.files.filter((entry) => entry.path.endsWith(".wav")).length,
+    12,
+  );
+  assert.equal(tracker.maxActive, 1);
+  assert.equal(tracker.reads, captures.length * 3);
 });
 
 test("standalone processing uses and retains the room tone captured with that recording", async () => {
@@ -593,6 +694,19 @@ test("voice capture archive validator rejects a malformed ZIP", async () => {
 
   assert.equal(validation.valid, false);
   assert.ok(validation.errors.length > 0);
+});
+
+test("voice capture archive validation honors cancellation before reading ZIP bytes", async () => {
+  const abortController = new AbortController();
+  abortController.abort(new DOMException("Export annulé.", "AbortError"));
+
+  await assert.rejects(
+    validateVoiceCapturePackageArchive(
+      new Blob(["bytes that must not be read"]),
+      abortController.signal,
+    ),
+    (error: unknown) => error instanceof Error && error.name === "AbortError",
+  );
 });
 
 test("voice capture package exposes local acoustic evidence without claiming forced alignment", async () => {
@@ -1118,12 +1232,40 @@ function findPrompt(session: CaptureSession): PromptDefinition {
   return prompt;
 }
 
-function createWav(amplitude: number): Blob {
-  const samples = new Float32Array(4800);
+function createWav(amplitude: number, sampleCount = 4_800): Blob {
+  const samples = new Float32Array(sampleCount);
 
   for (let index = 0; index < samples.length; index += 1) {
     samples[index] = Math.sin(index / 12) * amplitude;
   }
 
   return encodeWav24(samples, 48000);
+}
+
+class TrackedBlob extends Blob {
+  constructor(
+    source: Blob,
+    private readonly tracker: {
+      active: number;
+      maxActive: number;
+      reads: number;
+    },
+  ) {
+    super([source], { type: source.type });
+  }
+
+  override async arrayBuffer(): Promise<ArrayBuffer> {
+    this.tracker.active += 1;
+    this.tracker.reads += 1;
+    this.tracker.maxActive = Math.max(
+      this.tracker.maxActive,
+      this.tracker.active,
+    );
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 2));
+      return await super.arrayBuffer();
+    } finally {
+      this.tracker.active -= 1;
+    }
+  }
 }

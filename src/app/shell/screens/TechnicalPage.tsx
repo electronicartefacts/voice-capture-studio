@@ -30,6 +30,7 @@ import type {
   DatasetExportState,
   DownloadableRecording,
 } from "../types";
+import "./technical-page.css";
 
 export function Score(input: {
   readonly label: string;
@@ -149,8 +150,10 @@ export function TechnicalPage(input: {
   readonly trainingConsentGranted: boolean;
   readonly corpusLicenseGranted: boolean;
   readonly onBack: () => void;
+  readonly onCancelDatasetExport: () => void;
   readonly onClearCachedModels: () => void;
   readonly onDownloadDataset: () => void;
+  readonly onDownloadSupportBundle: () => void;
   readonly onDownloadWorkspaceArchive: () => Promise<number>;
   readonly onImportForcedAlignment: (file: File) => void;
   readonly onImportWorkspaceArchive: (file: File) => Promise<number>;
@@ -257,6 +260,24 @@ export function TechnicalPage(input: {
               : "Référence vocale indisponible"}
           </li>
         </ul>
+      </section>
+      <section className="forced-alignment-panel">
+        <div>
+          <p className="soft-label">Diagnostic privé</p>
+          <strong>État technique partageable</strong>
+          <span>
+            Exporte les capacités, le stockage et les réglages de capture sans
+            audio, transcript, nom, corpus ni libellé de microphone.
+          </span>
+        </div>
+        <button
+          className="folder-button compact"
+          onClick={input.onDownloadSupportBundle}
+          type="button"
+        >
+          <Download aria-hidden="true" size={17} />
+          <span>Télécharger le diagnostic</span>
+        </button>
       </section>
       {input.coverage !== null && (
         <div className="dataset-score">
@@ -413,6 +434,15 @@ export function TechnicalPage(input: {
                 <span>Écrire dans le dossier local</span>
               </button>
             )}
+          {input.datasetExportState.status === "preparing" && (
+            <button
+              className="quiet-button"
+              onClick={input.onCancelDatasetExport}
+              type="button"
+            >
+              Annuler l’export
+            </button>
+          )}
         </div>
         {input.datasetExportState.status === "done" && (
           <p className="dataset-export-status">

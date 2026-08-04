@@ -312,8 +312,7 @@ textarea:focus-visible {
 }
 
 .focus-card,
-.director-panel,
-.technical-page {
+.director-panel {
   display: grid;
   gap: 24px;
 }
@@ -385,8 +384,7 @@ textarea:focus-visible {
 
 .home-card h1,
 .focus-card h1,
-.director-panel h1,
-.technical-page h1 {
+.director-panel h1 {
   font-size: clamp(36px, 5.4vw, 60px);
   line-height: 1;
   margin: 0;
@@ -412,8 +410,7 @@ textarea:focus-visible {
 
 .plain-text,
 .focus-card p,
-.director-panel > p,
-.technical-page p {
+.director-panel > p {
   color: var(--muted);
   font-size: 17px;
   line-height: 1.5;
@@ -1804,8 +1801,7 @@ textarea:focus-visible {
   text-align: center;
 }
 
-.take-score,
-.dataset-score {
+.take-score {
   background: color-mix(in srgb, var(--panel-solid) 7%, transparent);
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -1815,8 +1811,7 @@ textarea:focus-visible {
   width: 100%;
 }
 
-.take-score > strong,
-.dataset-score > strong {
+.take-score > strong {
   color: var(--text);
   font-size: 18px;
 }
@@ -2029,170 +2024,6 @@ textarea:focus-visible {
   padding: 12px;
 }
 
-.technical-page {
-  container-type: inline-size;
-  justify-self: center;
-  max-width: 1120px;
-  padding: clamp(22px, 4vw, 42px);
-  width: min(100%, 1120px);
-}
-
-.technical-header {
-  align-items: start;
-  display: flex;
-  gap: 22px;
-  justify-content: space-between;
-}
-
-.technical-page h1 {
-  font-size: clamp(38px, 6.6vw, 70px);
-  max-width: 12ch;
-}
-
-.technical-grid {
-  display: grid;
-  gap: 12px;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-
-.technical-grid article {
-  backdrop-filter: blur(18px);
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  display: grid;
-  gap: 8px;
-  min-height: 118px;
-  padding: 16px;
-}
-
-.technical-grid strong {
-  color: var(--muted);
-  font-size: 13px;
-}
-
-.technical-grid span {
-  color: var(--text);
-  font-size: 20px;
-  font-weight: 850;
-  overflow-wrap: anywhere;
-}
-
-.studio-ready-panel {
-  align-items: center;
-  background: color-mix(in srgb, var(--panel) 82%, transparent);
-  border: 1px solid color-mix(in srgb, var(--accent-a) 24%, var(--border));
-  border-radius: 20px;
-  display: flex;
-  gap: 22px;
-  justify-content: space-between;
-  margin-top: 18px;
-  padding: 20px;
-}
-
-.studio-ready-panel > div {
-  display: grid;
-  gap: 5px;
-}
-
-.studio-ready-panel strong {
-  color: var(--text);
-}
-
-.studio-ready-panel span,
-.studio-ready-panel li {
-  color: var(--muted);
-  font-size: 13px;
-}
-
-.studio-ready-panel ul {
-  display: grid;
-  gap: 6px;
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.studio-ready-panel li::before {
-  color: var(--accent-a);
-  content: "●";
-  margin-right: 8px;
-}
-
-.microphone-panel {
-  backdrop-filter: blur(18px);
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  display: grid;
-  gap: 14px;
-  padding: 18px;
-}
-
-.microphone-panel-header {
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px 14px;
-  justify-content: space-between;
-}
-
-.microphone-panel-header strong {
-  color: var(--text);
-  font-size: 17px;
-  font-weight: 800;
-  overflow-wrap: anywhere;
-}
-
-.mic-status {
-  align-items: center;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  color: var(--muted);
-  display: inline-flex;
-  flex: 0 0 auto;
-  font-size: 13px;
-  font-weight: 800;
-  gap: 7px;
-  padding: 7px 13px;
-  white-space: nowrap;
-}
-
-.mic-status.is-live {
-  border-color: color-mix(in srgb, var(--accent-a) 42%, var(--line));
-  color: color-mix(in srgb, var(--accent-a) 72%, var(--text));
-}
-
-.microphone-sensitivity {
-  align-items: center;
-  color: var(--muted);
-  display: grid;
-  font-size: 12px;
-  font-weight: 780;
-  gap: 8px 12px;
-  grid-template-columns: auto 1fr auto;
-}
-
-.microphone-sensitivity input[type="range"] {
-  accent-color: var(--accent-a);
-  width: 100%;
-}
-
-.microphone-sensitivity strong {
-  color: var(--text);
-  font-size: 14px;
-  font-variant-numeric: tabular-nums;
-  min-width: 4ch;
-  text-align: right;
-}
-
-.microphone-hint {
-  color: var(--soft);
-  font-size: 13px;
-  line-height: 1.5;
-  margin: 0;
-}
-
 .verdict-chip {
   align-items: center;
   border: 1px solid color-mix(in srgb, var(--accent-a) 40%, var(--line));
@@ -2303,180 +2134,6 @@ textarea:focus-visible {
   margin: 0;
 }
 
-.dataset-export-panel {
-  background: color-mix(in srgb, var(--panel-solid) 7%, transparent);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  display: grid;
-  gap: 14px;
-  padding: 16px;
-}
-
-.dataset-export-header h2 {
-  color: var(--text);
-  font-size: 18px;
-  margin: 0 0 6px;
-}
-
-.dataset-export-header p {
-  color: var(--soft);
-  font-size: 13px;
-  line-height: 1.45;
-  margin: 0;
-}
-
-.dataset-export-actions {
-  display: grid;
-  gap: 10px;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
-}
-
-.dataset-export-status {
-  color: var(--soft);
-  font-size: 13px;
-  margin: 0;
-}
-
-.dataset-export-status.error {
-  color: var(--accent-c);
-}
-
-.recordings-list {
-  display: grid;
-  gap: 10px;
-}
-
-.recordings-list-header {
-  align-items: center;
-  display: flex;
-  gap: 12px;
-  justify-content: space-between;
-}
-
-.dataset-score h2,
-.recordings-list h2 {
-  color: var(--text);
-  font-size: 18px;
-  margin: 0;
-}
-
-.recordings-list-header span {
-  color: var(--accent-a);
-  font-size: 13px;
-  font-weight: 820;
-}
-
-.score-grid {
-  display: grid;
-  gap: 10px;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-}
-
-.gap-list {
-  display: grid;
-  gap: 10px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.gap-list div,
-.score-grid div {
-  background: color-mix(in srgb, var(--panel-solid) 7%, transparent);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  display: grid;
-  gap: 7px;
-  padding: 12px;
-}
-
-.score-grid div {
-  min-height: 92px;
-}
-
-.gap-list span,
-.score-grid span {
-  color: var(--soft);
-  font-size: 12px;
-  font-weight: 820;
-}
-
-.gap-list strong {
-  color: var(--text);
-  font-size: 14px;
-  line-height: 1.35;
-}
-
-.score-grid strong {
-  color: var(--text);
-  font-size: 20px;
-}
-
-.recordings-list a {
-  align-items: center;
-  backdrop-filter: blur(18px);
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  color: var(--text);
-  display: flex;
-  gap: 14px;
-  justify-content: space-between;
-  min-height: 56px;
-  padding: 12px 14px;
-  text-decoration: none;
-  transition:
-    background 140ms ease,
-    border-color 140ms ease,
-    transform 140ms ease;
-}
-
-.recordings-list a:hover {
-  background: var(--panel-strong);
-  border-color: var(--line-strong);
-  transform: scale(1.006);
-}
-
-.recordings-list span {
-  overflow-wrap: anywhere;
-}
-
-.recordings-list strong {
-  color: var(--accent-a);
-  font-size: 14px;
-}
-
-.recordings-empty {
-  align-items: start;
-  background: color-mix(in srgb, var(--panel-solid) 7%, transparent);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  color: var(--muted);
-  display: flex;
-  gap: 12px;
-  padding: 14px;
-}
-
-.recordings-empty svg {
-  color: var(--accent-b);
-  flex: 0 0 auto;
-}
-
-.recordings-empty div {
-  display: grid;
-  gap: 5px;
-}
-
-.recordings-empty strong {
-  color: var(--text);
-}
-
-.recordings-empty p,
-.technical-note {
-  color: var(--muted);
-  font-size: 14px;
-  line-height: 1.45;
-  margin: 0;
-}
-
 .domain-panel {
   background: var(--panel);
   border: 1px solid var(--line);
@@ -2542,8 +2199,7 @@ textarea:focus-visible {
 @media (max-width: 980px) {
   .lab-launcher h1,
   .focus-card h1,
-  .director-panel h1,
-  .technical-page h1 {
+  .director-panel h1 {
     max-width: 22ch;
   }
 }
@@ -2620,15 +2276,13 @@ textarea:focus-visible {
   }
 
   .focus-card h1,
-  .director-panel h1,
-  .technical-page h1 {
+  .director-panel h1 {
     max-width: 13ch;
   }
 
   .plain-text,
   .focus-card p,
-  .director-panel > p,
-  .technical-page p {
+  .director-panel > p {
     font-size: 16px;
   }
 
@@ -2638,17 +2292,13 @@ textarea:focus-visible {
   .room-tone-summary dl,
   .workspace-backup,
   .take-score dl,
-  .gap-list,
-  .technical-grid,
   .prompt-direction dl,
-  .score-grid,
   .primary-actions {
     grid-template-columns: 1fr;
   }
 
   .local-corpus-header,
-  .backing-track-header,
-  .technical-header {
+  .backing-track-header {
     align-items: start;
     flex-direction: column;
   }
@@ -3286,8 +2936,7 @@ body,
 .director-panel,
 .room-tone-screen,
 .karaoke-screen,
-.focus-card,
-.technical-page {
+.focus-card {
   animation: screen-enter 520ms var(--ease-emphasized) both;
 }
 
@@ -3334,8 +2983,7 @@ body,
 
 .home-card h1,
 .focus-card h1,
-.director-panel h1,
-.technical-page h1 {
+.director-panel h1 {
   font-size: clamp(38px, 5.8vw, 72px);
   font-weight: 520;
   line-height: 0.98;
@@ -3346,14 +2994,10 @@ body,
   max-width: 22ch;
 }
 
-.dataset-score,
 .take-score,
 .capture-mode-option,
 .prep-checklist li,
 .room-tone-readout div,
-.technical-grid article,
-.recordings-list a,
-.recordings-empty,
 .file-receipt {
   backdrop-filter: blur(24px) saturate(1.08);
   background: color-mix(in srgb, var(--bg-elevated) 62%, transparent);
@@ -3363,8 +3007,7 @@ body,
 
 .home-workbench,
 .focus-card,
-.director-panel,
-.technical-page {
+.director-panel {
   background: transparent;
   border: 0;
   backdrop-filter: none;
@@ -3558,16 +3201,6 @@ body,
   padding-bottom: 12px;
 }
 
-.technical-page {
-  padding-inline: clamp(22px, 5vw, 68px);
-}
-
-.technical-grid article,
-.score-grid div,
-.gap-list div {
-  min-height: 98px;
-}
-
 .quiet-button,
 .folder-button,
 .download-action,
@@ -3575,7 +3208,6 @@ body,
 .stop-button,
 .system-refresh,
 .capture-mode-option,
-.recordings-list a,
 .review-word,
 .site-footer-links a,
 .ritual-button {
@@ -3593,11 +3225,7 @@ body,
 .system-health,
 .prompt-direction,
 .take-score,
-.dataset-score,
-.dataset-export-panel,
-.export-panel,
-.technical-grid article,
-.recordings-list a {
+.export-panel {
   transition:
     background var(--motion-medium) var(--ease-standard),
     border-color var(--motion-medium) var(--ease-standard),
@@ -3684,8 +3312,7 @@ body,
 
 @media (max-width: 720px) {
   .focus-card h1,
-  .director-panel h1,
-  .technical-page h1 {
+  .director-panel h1 {
     font-size: clamp(30px, 9.6vw, 44px);
   }
 
@@ -3792,11 +3419,7 @@ body,
   .prompt-direction,
   .prep-checklist li,
   .room-tone-readout div,
-  .technical-grid article,
-  .recordings-list a,
-  .recordings-empty,
   .file-receipt,
-  .microphone-panel,
   .status-strip div,
   .recording-dot,
   .recording-cue,
@@ -3822,8 +3445,7 @@ body,
   .room-tone-screen,
   .karaoke-screen,
   .focus-card,
-  .site-footer,
-  .technical-page {
+  .site-footer {
     animation: none !important;
   }
 }
@@ -3864,7 +3486,6 @@ body,
 
   .simple-header,
   .session-stage,
-  .technical-page,
   .home-card,
   .home-workbench,
   .director-panel,
@@ -3878,10 +3499,6 @@ body,
   .session-stage {
     min-height: auto;
     padding: 16px 16px calc(24px + env(safe-area-inset-bottom));
-  }
-
-  .technical-page {
-    padding: 16px 16px calc(30px + env(safe-area-inset-bottom));
   }
 
   .director-panel,
@@ -3923,57 +3540,7 @@ body,
   }
 }
 
-.forced-alignment-panel {
-  align-items: center;
-  background: var(--panel-background, rgba(255, 255, 255, 0.06));
-  border: 1px solid var(--line-color, rgba(255, 255, 255, 0.14));
-  border-radius: 18px;
-  display: flex;
-  gap: 18px;
-  justify-content: space-between;
-  margin: 18px 0;
-  padding: 16px 18px;
-}
-
-.forced-alignment-panel > div {
-  display: grid;
-  gap: 4px;
-}
-
-.forced-alignment-panel > .folder-button,
-.forced-alignment-panel > .quiet-button {
-  flex: 0 0 auto;
-}
-
-.forced-alignment-panel > div > span {
-  color: var(--muted);
-  font-size: 0.85rem;
-}
-
-.workspace-archive-actions {
-  display: grid;
-  gap: 8px;
-  grid-template-columns: repeat(2, minmax(180px, 1fr));
-}
-
-.workspace-archive-actions .quiet-button,
-.workspace-archive-actions .folder-button {
-  min-height: 42px;
-}
-
-.workspace-archive-panel .archive-status-error {
-  color: var(--accent-c);
-}
-
 @media (max-width: 720px) {
-  .forced-alignment-panel {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .workspace-archive-actions {
-    grid-template-columns: 1fr;
-  }
 }
 
 /* Home actions: one clear primary action, one quiet utility action. */
@@ -4105,17 +3672,6 @@ body,
 }
 
 /* Keep dataset export actions in the same quiet visual family as the panel. */
-.dataset-export-actions .download-action {
-  background: color-mix(in srgb, var(--panel-solid) 7%, transparent);
-  border-color: var(--line);
-  box-shadow: none;
-  color: var(--text);
-}
-
-.dataset-export-actions .download-action:hover {
-  background: color-mix(in srgb, var(--wave-color) 10%, transparent);
-  border-color: color-mix(in srgb, var(--wave-color) 34%, var(--line));
-}
 
 /* Screen headings receive programmatic focus so assistive technology announces
    each new context. They are not controls, so the browser's interactive focus
@@ -4125,8 +3681,7 @@ body,
 .room-tone-screen h1[tabindex="-1"]:focus,
 .karaoke-screen h1[tabindex="-1"]:focus,
 .karaoke-line[tabindex="-1"]:focus,
-.focus-card h1[tabindex="-1"]:focus,
-.technical-page h1[tabindex="-1"]:focus {
+.focus-card h1[tabindex="-1"]:focus {
   outline: none;
 }
 
@@ -4147,12 +3702,6 @@ body,
 .surface-tablet-lab.screen-home .home-workbench {
   max-height: none;
   overflow: visible;
-}
-
-.surface-desktop-lab .technical-page,
-.surface-tablet-lab .technical-page {
-  max-width: 1240px;
-  width: min(100%, 1240px);
 }
 
 .surface-tablet-dashboard .session-stage {
@@ -4275,15 +3824,13 @@ body,
 
 .home-workbench,
 .director-panel,
-.focus-card,
-.technical-page {
+.focus-card {
   border-radius: var(--glass-radius);
 }
 
 .home-workbench > section,
 .home-workbench > details,
 .export-panel,
-.dataset-export-panel,
 .system-health,
 .local-corpus-panel,
 .backing-track-panel,
@@ -4291,9 +3838,6 @@ body,
 .prep-checklist,
 .coverage-console,
 .workspace-backup,
-.forced-alignment-panel,
-.studio-ready-panel,
-.microphone-panel,
 .session-option,
 .listening-review,
 .progressive-review,
@@ -4430,14 +3974,6 @@ body,
 }
 
 @container (max-width: 52rem) {
-  .technical-page .forced-alignment-panel {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .technical-page .workspace-archive-actions {
-    grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
-  }
 }
 
 @media (max-width: 720px) {
@@ -4463,23 +3999,12 @@ body,
     min-width: 0;
   }
 
-  .studio-ready-panel {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .microphone-sensitivity,
   .backing-track-volume {
     grid-template-columns: minmax(0, 1fr) auto;
   }
 
-  .microphone-sensitivity > span,
   .backing-track-volume > span {
     grid-column: 1 / -1;
-  }
-
-  .recordings-list a {
-    flex-wrap: wrap;
   }
 
   .recording-topbar > * {

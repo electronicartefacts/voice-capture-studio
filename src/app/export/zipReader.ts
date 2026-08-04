@@ -10,12 +10,15 @@ const MAX_COMMENT_BYTES = 65_535;
 
 export async function readStoredZipEntries(
   archive: Blob,
+  signal?: AbortSignal,
 ): Promise<ReadonlyMap<string, Blob>> {
+  throwIfAborted(signal);
   if (archive.size > MAX_ARCHIVE_BYTES) {
     throw new Error("Archive exceeds the 1 GiB import limit.");
   }
 
   const bytes = new Uint8Array(await archive.arrayBuffer());
+  throwIfAborted(signal);
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const endOffset = findEndOfCentralDirectory(view);
   const diskNumber = view.getUint16(endOffset + 4, true);
@@ -41,6 +44,7 @@ export async function readStoredZipEntries(
   let offset = centralOffset;
 
   for (let index = 0; index < entryCount; index += 1) {
+    throwIfAborted(signal);
     ensureAvailable(bytes, offset, 46, "central directory header");
     if (view.getUint32(offset, true) !== CENTRAL_DIRECTORY_SIGNATURE) {
       throw new Error("ZIP central directory signature is invalid.");
@@ -107,6 +111,13 @@ export async function readStoredZipEntries(
   }
 
   return entries;
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (!signal?.aborted) return;
+  throw signal.reason instanceof Error
+    ? signal.reason
+    : new DOMException("Lecture de l'archive annulée.", "AbortError");
 }
 
 function readLocalEntry(input: {

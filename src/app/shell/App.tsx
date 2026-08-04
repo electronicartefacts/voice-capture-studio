@@ -91,7 +91,6 @@ import {
   finalizeCaptureSession,
   type FinalizedRecording,
 } from "../recording/finalizeCaptureSession";
-import type { VoiceCapturePackageScope } from "../export/voiceCapturePackage";
 import { createBrowserWorkspaceRepository } from "../storage/browserWorkspaceRepository";
 import {
   listBrowserRecordings,
@@ -300,6 +299,10 @@ function revokeObjectUrl(url: string | null): void {
   }
 }
 
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
+}
+
 function disconnectAudioNode(node: AudioNode | null): void {
   try {
     node?.disconnect();
@@ -466,7 +469,9 @@ export function App() {
   const storedRecordingUrlsRef = useRef<readonly string[]>([]);
   const storedRecordingRefreshEpochRef = useRef(0);
   const datasetZipUrlRef = useRef<string | null>(null);
+  const datasetExportAbortRef = useRef<AbortController | null>(null);
   const workspaceArchiveUrlRef = useRef<string | null>(null);
+  const supportBundleUrlRef = useRef<string | null>(null);
   const lexicalSegmentationUrlRef = useRef<string | null>(null);
   const lexicalSegmentationAbortRef = useRef<AbortController | null>(null);
   const ambientMonitorRef = useRef<AmbientMicrophoneMonitor | null>(null);
@@ -872,8 +877,10 @@ export function App() {
       revokeObjectUrl(dubbingMediaUrlRef.current);
       revokeObjectUrl(datasetZipUrlRef.current);
       revokeObjectUrl(workspaceArchiveUrlRef.current);
+      revokeObjectUrl(supportBundleUrlRef.current);
       revokeObjectUrl(lexicalSegmentationUrlRef.current);
       lexicalSegmentationAbortRef.current?.abort();
+      datasetExportAbortRef.current?.abort();
       cancelLoadingWave("lexical-segmentation");
       storedRecordingRefreshEpochRef.current += 1;
       revokeStoredRecordingUrls();
@@ -1384,46 +1391,30 @@ export function App() {
       return;
     }
 
+    datasetExportAbortRef.current?.abort();
+    const abortController = new AbortController();
+    datasetExportAbortRef.current = abortController;
     setDatasetExportState({ status: "preparing" });
 
     try {
       const exportCorpus = activeCorpus ?? canonicalCorpus;
-      const [packageModule, zipModule, recordings] = await Promise.all([
-        import("../export/voiceCapturePackage"),
+      const [packageModule, zipModule] = await Promise.all([
+        import("../export/prepareVoiceCapturePackage"),
         import("../export/downloadDatasetPackage"),
-        listBrowserRecordings(),
       ]);
-      const standaloneCaptures = recordings
-        .filter((recording) => recording.metadata !== undefined)
-        .map((recording) => ({
-          blob: recording.blob,
-          fileName: recording.fileName,
-          metadata: recording.metadata ?? {},
-        }));
-      const scope = createCurrentVoicePackageScope(
-        workspace,
-        exportCorpus,
-        standaloneCaptures.length > 0,
-      );
-      const plan = await packageModule.createVoiceCapturePackagePlan({
+      const plan = await packageModule.prepareVoiceCapturePackage({
         corpus: exportCorpus,
         getAudioBlob: getWorkspaceRecording,
-        processAudioBlob: (audioBlob, processingContext) =>
-          import("../analysis/processedVoiceArtifact").then((module) =>
-            module.createProcessedVoiceArtifact({
-              audioBlob,
-              roomToneBlob: processingContext.roomToneBlob,
-              roomToneSourceRef: processingContext.roomToneSourceRef,
-            }),
-          ),
-        licenses: workspace.rights.licenses,
-        rights: workspace.rights.consents,
-        scope,
+        language: selectedLanguage,
+        signal: abortController.signal,
+        speakerId: selectedSpeakerId,
         speakerProfiles,
-        standaloneCaptures,
         workspace,
       });
-      const zip = await zipModule.createVoiceCapturePackageZip({ plan });
+      const zip = await zipModule.createVoiceCapturePackageZip({
+        plan,
+        signal: abortController.signal,
+      });
 
       revokeObjectUrl(datasetZipUrlRef.current);
       const url = URL.createObjectURL(zip.blob);
@@ -1442,6 +1433,12 @@ export function App() {
         blockingReasons: plan.forgeCompatibility.errors,
       });
     } catch (error) {
+      if (datasetExportAbortRef.current !== abortController) return;
+      if (isAbortError(error) || abortController.signal.aborted) {
+        setDatasetExportState({ status: "idle" });
+        setMessage("Export annulé. Aucun paquet incomplet n’a été proposé.");
+        return;
+      }
       setDatasetExportState({
         status: "error",
         message:
@@ -1449,7 +1446,19 @@ export function App() {
             ? error.message
             : "Le dataset n'a pas pu être généré.",
       });
+    } finally {
+      if (datasetExportAbortRef.current === abortController) {
+        datasetExportAbortRef.current = null;
+      }
     }
+  }
+
+  function cancelDatasetExport() {
+    datasetExportAbortRef.current?.abort(
+      new DOMException("Export annulé.", "AbortError"),
+    );
+    setDatasetExportState({ status: "idle" });
+    setMessage("Export annulé. Aucun paquet incomplet n’a été proposé.");
   }
 
   async function downloadWorkspaceArchive(): Promise<number> {
@@ -1475,6 +1484,36 @@ export function App() {
       `Archive complète prête avec ${archive.recordingCount} WAV vérifié${archive.recordingCount > 1 ? "s" : ""}.`,
     );
     return archive.recordingCount;
+  }
+
+  async function downloadSupportBundle() {
+    const { createPrivacySafeSupportBundle, createSupportBundleFile } =
+      await import("../system/supportBundle");
+    const bundle = createPrivacySafeSupportBundle({
+      captureMode,
+      captureProfile: workspace?.settings.captureProfile ?? null,
+      diagnostics,
+      language: selectedLanguage,
+      recordingCount: storedRecordings.length,
+      savedSessionCount: workspace?.sessions.length ?? 0,
+      storageMode: canChooseSystemFolder()
+        ? "folder-capable"
+        : "browser-downloads",
+      surfaceProfile,
+      workspaceDurability,
+    });
+    const file = createSupportBundleFile(bundle);
+
+    revokeObjectUrl(supportBundleUrlRef.current);
+    const url = URL.createObjectURL(file.blob);
+    supportBundleUrlRef.current = url;
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = file.fileName;
+    anchor.click();
+    setMessage(
+      "Diagnostic privé prêt : aucun audio, transcript, nom ou libellé de micro n’est inclus.",
+    );
   }
 
   async function importWorkspaceArchive(file: File): Promise<number> {
@@ -1504,46 +1543,28 @@ export function App() {
       return;
     }
 
+    datasetExportAbortRef.current?.abort();
+    const abortController = new AbortController();
+    datasetExportAbortRef.current = abortController;
     setDatasetExportState({ status: "preparing" });
 
     try {
       const exportCorpus = activeCorpus ?? canonicalCorpus;
-      const [packageModule, recordings] = await Promise.all([
-        import("../export/voiceCapturePackage"),
-        listBrowserRecordings(),
-      ]);
-      const standaloneCaptures = recordings
-        .filter((recording) => recording.metadata !== undefined)
-        .map((recording) => ({
-          blob: recording.blob,
-          fileName: recording.fileName,
-          metadata: recording.metadata ?? {},
-        }));
-      const scope = createCurrentVoicePackageScope(
-        workspace,
-        exportCorpus,
-        standaloneCaptures.length > 0,
-      );
-      const plan = await packageModule.createVoiceCapturePackagePlan({
+      const packageModule =
+        await import("../export/prepareVoiceCapturePackage");
+      const plan = await packageModule.prepareVoiceCapturePackage({
         corpus: exportCorpus,
         getAudioBlob: getWorkspaceRecording,
-        processAudioBlob: (audioBlob, processingContext) =>
-          import("../analysis/processedVoiceArtifact").then((module) =>
-            module.createProcessedVoiceArtifact({
-              audioBlob,
-              roomToneBlob: processingContext.roomToneBlob,
-              roomToneSourceRef: processingContext.roomToneSourceRef,
-            }),
-          ),
-        licenses: workspace.rights.licenses,
-        rights: workspace.rights.consents,
-        scope,
+        language: selectedLanguage,
+        signal: abortController.signal,
+        speakerId: selectedSpeakerId,
         speakerProfiles,
-        standaloneCaptures,
         workspace,
       });
       const result = await saveVoiceCapturePackageToWorkspaceFolder({
         files: plan.files,
+        packageId: plan.manifest.package_id,
+        signal: abortController.signal,
       });
 
       if (!result.ok) {
@@ -1559,6 +1580,14 @@ export function App() {
         blockingReasons: plan.forgeCompatibility.errors,
       });
     } catch (error) {
+      if (datasetExportAbortRef.current !== abortController) return;
+      if (isAbortError(error) || abortController.signal.aborted) {
+        setDatasetExportState({ status: "idle" });
+        setMessage(
+          "Export annulé. Le marqueur d’export incomplet reste explicite dans le dossier.",
+        );
+        return;
+      }
       setDatasetExportState({
         status: "error",
         message:
@@ -1566,6 +1595,10 @@ export function App() {
             ? error.message
             : "Le dataset n'a pas pu être écrit dans ce dossier.",
       });
+    } finally {
+      if (datasetExportAbortRef.current === abortController) {
+        datasetExportAbortRef.current = null;
+      }
     }
   }
 
@@ -1653,39 +1686,6 @@ export function App() {
         ? "Droits du corpus attestés localement."
         : "Attestation du corpus retirée.",
     );
-  }
-
-  function createCurrentVoicePackageScope(
-    currentWorkspace: VoiceWorkspace,
-    corpus: CorpusManifest,
-    hasStandaloneCaptures = false,
-  ): VoiceCapturePackageScope {
-    const sessionIds = currentWorkspace.capturedSessions
-      .filter(
-        (candidate) =>
-          candidate.speakerId === selectedSpeakerId &&
-          candidate.language === selectedLanguage &&
-          candidate.corpusId === corpus.id,
-      )
-      .map((candidate) => candidate.id);
-
-    if (sessionIds.length === 0 && !hasStandaloneCaptures) {
-      throw new Error(
-        "Aucune session enregistrée dans le scope actuel. Sélectionne une voix, une langue et un corpus avec au moins une prise gardée.",
-      );
-    }
-
-    return {
-      datasetId: `dataset.${currentWorkspace.workspaceId}.${corpus.id}.${selectedSpeakerId}.${selectedLanguage}`,
-      projectId: "project.voice-capture-studio",
-      speakerIds: [selectedSpeakerId],
-      languages: [selectedLanguage],
-      locales: [selectedLanguage === "fr" ? "fr-FR" : "en-US"],
-      corpusRefs: [{ id: corpus.id, version: corpus.version }],
-      sessionIds,
-      takeStatuses: ["keeper"],
-      includeRoomTones: true,
-    };
   }
 
   async function selectFolder() {
@@ -4156,7 +4156,9 @@ export function App() {
                 microphoneActive={studioAwake}
                 microphoneLabel={microphoneLabel}
                 onBack={() => setScreen("home")}
+                onCancelDatasetExport={cancelDatasetExport}
                 onDownloadDataset={downloadDatasetPackage}
+                onDownloadSupportBundle={downloadSupportBundle}
                 onDownloadWorkspaceArchive={() =>
                   runWithLoadingWave(
                     "workspace-archive-export",

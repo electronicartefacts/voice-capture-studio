@@ -287,11 +287,13 @@ export async function createVoiceCapturePackagePlan(input: {
   readonly now?: Date;
   readonly producer?: Partial<VoiceCapturePackageManifest["producer"]>;
   readonly rights?: readonly ConsentRecord[];
+  readonly signal?: AbortSignal;
   readonly licenses?: readonly LicenseRecord[];
   readonly speakerProfiles?: readonly SpeakerProfile[];
   readonly scope: VoiceCapturePackageScope;
   readonly workspace: VoiceWorkspace;
 }): Promise<VoiceCapturePackagePlan> {
+  throwIfPackageAborted(input.signal);
   const createdAt = (input.now ?? new Date()).toISOString();
   const requestedStandaloneCaptures = input.standaloneCaptures ?? [];
   const scope = normalizeScope(
@@ -366,8 +368,11 @@ export async function createVoiceCapturePackagePlan(input: {
 
   const standaloneIndex: unknown[] = [];
   for (const capture of standaloneCaptures) {
+    throwIfPackageAborted(input.signal);
     const wav = await validatePcmWavBlob(capture.blob);
+    throwIfPackageAborted(input.signal);
     const sourceHash = await sha256Blob(capture.blob);
+    throwIfPackageAborted(input.signal);
     const key = pathToken(capture.fileName.replace(/\.[^.]+$/u, ""));
     const rawPath = `standalone/raw/${key}_${sourceHash}.wav`;
     const metadataPath = `standalone/metadata/${key}.json`;
@@ -392,13 +397,16 @@ export async function createVoiceCapturePackagePlan(input: {
       (scope.includeRoomTones === true || input.processAudioBlob !== undefined)
     ) {
       roomToneBlob = await input.getAudioBlob(roomToneSourceRef);
+      throwIfPackageAborted(input.signal);
       if (roomToneBlob === undefined) {
         legacyWarnings.push(
           `Standalone capture ${capture.fileName} references missing room tone ${roomToneSourceRef}.`,
         );
       } else {
         await validatePcmWavBlob(roomToneBlob);
+        throwIfPackageAborted(input.signal);
         const roomToneHash = await sha256Blob(roomToneBlob);
+        throwIfPackageAborted(input.signal);
         const declaredRoomToneHash = readStandaloneRoomToneSha256(
           capture.metadata,
         );
@@ -435,12 +443,15 @@ export async function createVoiceCapturePackagePlan(input: {
         roomToneBlob,
         roomToneSourceRef,
       });
+      throwIfPackageAborted(input.signal);
       await validatePcmWavBlob(processed.blob, {
         sampleRateHz: 16_000,
         channels: 1,
         bitDepth: 24,
       });
+      throwIfPackageAborted(input.signal);
       const processedHash = await sha256Blob(processed.blob);
+      throwIfPackageAborted(input.signal);
       derivedPath = `standalone/derived/${key}_${processedHash}.wav`;
       processingPath = `standalone/processing/${key}.json`;
       addAudioFileOnce(files, derivedPath, processed.blob);
@@ -471,6 +482,7 @@ export async function createVoiceCapturePackagePlan(input: {
   }
 
   for (const session of sessions) {
+    throwIfPackageAborted(input.signal);
     const sessionKey = pathToken(session.id);
     const sessionPath = `sessions/${sessionKey}.json`;
     sessionPaths.set(session.id, sessionPath);
@@ -492,13 +504,16 @@ export async function createVoiceCapturePackagePlan(input: {
       const roomToneBlob = await input.getAudioBlob(
         captureContext.room_tone.ref,
       );
+      throwIfPackageAborted(input.signal);
       if (roomToneBlob === undefined) {
         legacyWarnings.push(
           `Session ${session.id} references missing room tone ${captureContext.room_tone.ref}.`,
         );
       } else {
         await validatePcmWavBlob(roomToneBlob);
+        throwIfPackageAborted(input.signal);
         const roomToneHash = await sha256Blob(roomToneBlob);
+        throwIfPackageAborted(input.signal);
         const declaredRoomToneHash =
           captureContext.room_tone.status === "raw_audio_retained"
             ? captureContext.room_tone.sha256
@@ -599,6 +614,7 @@ export async function createVoiceCapturePackagePlan(input: {
   const provenanceRows: unknown[] = [];
 
   for (const { session, take } of selectedTakes) {
+    throwIfPackageAborted(input.signal);
     const prompt = promptBySession.get(session.id)?.get(take.promptId);
     const corpus = corpusByRef.get(
       corpusRefKeyForSession(session, corpusByRef),
@@ -610,6 +626,7 @@ export async function createVoiceCapturePackagePlan(input: {
     }
 
     const audioBlob = await input.getAudioBlob(take.fileName);
+    throwIfPackageAborted(input.signal);
     if (audioBlob === undefined) {
       throw new Error(
         `Audio file ${take.fileName} is missing; package creation is aborted.`,
@@ -618,13 +635,16 @@ export async function createVoiceCapturePackagePlan(input: {
     let wav: PcmWavValidation;
     try {
       wav = await validatePcmWavBlob(audioBlob);
+      throwIfPackageAborted(input.signal);
     } catch (error) {
+      if (isPackageAbortError(error) || input.signal?.aborted) throw error;
       throw new Error(
         `Audio file ${take.fileName} is not canonical PCM WAV: ${error instanceof Error ? error.message : "invalid audio"}`,
         { cause: error },
       );
     }
     const audioHash = await sha256Blob(audioBlob);
+    throwIfPackageAborted(input.signal);
     const legacyMedia = readMedia(take);
     if (
       legacyMedia?.sha256 !== undefined &&
@@ -650,11 +670,13 @@ export async function createVoiceCapturePackagePlan(input: {
         roomToneSourceRef:
           contextBySession.get(session.id)?.room_tone.ref ?? null,
       });
+      throwIfPackageAborted(input.signal);
       const processedValidation = await validatePcmWavBlob(processed.blob, {
         sampleRateHz: 16_000,
         channels: 1,
         bitDepth: 24,
       });
+      throwIfPackageAborted(input.signal);
       if (
         processedValidation.sampleRateHz !== 16_000 ||
         processedValidation.channels !== 1 ||
@@ -665,6 +687,7 @@ export async function createVoiceCapturePackagePlan(input: {
         );
       }
       const processedHash = await sha256Blob(processed.blob);
+      throwIfPackageAborted(input.signal);
       const processedPath = `derived/voice_${processedHash}.wav`;
       const processingPath = `processing/${takeKey}.json`;
       addAudioFileOnce(files, processedPath, processed.blob);
@@ -944,7 +967,11 @@ export async function createVoiceCapturePackagePlan(input: {
     createPackageReadme(scope, forgeCompatibility, samples.length),
   );
 
-  const fileHashes = await createFileHashes(files, precomputedHashesByPath);
+  const fileHashes = await createFileHashes(
+    files,
+    precomputedHashesByPath,
+    input.signal,
+  );
   const artifacts = createArtifacts(files, createdAt, samples, fileHashes);
   const manifest: VoiceCapturePackageManifest = {
     schema_version: VOICE_CAPTURE_PACKAGE_SCHEMA,
@@ -999,7 +1026,7 @@ export async function createVoiceCapturePackagePlan(input: {
     checksumsText: checksums,
     forgeCompatibility,
   };
-  const validation = await validateVoiceCapturePackagePlan(plan);
+  const validation = await validateVoiceCapturePackagePlan(plan, input.signal);
   if (!validation.valid) {
     throw new Error(
       `Generated package failed self-validation: ${validation.errors.join("; ")}`,
@@ -1010,7 +1037,9 @@ export async function createVoiceCapturePackagePlan(input: {
 
 export async function validateVoiceCapturePackagePlan(
   plan: VoiceCapturePackagePlan,
+  signal?: AbortSignal,
 ): Promise<VoiceCapturePackageValidation> {
+  throwIfPackageAborted(signal);
   const errors: string[] = [];
   const byPath = new Map<string, VoiceCapturePackageFile>();
   const hashPromises = new Map<VoiceCapturePackageFile, Promise<string>>();
@@ -1022,6 +1051,7 @@ export async function validateVoiceCapturePackagePlan(
     return pending;
   };
   for (const entry of plan.files) {
+    throwIfPackageAborted(signal);
     try {
       assertSafeRelativePath(entry.path);
     } catch (error) {
@@ -1038,6 +1068,7 @@ export async function validateVoiceCapturePackagePlan(
     errors.push("Package must contain manifest.json and checksums.sha256.");
   }
   for (const artifact of plan.manifest.artifacts) {
+    throwIfPackageAborted(signal);
     const entry = byPath.get(artifact.path);
     if (entry === undefined) {
       errors.push(`Manifest references missing artifact: ${artifact.path}`);
@@ -1065,6 +1096,7 @@ export async function validateVoiceCapturePackagePlan(
         .map((entry) => entry.path),
     ];
     for (const path of expectedPaths) {
+      throwIfPackageAborted(signal);
       const entry = byPath.get(path);
       const expectedHash = checksumRows.get(path);
       if (entry === undefined || expectedHash === undefined) {
@@ -1550,19 +1582,33 @@ function countBy<T>(
 async function createFileHashes(
   files: readonly VoiceCapturePackageFile[],
   precomputedHashesByPath: ReadonlyMap<string, string>,
+  signal?: AbortSignal,
 ): Promise<Map<VoiceCapturePackageFile, string>> {
   const hashes = new Map<VoiceCapturePackageFile, string>();
 
   // Hash sequentially: captured WAVs can be large, and Blob.arrayBuffer()
   // otherwise holds every source in memory at once on constrained phones.
   for (const entry of files) {
+    throwIfPackageAborted(signal);
     hashes.set(
       entry,
       precomputedHashesByPath.get(entry.path) ?? (await sha256Blob(entry.data)),
     );
   }
+  throwIfPackageAborted(signal);
 
   return hashes;
+}
+
+function throwIfPackageAborted(signal?: AbortSignal): void {
+  if (!signal?.aborted) return;
+  throw signal.reason instanceof Error
+    ? signal.reason
+    : new DOMException("Export annulé.", "AbortError");
+}
+
+function isPackageAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
 }
 
 function createArtifacts(
