@@ -62,6 +62,16 @@ multi-speaker, and multi-language packages are supported by the lower-level
 contract when the caller provides the matching explicit scope and every sample
 has full provenance.
 
+Free and continuous recordings remain standalone artifacts until curation, but
+they obey the same boundary: a package only retains records whose declared
+speaker and language match the scope, and continuous records must also match
+the selected corpus id/version. A retained room-tone WAV is resolved from that
+recording's own metadata; a newer workspace calibration is never substituted
+silently. When the capture declares a room-tone SHA-256, export rejects retained
+audio that no longer matches it. The package copy also redacts
+`speaker.displayName` while preserving the stable speaker id and records that
+redaction beside the standalone metadata.
+
 ## Integrity rules
 
 `manifest.json` lists every payload artifact except `manifest.json` and
@@ -70,6 +80,11 @@ SHA-256, logical owner, requirement status, schema version, and creation time.
 
 `checksums.sha256` covers `manifest.json` and every payload artifact. It excludes
 itself to avoid a circular checksum.
+
+Package creation computes each payload digest once, sequentially, then reuses
+it for the manifest and checksum table. Self-validation performs one independent
+digest pass. This keeps integrity verification independent while avoiding
+parallel `Blob.arrayBuffer()` spikes across several large WAV files on mobile.
 
 Package validation fails on:
 

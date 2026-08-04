@@ -1,6 +1,6 @@
 # Capture Technology Audit
 
-Last reviewed: 2026-07-18
+Last reviewed: 2026-08-04
 
 ## Current Position
 
@@ -25,6 +25,9 @@ The observation-pipeline pass moves the app to a better intermediate contract:
 11. The room-tone WAV is decoded into a frequency-domain noise reference for post-capture vocal separation.
 12. Each browser learns an exponentially weighted local performance profile from measured inference and
     separation time; the per-take budget and reasons are retained in analysis provenance.
+13. Standalone exports are filtered by their declared speaker, language, and continuous-corpus identity.
+14. Package hashing is sequential and deduplicated so large WAV collections do not create avoidable
+    concurrent memory spikes on constrained mobile browsers.
 
 ## Capture and isolation pipeline
 
@@ -65,6 +68,14 @@ claim are recorded in `processing/`, together with room-reference status and mea
 speed. The sample keeps `training_default: false`: downstream users
 can choose the isolated signal for ASR or inspection without silently replacing the immutable raw
 training evidence.
+
+Free and continuous recordings keep the exact room-tone source reference captured with their own
+manifest. Export resolves and retains that WAV when it is available; it does not reuse the latest
+workspace calibration for an older recording, and it rejects a retained room-tone WAV whose SHA-256
+no longer matches the capture provenance. Records without explicit speaker/language provenance, or
+continuous records outside the selected corpus, stay available individually but are excluded from the
+scoped package. The package copy redacts the speaker display name while preserving its stable
+pseudonymous id and an explicit redaction record.
 
 ## Observation Pipeline
 

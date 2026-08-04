@@ -363,9 +363,15 @@ test("dubbing connects a YouTube scene to the scripted recording surface", async
     "On y va maintenant.",
     "On y va maintenant. Je te suis.",
   ]);
-  await page.route("https://www.youtube-nocookie.com/**", (route) =>
-    route.abort(),
-  );
+  let youtubeFrameRequests = 0;
+  await page.route("https://www.youtube-nocookie.com/**", async (route) => {
+    youtubeFrameRequests += 1;
+    await route.fulfill({
+      body: "<!doctype html><title>Scène YouTube simulée</title>",
+      contentType: "text/html",
+      status: 200,
+    });
+  });
   await enterStudio(page);
 
   await page.getByRole("button", { name: "Doublage" }).click();
@@ -391,6 +397,7 @@ test("dubbing connects a YouTube scene to the scripted recording surface", async
 
   await expect(homeFrame).toHaveAttribute("src", /youtube-nocookie\.com/);
   await expect(homeFrame).toHaveAttribute("src", /autoplay=0/);
+  await expect.poll(() => youtubeFrameRequests).toBeGreaterThan(0);
   await page.locator("button.launch-button").click();
   await expect(page.locator("main.screen-permission")).toBeVisible();
   await expect(

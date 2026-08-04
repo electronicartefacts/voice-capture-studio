@@ -199,6 +199,8 @@ test("voice capture package includes free and continuous captures as curated sta
         metadata: {
           schemaVersion: "voice.free_capture.v1",
           mode: "free",
+          speaker: frSpeaker,
+          language: "fr",
           timing: { words: [], phrases: [] },
         },
       },
@@ -211,6 +213,16 @@ test("voice capture package includes free and continuous captures as curated sta
   assert.ok(
     plan.files.some((entry) => entry.path.startsWith("standalone/raw/")),
   );
+  const standaloneMetadata = plan.files.find((entry) =>
+    entry.path.startsWith("standalone/metadata/"),
+  );
+  assert.ok(standaloneMetadata);
+  const metadataPayload = JSON.parse(await standaloneMetadata.data.text()) as {
+    packageRedactions: string[];
+    speaker: { displayName: string | null };
+  };
+  assert.equal(metadataPayload.speaker.displayName, null);
+  assert.deepEqual(metadataPayload.packageRedactions, ["speaker.displayName"]);
   assert.ok(
     plan.forgeCompatibility.errors.includes(
       "standalone_captures_not_yet_curated_as_training_samples",
@@ -218,6 +230,183 @@ test("voice capture package includes free and continuous captures as curated sta
   );
   const validation = await validateVoiceCapturePackagePlan(plan);
   assert.equal(validation.valid, true, validation.errors.join("\n"));
+});
+
+test("standalone package artifacts stay inside the explicit speaker, language, and corpus scope", async () => {
+  const fixture = await createFixture({ speakerIndex: 0, language: "fr" });
+  const wav = createWav(0.07);
+  const plan = await createVoiceCapturePackagePlan({
+    corpus: canonicalCorpus,
+    getAudioBlob: async () => undefined,
+    scope: createScope(fixture.workspace, {
+      speakerId: frSpeaker.id,
+      language: "fr",
+      sessionIds: [],
+    }),
+    standaloneCaptures: [
+      {
+        blob: wav,
+        fileName: "matching-free.wav",
+        metadata: {
+          mode: "free",
+          speaker: frSpeaker,
+          language: "fr",
+        },
+      },
+      {
+        blob: wav,
+        fileName: "other-speaker.wav",
+        metadata: {
+          mode: "free",
+          speaker: initialSpeakers[1],
+          language: "en",
+        },
+      },
+      {
+        blob: wav,
+        fileName: "matching-corpus.wav",
+        metadata: {
+          mode: "dubbing",
+          speaker: frSpeaker,
+          language: "fr",
+          corpus: { id: canonicalCorpus.id, version: canonicalCorpus.version },
+        },
+      },
+      {
+        blob: wav,
+        fileName: "other-corpus.wav",
+        metadata: {
+          mode: "mastering",
+          speaker: frSpeaker,
+          language: "fr",
+          corpus: { id: "corpus.other", version: "1.0.0" },
+        },
+      },
+    ],
+    workspace: fixture.workspace,
+  });
+  const standaloneIndex = plan.files.find(
+    (entry) => entry.path === "standalone/index.json",
+  );
+
+  assert.ok(standaloneIndex);
+  const indexPayload = JSON.parse(await standaloneIndex.data.text()) as {
+    captures: { fileName: string }[];
+  };
+  assert.deepEqual(
+    indexPayload.captures.map((capture) => capture.fileName),
+    ["matching-free.wav", "matching-corpus.wav"],
+  );
+  assert.ok(
+    plan.files.every(
+      (entry) =>
+        !entry.path.includes("other-speaker") &&
+        !entry.path.includes("other-corpus"),
+    ),
+  );
+});
+
+test("standalone processing uses and retains the room tone captured with that recording", async () => {
+  const fixture = await createFixture({ speakerIndex: 0, language: "fr" });
+  const standaloneWav = createWav(0.07);
+  const roomTone = createWav(0.01);
+  const processed = encodeWav24(new Float32Array(1_600).fill(0.04), 16_000);
+  const roomToneFileName = "room-tone-standalone.wav";
+  const roomToneSha256 = await sha256Blob(roomTone);
+  let processingRoomTone: Blob | undefined;
+  let processingRoomToneRef: string | null = null;
+  const plan = await createVoiceCapturePackagePlan({
+    corpus: canonicalCorpus,
+    getAudioBlob: async (fileName) =>
+      fileName === roomToneFileName ? roomTone : undefined,
+    processAudioBlob: async (_audioBlob, context) => {
+      processingRoomTone = context.roomToneBlob;
+      processingRoomToneRef = context.roomToneSourceRef;
+      return {
+        blob: processed,
+        metadata: {
+          schemaVersion: "voice.processed_vocal.v1",
+          localOnly: true,
+          sampleRateHz: 16_000,
+          bitDepth: 24,
+          channels: 1,
+          method: "vocal_band_transient_reduction",
+          timingPreserved: true,
+          centerEnergyRatio: null,
+          residualEnergyRatio: null,
+          noiseReference: {
+            status: "used",
+            sourceRef: roomToneFileName,
+            frameCount: 4,
+          },
+          measuredSeparationRealtimeFactor: 0.1,
+          priorSeparationRealtimeFactor: null,
+        },
+      };
+    },
+    scope: createScope(fixture.workspace, {
+      speakerId: frSpeaker.id,
+      language: "fr",
+      sessionIds: [],
+    }),
+    standaloneCaptures: [
+      {
+        blob: standaloneWav,
+        fileName: "free.with-room-tone.wav",
+        metadata: {
+          mode: "free",
+          speaker: frSpeaker,
+          language: "fr",
+          roomTone: { sourceRef: roomToneFileName, sha256: roomToneSha256 },
+        },
+      },
+    ],
+    workspace: fixture.workspace,
+  });
+
+  assert.equal(processingRoomTone, roomTone);
+  assert.equal(processingRoomToneRef, roomToneFileName);
+  assert.ok(plan.files.some((entry) => entry.path.startsWith("room-tones/")));
+  const standaloneIndex = plan.files.find(
+    (entry) => entry.path === "standalone/index.json",
+  );
+  assert.ok(standaloneIndex);
+  assert.match(
+    await standaloneIndex.data.text(),
+    /"roomTonePath": "room-tones\//,
+  );
+});
+
+test("standalone export rejects a room tone whose retained audio no longer matches its provenance", async () => {
+  const fixture = await createFixture({ speakerIndex: 0, language: "fr" });
+  const roomToneFileName = "room-tone-mismatch.wav";
+
+  await assert.rejects(
+    createVoiceCapturePackagePlan({
+      corpus: canonicalCorpus,
+      getAudioBlob: async (fileName) =>
+        fileName === roomToneFileName ? createWav(0.02) : undefined,
+      scope: createScope(fixture.workspace, {
+        speakerId: frSpeaker.id,
+        language: "fr",
+        sessionIds: [],
+      }),
+      standaloneCaptures: [
+        {
+          blob: createWav(0.07),
+          fileName: "free.with-mismatched-room-tone.wav",
+          metadata: {
+            mode: "free",
+            speaker: frSpeaker,
+            language: "fr",
+            roomTone: { sourceRef: roomToneFileName, sha256: "0".repeat(64) },
+          },
+        },
+      ],
+      workspace: fixture.workspace,
+    }),
+    /Room tone hash mismatch for standalone capture/,
+  );
 });
 
 test("voice capture package audits repeated text and blocks exact audio duplicates", async () => {
@@ -353,6 +542,49 @@ test("voice capture package retains a referenced room-tone WAV", async () => {
     !plan.forgeCompatibility.warnings.includes(
       "room_tone_audio_not_retained_by_legacy_calibration",
     ),
+  );
+});
+
+test("session export rejects a retained room tone that differs from the take snapshot", async () => {
+  const roomTone = createWav(0.01);
+  const roomToneFileName = "room-tone-session-mismatch.wav";
+  const baseWorkspace = createEmptyWorkspace({
+    corpus: canonicalCorpus,
+    speakers: initialSpeakers,
+    now: new Date("2026-07-10T07:00:00.000Z"),
+  });
+  const fixture = await createFixture({
+    baseWorkspace: {
+      ...baseWorkspace,
+      settings: {
+        ...baseWorkspace.settings,
+        captureProfile: {
+          ...baseWorkspace.settings.captureProfile,
+          roomToneCaptured: true,
+          roomToneFileName,
+          roomToneSha256: "0".repeat(64),
+        },
+      },
+    },
+    speakerIndex: 0,
+    language: "fr",
+  });
+
+  await assert.rejects(
+    createVoiceCapturePackagePlan({
+      corpus: canonicalCorpus,
+      getAudioBlob: async (fileName) =>
+        fileName === roomToneFileName
+          ? roomTone
+          : fixture.audioByFileName.get(fileName),
+      scope: createScope(fixture.workspace, {
+        speakerId: frSpeaker.id,
+        language: "fr",
+        sessionIds: [fixture.session.id],
+      }),
+      workspace: fixture.workspace,
+    }),
+    /Room tone hash mismatch for session/,
   );
 });
 

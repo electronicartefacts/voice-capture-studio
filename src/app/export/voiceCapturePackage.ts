@@ -293,9 +293,10 @@ export async function createVoiceCapturePackagePlan(input: {
   readonly workspace: VoiceWorkspace;
 }): Promise<VoiceCapturePackagePlan> {
   const createdAt = (input.now ?? new Date()).toISOString();
+  const requestedStandaloneCaptures = input.standaloneCaptures ?? [];
   const scope = normalizeScope(
     input.scope,
-    (input.standaloneCaptures?.length ?? 0) > 0,
+    requestedStandaloneCaptures.length > 0,
   );
   const packageId = scope.packageId ?? createUuid();
   const corpora = uniqueCorpora([input.corpus, ...(input.corpora ?? [])]);
@@ -340,12 +341,16 @@ export async function createVoiceCapturePackagePlan(input: {
       .map((take) => ({ session, take })),
   );
 
-  const standaloneCaptures = input.standaloneCaptures ?? [];
+  const standaloneCaptures = selectStandaloneCaptures(
+    requestedStandaloneCaptures,
+    scope,
+  );
   if (selectedTakes.length === 0 && standaloneCaptures.length === 0) {
     throw new Error("The explicit export scope contains no matching takes.");
   }
 
   const files: VoiceCapturePackageFile[] = [];
+  const precomputedHashesByPath = new Map<string, string>();
   const samples: VoiceCapturePackageSample[] = [];
   const sessionPaths = new Map<string, string>();
   const contextBySession = new Map<
@@ -359,13 +364,6 @@ export async function createVoiceCapturePackagePlan(input: {
   const legacyWarnings: string[] = [];
   let audioBytes = 0;
 
-  const defaultRoomToneSourceRef =
-    input.workspace.settings.captureProfile.roomToneFileName ?? null;
-  const defaultRoomToneBlob =
-    input.processAudioBlob !== undefined && defaultRoomToneSourceRef !== null
-      ? await input.getAudioBlob(defaultRoomToneSourceRef)
-      : undefined;
-
   const standaloneIndex: unknown[] = [];
   for (const capture of standaloneCaptures) {
     const wav = await validatePcmWavBlob(capture.blob);
@@ -374,8 +372,9 @@ export async function createVoiceCapturePackagePlan(input: {
     const rawPath = `standalone/raw/${key}_${sourceHash}.wav`;
     const metadataPath = `standalone/metadata/${key}.json`;
     addAudioFileOnce(files, rawPath, capture.blob);
+    precomputedHashesByPath.set(rawPath, sourceHash);
     addJsonFile(files, metadataPath, {
-      ...capture.metadata,
+      ...createPackageStandaloneMetadata(capture.metadata),
       packageAudio: {
         rawPath,
         sha256: sourceHash,
@@ -385,13 +384,56 @@ export async function createVoiceCapturePackagePlan(input: {
         durationMs: wav.durationMs,
       },
     });
+    const roomToneSourceRef = readStandaloneRoomToneSourceRef(capture.metadata);
+    let roomToneBlob: Blob | undefined;
+    let roomTonePath: string | null = null;
+    if (
+      roomToneSourceRef !== null &&
+      (scope.includeRoomTones === true || input.processAudioBlob !== undefined)
+    ) {
+      roomToneBlob = await input.getAudioBlob(roomToneSourceRef);
+      if (roomToneBlob === undefined) {
+        legacyWarnings.push(
+          `Standalone capture ${capture.fileName} references missing room tone ${roomToneSourceRef}.`,
+        );
+      } else {
+        await validatePcmWavBlob(roomToneBlob);
+        const roomToneHash = await sha256Blob(roomToneBlob);
+        const declaredRoomToneHash = readStandaloneRoomToneSha256(
+          capture.metadata,
+        );
+        if (
+          declaredRoomToneHash !== null &&
+          declaredRoomToneHash !== roomToneHash
+        ) {
+          throw new Error(
+            `Room tone hash mismatch for standalone capture ${capture.fileName}.`,
+          );
+        }
+        if (declaredRoomToneHash === null) {
+          legacyWarnings.push(
+            `Standalone capture ${capture.fileName} has a room-tone source reference without an integrity hash.`,
+          );
+        }
+        roomTonePath = `room-tones/room_tone_${roomToneHash}.wav`;
+        addAudioFileOnce(files, roomTonePath, roomToneBlob);
+        precomputedHashesByPath.set(roomTonePath, roomToneHash);
+      }
+    } else if (
+      scope.includeRoomTones === true &&
+      readObject(capture.metadata.roomTone) !== null
+    ) {
+      legacyWarnings.push(
+        `Standalone capture ${capture.fileName} has room-tone metrics without retained audio provenance.`,
+      );
+    }
     let derivedPath: string | null = null;
     let processingPath: string | null = null;
     if (input.processAudioBlob !== undefined) {
       const processed = await input.processAudioBlob(capture.blob, {
         captureKind: "standalone",
-        roomToneBlob: defaultRoomToneBlob,
-        roomToneSourceRef: defaultRoomToneSourceRef,
+        roomToneBlob,
+        roomToneSourceRef,
       });
       await validatePcmWavBlob(processed.blob, {
         sampleRateHz: 16_000,
@@ -402,6 +444,7 @@ export async function createVoiceCapturePackagePlan(input: {
       derivedPath = `standalone/derived/${key}_${processedHash}.wav`;
       processingPath = `standalone/processing/${key}.json`;
       addAudioFileOnce(files, derivedPath, processed.blob);
+      precomputedHashesByPath.set(derivedPath, processedHash);
       addJsonFile(files, processingPath, {
         ...processed.metadata,
         sourceAudioPath: rawPath,
@@ -416,6 +459,7 @@ export async function createVoiceCapturePackagePlan(input: {
       metadataPath,
       derivedPath,
       processingPath,
+      roomTonePath,
     });
     audioBytes += capture.blob.size;
   }
@@ -454,11 +498,27 @@ export async function createVoiceCapturePackagePlan(input: {
         );
       } else {
         await validatePcmWavBlob(roomToneBlob);
+        const roomToneHash = await sha256Blob(roomToneBlob);
+        const declaredRoomToneHash =
+          captureContext.room_tone.status === "raw_audio_retained"
+            ? captureContext.room_tone.sha256
+            : null;
+        if (
+          declaredRoomToneHash !== null &&
+          declaredRoomToneHash !== roomToneHash
+        ) {
+          throw new Error(`Room tone hash mismatch for session ${session.id}.`);
+        }
+        if (declaredRoomToneHash === null) {
+          legacyWarnings.push(
+            `Session ${session.id} has a room-tone source reference without an integrity hash.`,
+          );
+        }
         roomToneBlobBySession.set(session.id, roomToneBlob);
         if (scope.includeRoomTones === true) {
-          const roomToneHash = await sha256Blob(roomToneBlob);
           roomTonePath = `room-tones/room_tone_${roomToneHash}.wav`;
           addAudioFileOnce(files, roomTonePath, roomToneBlob);
+          precomputedHashesByPath.set(roomTonePath, roomToneHash);
           roomTonePathBySession.set(session.id, roomTonePath);
         }
       }
@@ -586,11 +646,9 @@ export async function createVoiceCapturePackagePlan(input: {
     if (input.processAudioBlob !== undefined) {
       const processed = await input.processAudioBlob(audioBlob, {
         captureKind: "session_take",
-        roomToneBlob:
-          roomToneBlobBySession.get(session.id) ?? defaultRoomToneBlob,
+        roomToneBlob: roomToneBlobBySession.get(session.id),
         roomToneSourceRef:
-          contextBySession.get(session.id)?.room_tone.ref ??
-          defaultRoomToneSourceRef,
+          contextBySession.get(session.id)?.room_tone.ref ?? null,
       });
       const processedValidation = await validatePcmWavBlob(processed.blob, {
         sampleRateHz: 16_000,
@@ -610,6 +668,7 @@ export async function createVoiceCapturePackagePlan(input: {
       const processedPath = `derived/voice_${processedHash}.wav`;
       const processingPath = `processing/${takeKey}.json`;
       addAudioFileOnce(files, processedPath, processed.blob);
+      precomputedHashesByPath.set(processedPath, processedHash);
       addJsonFile(files, processingPath, {
         ...processed.metadata,
         takeId: take.id,
@@ -651,6 +710,7 @@ export async function createVoiceCapturePackagePlan(input: {
     }
 
     const addedAudio = addAudioFileOnce(files, audioPath, audioBlob);
+    precomputedHashesByPath.set(audioPath, audioHash);
     addJsonFile(files, textPath, {
       schema_version: "voice.capture.text.v1",
       utterance_id: utteranceId,
@@ -884,7 +944,8 @@ export async function createVoiceCapturePackagePlan(input: {
     createPackageReadme(scope, forgeCompatibility, samples.length),
   );
 
-  const artifacts = await createArtifacts(files, createdAt, samples);
+  const fileHashes = await createFileHashes(files, precomputedHashesByPath);
+  const artifacts = createArtifacts(files, createdAt, samples, fileHashes);
   const manifest: VoiceCapturePackageManifest = {
     schema_version: VOICE_CAPTURE_PACKAGE_SCHEMA,
     package_id: packageId,
@@ -923,11 +984,10 @@ export async function createVoiceCapturePackagePlan(input: {
   };
 
   const manifestBlob = jsonBlob(manifest);
-  const filesWithManifest = [
-    ...files,
-    file("manifest.json", manifestBlob, "application/json"),
-  ];
-  const checksums = await createChecksums(filesWithManifest);
+  const manifestFile = file("manifest.json", manifestBlob, "application/json");
+  const filesWithManifest = [...files, manifestFile];
+  fileHashes.set(manifestFile, await sha256Blob(manifestBlob));
+  const checksums = createChecksums(filesWithManifest, fileHashes);
   filesWithManifest.push(
     file("checksums.sha256", textBlob(checksums), "text/plain;charset=utf-8"),
   );
@@ -953,6 +1013,14 @@ export async function validateVoiceCapturePackagePlan(
 ): Promise<VoiceCapturePackageValidation> {
   const errors: string[] = [];
   const byPath = new Map<string, VoiceCapturePackageFile>();
+  const hashPromises = new Map<VoiceCapturePackageFile, Promise<string>>();
+  const getHash = (entry: VoiceCapturePackageFile) => {
+    const existing = hashPromises.get(entry);
+    if (existing !== undefined) return existing;
+    const pending = sha256Blob(entry.data);
+    hashPromises.set(entry, pending);
+    return pending;
+  };
   for (const entry of plan.files) {
     try {
       assertSafeRelativePath(entry.path);
@@ -978,7 +1046,7 @@ export async function validateVoiceCapturePackagePlan(
     if (entry.data.size !== artifact.byteSize) {
       errors.push(`Artifact size mismatch: ${artifact.path}`);
     }
-    const hash = await sha256Blob(entry.data);
+    const hash = await getHash(entry);
     if (hash !== artifact.sha256) {
       errors.push(`Artifact hash mismatch: ${artifact.path}`);
     }
@@ -1003,7 +1071,7 @@ export async function validateVoiceCapturePackagePlan(
         errors.push(`Checksum row missing: ${path}`);
         continue;
       }
-      if ((await sha256Blob(entry.data)) !== expectedHash) {
+      if ((await getHash(entry)) !== expectedHash) {
         errors.push(`Checksum mismatch: ${path}`);
       }
     }
@@ -1033,6 +1101,96 @@ export async function validateVoiceCapturePackagePlan(
     }
   }
   return { valid: errors.length === 0, errors: uniqueStrings(errors) };
+}
+
+function selectStandaloneCaptures(
+  captures: readonly StandaloneCaptureArtifact[],
+  scope: VoiceCapturePackageScope,
+): readonly StandaloneCaptureArtifact[] {
+  return captures.filter((capture) => {
+    const speaker = readObject(capture.metadata.speaker);
+    const speakerId =
+      typeof speaker?.id === "string"
+        ? speaker.id
+        : typeof capture.metadata.speakerId === "string"
+          ? capture.metadata.speakerId
+          : null;
+    const language =
+      typeof capture.metadata.language === "string"
+        ? capture.metadata.language
+        : null;
+
+    if (
+      speakerId === null ||
+      language === null ||
+      !scope.speakerIds.some((candidate) => candidate === speakerId) ||
+      !scope.languages.some((candidate) => candidate === language)
+    ) {
+      return false;
+    }
+
+    if (capture.metadata.mode === "free") {
+      return true;
+    }
+
+    const corpus = readObject(capture.metadata.corpus);
+    const corpusId = typeof corpus?.id === "string" ? corpus.id : null;
+    const corpusVersion =
+      typeof corpus?.version === "string" ? corpus.version : null;
+
+    return (
+      corpusId !== null &&
+      corpusVersion !== null &&
+      scope.corpusRefs.some(
+        (candidate) =>
+          candidate.id === corpusId && candidate.version === corpusVersion,
+      )
+    );
+  });
+}
+
+function readStandaloneRoomToneSourceRef(
+  metadata: Record<string, unknown>,
+): string | null {
+  const roomTone = readObject(metadata.roomTone);
+  const sourceRef = roomTone?.sourceRef;
+
+  return typeof sourceRef === "string" && sourceRef.trim().length > 0
+    ? sourceRef
+    : null;
+}
+
+function readStandaloneRoomToneSha256(
+  metadata: Record<string, unknown>,
+): string | null {
+  const roomTone = readObject(metadata.roomTone);
+  const sha256 = roomTone?.sha256;
+
+  return typeof sha256 === "string" && /^[a-f0-9]{64}$/u.test(sha256)
+    ? sha256
+    : null;
+}
+
+function createPackageStandaloneMetadata(
+  metadata: Record<string, unknown>,
+): Record<string, unknown> {
+  const speaker = readObject(metadata.speaker);
+
+  if (speaker === null || !("displayName" in speaker)) {
+    return metadata;
+  }
+
+  return {
+    ...metadata,
+    speaker: { ...speaker, displayName: null },
+    packageRedactions: ["speaker.displayName"],
+  };
+}
+
+function readObject(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
 }
 
 function selectSessions(
@@ -1182,6 +1340,10 @@ function createCaptureContext(
     takeContext?.roomToneRef ??
     workspace.settings.captureProfile.roomToneFileName ??
     null;
+  const roomToneSha256 =
+    takeContext === undefined
+      ? (workspace.settings.captureProfile.roomToneSha256 ?? null)
+      : (takeContext.roomToneSha256 ?? null);
   return {
     schema_version: "voice.capture.context.v1",
     source: "workspace_snapshot",
@@ -1205,6 +1367,7 @@ function createCaptureContext(
             status: "raw_audio_retained",
             reason: null,
             ref: roomToneRef,
+            sha256: roomToneSha256,
             duration_ms: profile.roomToneDurationMs ?? null,
             noise_floor_dbfs: profile.roomToneNoiseFloorDbfs ?? null,
             peak_dbfs: profile.roomTonePeakDbfs ?? null,
@@ -1384,11 +1547,30 @@ function countBy<T>(
   }, {});
 }
 
-async function createArtifacts(
+async function createFileHashes(
+  files: readonly VoiceCapturePackageFile[],
+  precomputedHashesByPath: ReadonlyMap<string, string>,
+): Promise<Map<VoiceCapturePackageFile, string>> {
+  const hashes = new Map<VoiceCapturePackageFile, string>();
+
+  // Hash sequentially: captured WAVs can be large, and Blob.arrayBuffer()
+  // otherwise holds every source in memory at once on constrained phones.
+  for (const entry of files) {
+    hashes.set(
+      entry,
+      precomputedHashesByPath.get(entry.path) ?? (await sha256Blob(entry.data)),
+    );
+  }
+
+  return hashes;
+}
+
+function createArtifacts(
   files: readonly VoiceCapturePackageFile[],
   createdAt: string,
   samples: readonly VoiceCapturePackageSample[],
-): Promise<readonly VoiceCapturePackageArtifact[]> {
+  hashes: ReadonlyMap<VoiceCapturePackageFile, string>,
+): readonly VoiceCapturePackageArtifact[] {
   const owners = new Map<string, string>();
   for (const sample of samples) {
     owners.set(sample.audio.path, `sample:${sample.sample_id}`);
@@ -1401,32 +1583,40 @@ async function createArtifacts(
       `sample:${sample.sample_id}`,
     );
   }
-  return Promise.all(
-    files.map(async (entry) => ({
-      artifactId: `artifact_${stableToken(entry.path)}`,
-      path: entry.path,
-      type: artifactType(entry.path),
-      mediaType: entry.mediaType,
-      byteSize: entry.data.size,
-      sha256: await sha256Blob(entry.data),
-      logicalOwner: owners.get(entry.path) ?? "package",
-      required: entry.required,
-      schemaVersion: schemaVersionForPath(entry.path),
-      createdAt,
-    })),
-  );
+  return files.map((entry) => ({
+    artifactId: `artifact_${stableToken(entry.path)}`,
+    path: entry.path,
+    type: artifactType(entry.path),
+    mediaType: entry.mediaType,
+    byteSize: entry.data.size,
+    sha256: requireFileHash(entry, hashes),
+    logicalOwner: owners.get(entry.path) ?? "package",
+    required: entry.required,
+    schemaVersion: schemaVersionForPath(entry.path),
+    createdAt,
+  }));
 }
 
-async function createChecksums(
+function createChecksums(
   files: readonly VoiceCapturePackageFile[],
-): Promise<string> {
-  const rows = await Promise.all(
-    files
-      .filter((entry) => entry.path !== "checksums.sha256")
-      .sort((left, right) => left.path.localeCompare(right.path))
-      .map(async (entry) => `${await sha256Blob(entry.data)}  ${entry.path}`),
-  );
+  hashes: ReadonlyMap<VoiceCapturePackageFile, string>,
+): string {
+  const rows = files
+    .filter((entry) => entry.path !== "checksums.sha256")
+    .sort((left, right) => left.path.localeCompare(right.path))
+    .map((entry) => `${requireFileHash(entry, hashes)}  ${entry.path}`);
   return `${rows.join("\n")}\n`;
+}
+
+function requireFileHash(
+  entry: VoiceCapturePackageFile,
+  hashes: ReadonlyMap<VoiceCapturePackageFile, string>,
+): string {
+  const hash = hashes.get(entry);
+  if (hash === undefined) {
+    throw new Error(`Missing generated checksum for ${entry.path}.`);
+  }
+  return hash;
 }
 
 function parseChecksums(text: string): Map<string, string> {

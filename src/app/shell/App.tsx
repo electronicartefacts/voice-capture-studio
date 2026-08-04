@@ -91,11 +91,7 @@ import {
   finalizeCaptureSession,
   type FinalizedRecording,
 } from "../recording/finalizeCaptureSession";
-import { createVoiceCapturePackageZip } from "../export/downloadDatasetPackage";
-import {
-  createVoiceCapturePackagePlan,
-  type VoiceCapturePackageScope,
-} from "../export/voiceCapturePackage";
+import type { VoiceCapturePackageScope } from "../export/voiceCapturePackage";
 import { createBrowserWorkspaceRepository } from "../storage/browserWorkspaceRepository";
 import {
   listBrowserRecordings,
@@ -468,6 +464,7 @@ export function App() {
   const backingTrackUrlRef = useRef<string | null>(null);
   const dubbingMediaUrlRef = useRef<string | null>(null);
   const storedRecordingUrlsRef = useRef<readonly string[]>([]);
+  const storedRecordingRefreshEpochRef = useRef(0);
   const datasetZipUrlRef = useRef<string | null>(null);
   const workspaceArchiveUrlRef = useRef<string | null>(null);
   const lexicalSegmentationUrlRef = useRef<string | null>(null);
@@ -878,6 +875,7 @@ export function App() {
       revokeObjectUrl(lexicalSegmentationUrlRef.current);
       lexicalSegmentationAbortRef.current?.abort();
       cancelLoadingWave("lexical-segmentation");
+      storedRecordingRefreshEpochRef.current += 1;
       revokeStoredRecordingUrls();
     };
   }, []);
@@ -1336,8 +1334,10 @@ export function App() {
       throw new Error(workspaceOpenBlocker);
     }
 
-    if (workspace !== null) {
-      return workspace;
+    const currentWorkspace = workspaceRef.current ?? workspace;
+
+    if (currentWorkspace !== null) {
+      return currentWorkspace;
     }
 
     const nextWorkspace = createEmptyWorkspace({
@@ -1388,7 +1388,12 @@ export function App() {
 
     try {
       const exportCorpus = activeCorpus ?? canonicalCorpus;
-      const standaloneCaptures = (await listBrowserRecordings())
+      const [packageModule, zipModule, recordings] = await Promise.all([
+        import("../export/voiceCapturePackage"),
+        import("../export/downloadDatasetPackage"),
+        listBrowserRecordings(),
+      ]);
+      const standaloneCaptures = recordings
         .filter((recording) => recording.metadata !== undefined)
         .map((recording) => ({
           blob: recording.blob,
@@ -1400,7 +1405,7 @@ export function App() {
         exportCorpus,
         standaloneCaptures.length > 0,
       );
-      const plan = await createVoiceCapturePackagePlan({
+      const plan = await packageModule.createVoiceCapturePackagePlan({
         corpus: exportCorpus,
         getAudioBlob: getWorkspaceRecording,
         processAudioBlob: (audioBlob, processingContext) =>
@@ -1418,7 +1423,7 @@ export function App() {
         standaloneCaptures,
         workspace,
       });
-      const zip = await createVoiceCapturePackageZip({ plan });
+      const zip = await zipModule.createVoiceCapturePackageZip({ plan });
 
       revokeObjectUrl(datasetZipUrlRef.current);
       const url = URL.createObjectURL(zip.blob);
@@ -1503,7 +1508,11 @@ export function App() {
 
     try {
       const exportCorpus = activeCorpus ?? canonicalCorpus;
-      const standaloneCaptures = (await listBrowserRecordings())
+      const [packageModule, recordings] = await Promise.all([
+        import("../export/voiceCapturePackage"),
+        listBrowserRecordings(),
+      ]);
+      const standaloneCaptures = recordings
         .filter((recording) => recording.metadata !== undefined)
         .map((recording) => ({
           blob: recording.blob,
@@ -1515,7 +1524,7 @@ export function App() {
         exportCorpus,
         standaloneCaptures.length > 0,
       );
-      const plan = await createVoiceCapturePackagePlan({
+      const plan = await packageModule.createVoiceCapturePackagePlan({
         corpus: exportCorpus,
         getAudioBlob: getWorkspaceRecording,
         processAudioBlob: (audioBlob, processingContext) =>
@@ -3646,6 +3655,8 @@ export function App() {
       performanceKind: vocalPerformance.kind,
       recognitionAvailable: freeSpeechRecognitionAvailableRef.current,
     });
+    const captureProfile = (workspaceRef.current ?? workspace)?.settings
+      .captureProfile;
     const metadata = {
       schemaVersion: isContinuousCorpusCapture
         ? "voice.continuous_corpus_capture.v1"
@@ -3662,7 +3673,14 @@ export function App() {
         capture: recording.capture,
       },
       metrics: recording.metrics,
-      roomTone: sessionRoomTone,
+      roomTone:
+        sessionRoomTone === null
+          ? null
+          : {
+              ...sessionRoomTone,
+              sourceRef: captureProfile?.roomToneFileName ?? null,
+              sha256: captureProfile?.roomToneSha256 ?? null,
+            },
       speaker: selectedSpeaker ?? null,
       language: selectedLanguage,
       processing: { localOnly: true, audioWorkletPreferred: true },
@@ -3748,17 +3766,28 @@ export function App() {
   }
 
   async function refreshStoredRecordings() {
+    const refreshEpoch = storedRecordingRefreshEpochRef.current + 1;
+    storedRecordingRefreshEpochRef.current = refreshEpoch;
+
     try {
       const recordings = await listBrowserRecordings();
+      const downloadableRecordings = recordings.map((recording) => ({
+        ...recording,
+        url: URL.createObjectURL(recording.blob),
+      }));
 
-      replaceStoredRecordings(
-        recordings.map((recording) => ({
-          ...recording,
-          url: URL.createObjectURL(recording.blob),
-        })),
-      );
+      if (refreshEpoch !== storedRecordingRefreshEpochRef.current) {
+        downloadableRecordings.forEach((recording) =>
+          revokeObjectUrl(recording.url),
+        );
+        return;
+      }
+
+      replaceStoredRecordings(downloadableRecordings);
     } catch {
-      replaceStoredRecordings([]);
+      if (refreshEpoch === storedRecordingRefreshEpochRef.current) {
+        replaceStoredRecordings([]);
+      }
     }
   }
 

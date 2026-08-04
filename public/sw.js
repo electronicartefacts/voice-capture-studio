@@ -1,7 +1,7 @@
 // Bump these revisions whenever the application shell or shipped ML models
 // change. Keeping application and model caches separate avoids retaining a
 // previous release's modules after an offline restart.
-const CACHE_NAME = "voice-capture-studio-app-v14";
+const CACHE_NAME = "voice-capture-studio-app-v15";
 const MODEL_CACHE_NAME = "voice-capture-studio-models-v3";
 
 function isModelAsset(requestUrl) {
@@ -59,13 +59,20 @@ self.addEventListener("fetch", (event) => {
   // Model weights and the WASM runtime are large and immutable per release:
   // cache-first so they only ever download once per device.
   if (isModelAsset(requestUrl)) {
+    // A partial response must never become the cached canonical model. Cache
+    // API matching is URL-centric, so retaining a 206 response could poison a
+    // later full model load on browsers that probe large files with ranges.
+    if (event.request.headers.has("range")) {
+      return;
+    }
+
     event.respondWith(
       caches.open(MODEL_CACHE_NAME).then((cache) =>
         cache.match(event.request).then(
           (cachedResponse) =>
             cachedResponse ??
             fetch(event.request).then((networkResponse) => {
-              if (networkResponse.ok) {
+              if (networkResponse.status === 200) {
                 event.waitUntil(
                   cache.put(event.request, networkResponse.clone()),
                 );
@@ -82,7 +89,7 @@ self.addEventListener("fetch", (event) => {
   event.respondWith(
     fetch(event.request)
       .then((networkResponse) => {
-        if (networkResponse.ok) {
+        if (networkResponse.status === 200) {
           const responseClone = networkResponse.clone();
 
           event.waitUntil(

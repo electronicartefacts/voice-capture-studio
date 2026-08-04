@@ -74,6 +74,7 @@ test("mode policies relax speech and SNR thresholds for dubbing and mastering", 
   const profile = createCaptureProfile({
     roomToneCaptured: true,
     roomToneNoiseFloorDbfs: -48,
+    roomToneSha256: "a".repeat(64),
   });
 
   const dubbingTake = createRecordedTake({
@@ -92,6 +93,10 @@ test("mode policies relax speech and SNR thresholds for dubbing and mastering", 
 
   assert.equal(dubbingTake.quality.verdict, "pass");
   assert.equal(dubbingTake.captureContext?.captureMode, "dubbing");
+  assert.equal(
+    dubbingTake.captureContext?.roomToneSha256,
+    profile.roomToneSha256 ?? null,
+  );
 
   const masteringTake = createRecordedTake({
     captureMode: "mastering",

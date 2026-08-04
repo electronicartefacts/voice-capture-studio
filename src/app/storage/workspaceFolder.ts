@@ -201,12 +201,7 @@ export async function saveRecordingToWorkspaceFolder(
           };
     }
 
-    const fileHandle = await takesDirectory.getFileHandle(fileName, {
-      create: true,
-    });
-    const writable = await fileHandle.createWritable();
-    await writable.write(audioBlob);
-    await writable.close();
+    await writeBlob(takesDirectory, fileName, audioBlob);
 
     return {
       ok: true,

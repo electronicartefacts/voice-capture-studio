@@ -78,6 +78,8 @@ export type TakeCaptureContext = {
     readonly calibratedAt: IsoDateTime | null;
   };
   readonly roomToneRef: string | null;
+  /** Exact retained room-tone identity; absent on historical take snapshots. */
+  readonly roomToneSha256?: string | null;
 };
 
 export type TakeMedia = {

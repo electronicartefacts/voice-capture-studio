@@ -628,6 +628,7 @@ function createTakeCaptureContext(input: {
       calibratedAt: input.profile.calibratedAt ?? null,
     },
     roomToneRef: input.profile.roomToneFileName ?? null,
+    roomToneSha256: input.profile.roomToneSha256 ?? null,
   };
 }
 
