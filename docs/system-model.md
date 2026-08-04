@@ -61,9 +61,11 @@ This makes replay possible in principle, but not yet first-class. The durable hi
 `capturedSessions`; `corpusProgress` is a cached projection that must remain derivable.
 The current implementation reconciles this projection when sessions are completed and when the
 workspace is opened, preserving legacy progress while replaying keeper takes found in history.
-Browser payloads are normalized through `normalizeWorkspacePayload` before runtime use, so missing
-or malformed schema-1 fields fall back to safe defaults. Future schema versions are rejected until
-an explicit migration exists.
+Browser payloads pass through `migrateWorkspacePayload` and then
+`normalizeWorkspacePayload` before runtime use. The explicit schema 1 → 2
+transform adds the durable rights ledger without mutating its source; missing
+or malformed legacy fields still fall back to safe defaults. Future schema
+versions are rejected until their transform exists.
 
 ## Verified Principles
 
@@ -86,17 +88,17 @@ an explicit migration exists.
   back to `localStorage` and then memory-only when browser storage fails. The repository contract
   exposes this durability explicitly. The shell exports and restores a self-verifying workspace
   archive containing every referenced WAV without overwriting conflicting audio.
-- Export reports are generated through an app-level package preparation service rather than behind
-  the domain export port. Its download and folder paths share one explicit scope and cancellation
-  boundary.
+- Dataset export orchestration now lives in `useDatasetExport`; download and
+  folder paths share one explicit scope, cancellation boundary, completion
+  state, and object-URL lifecycle outside the central capture orchestrator.
 - Browser private storage is still the default initial workspace mode even though the doctrine says
   File System Access should be preferred where available.
 - Corpus compatibility policy reserves tombstones, but the corpus model has no tombstone type yet.
 - Local corpus snapshots are stored with the workspace so reloads do not orphan local sessions.
 - Coverage separates prompt completion from measured audio quality, ASR coverage, prosody
   measurements, and acoustic forced-alignment coverage.
-- Workspace normalization handles missing or malformed schema-1 browser payload fields and refuses
-  future schema versions, but there is no transform-based migration path yet.
+- Workspace normalization handles missing or malformed schema-1 browser payload
+  fields, runs the explicit 1 → 2 transform, and refuses future versions.
 
 ## Keeper Invariant
 
@@ -119,9 +121,10 @@ does not erase an otherwise valid recording.
 
 ## Next Useful Probes
 
-1. Add an explicit future-version migration policy for `VoiceWorkspace.schemaVersion`.
+1. Add an archive-format transform when the archive contract first evolves,
+   keeping unknown future versions blocked until then.
 2. Extend corpus integrity tests with future tombstone and compatibility migration rules.
-3. Add transform-based migrations for future workspace and archive schema versions.
+3. Rehearse recovery across browser profiles and a source-preserving production rollback.
 4. Promote app-level recording/export services behind domain ports when a second implementation or
    export shape appears.
 5. Continue extracting stable capture lifecycle seams from the application orchestrator without

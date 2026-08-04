@@ -4,11 +4,11 @@ const APP_PATH = "/voice-capture-studio/";
 
 // Whisper-tiny runs in single-threaded WASM here, so give the whole flow
 // (capture, model load from the local preview server, inference) plenty of
-// room. Too heavy for every push: the scheduled workflow opts in explicitly,
-// while local runs can still execute this spec directly.
+// room. Too heavy for the standard parallel suite: the dedicated scheduled
+// workflow and intentional local runs opt in explicitly.
 test.skip(
-  process.env.CI !== undefined && process.env.RUN_LOCAL_ANALYSIS_E2E !== "1",
-  "Inférence WASM réservée au job périodique ou à un lancement local explicite.",
+  process.env.RUN_LOCAL_ANALYSIS_E2E !== "1",
+  "Inférence WASM réservée au job dédié ou à RUN_LOCAL_ANALYSIS_E2E=1.",
 );
 test.setTimeout(300_000);
 

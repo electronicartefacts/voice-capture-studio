@@ -1,12 +1,17 @@
 # Release and recovery
 
 Voice Capture Studio is deployed from `main` only after the complete validation
-and multi-browser test matrix passes. Every successful `main` run retains three
-immutable files under the commit SHA for 30 days:
+and multi-browser test matrix passes. Every successful `main` run retains the
+following immutable evidence under the commit SHA for 30 days:
 
 - the exact static `dist/` tree as a compressed archive;
 - its SHA-256 checksum;
 - a CycloneDX 1.5 software bill of materials generated from the lockfile.
+- Sigstore bundles for the SLSA build provenance and the archive-bound SBOM.
+
+GitHub also publishes both signed attestations against the repository. The
+short-lived signing identity is issued from the workflow OIDC identity; no
+long-lived signing secret is stored in the project.
 
 These files are recovery evidence, not a second deployment path. GitHub Pages
 continues to build from reviewed source so the public site and repository never
@@ -18,9 +23,12 @@ silently diverge.
    `release-evidence-<commit_sha>`.
 2. Run `sha256sum -c voice-capture-studio-<commit_sha>.tar.gz.sha256` from the
    extracted artifact directory.
-3. Unpack the archive into a new temporary directory and serve that directory
+3. Run
+   `gh attestation verify voice-capture-studio-<commit_sha>.tar.gz --repo electronicartefacts/voice-capture-studio`
+   and require a verified GitHub Actions signer before trusting the archive.
+4. Unpack the archive into a new temporary directory and serve that directory
    locally over HTTP. Never unpack it over a working tree or a live deployment.
-4. Verify the opening ritual, one recording, replay, workspace archive restore,
+5. Verify the opening ritual, one recording, replay, workspace archive restore,
    dataset export, offline restart, and the public base path before considering
    the build a recovery candidate.
 

@@ -52,7 +52,7 @@ Run the local preview when you need to inspect a branch or test microphone permi
 
 Requirements:
 
-- Node.js 22 or newer
+- Node.js 22.12 or newer
 - npm 11 or newer
 - A modern browser with microphone support
 
@@ -174,11 +174,11 @@ HTTPS, which GitHub Pages provides.
 
 ## Roadmap
 
-- Explicit workspace/archive schema migration pipeline and recovery drills.
+- Future archive-version transforms and cross-device recovery drills.
 - Corpus tombstone support for long-lived compatibility.
 - Stronger File System Access first-run flow where supported.
 - More export targets once the `voice.capture_session` contract stabilizes.
-- Tagged release provenance, deployment rollback rehearsal, and screenshot automation.
+- Tagged releases and a documented deployment rollback rehearsal.
 
 ## Contributing
 

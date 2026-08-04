@@ -26,6 +26,7 @@ export {
   createEmptyWorkspace,
 } from "./factory";
 export {
+  migrateWorkspacePayload,
   normalizeWorkspacePayload,
   UnsupportedWorkspaceSchemaError,
 } from "./normalization";

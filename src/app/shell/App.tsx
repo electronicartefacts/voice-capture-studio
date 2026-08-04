@@ -102,7 +102,6 @@ import {
   chooseWorkspaceFolder,
   getWorkspaceRecording,
   getRememberedFolderName,
-  saveVoiceCapturePackageToWorkspaceFolder,
   saveRecordingToWorkspaceFolder,
   saveTakeMetadataToWorkspaceFolder,
 } from "../storage/workspaceFolder";
@@ -172,7 +171,6 @@ import {
 import type {
   BackingTrack,
   CaptureMode,
-  DatasetExportState,
   DownloadableRecording,
   DubbingMediaSource,
   ReadingGuideMode,
@@ -194,6 +192,7 @@ import {
 } from "./screens/StudioChrome";
 import { useSurfaceProfile } from "./surfaceProfile";
 import { useAmbientRenderingBudget } from "./useAmbientRenderingBudget";
+import { useDatasetExport } from "./useDatasetExport";
 
 const TechnicalPage = lazy(() =>
   import("./screens/TechnicalPage").then((module) => ({
@@ -299,10 +298,6 @@ function revokeObjectUrl(url: string | null): void {
   }
 }
 
-function isAbortError(error: unknown): boolean {
-  return error instanceof Error && error.name === "AbortError";
-}
-
 function disconnectAudioNode(node: AudioNode | null): void {
   try {
     node?.disconnect();
@@ -402,8 +397,6 @@ export function App() {
   const [storedRecordings, setStoredRecordings] = useState<
     readonly DownloadableRecording[]
   >([]);
-  const [datasetExportState, setDatasetExportState] =
-    useState<DatasetExportState>({ status: "idle" });
   const [audioLevel, setAudioLevel] = useState(0);
   const [readingGuideMode, setReadingGuideModeState] =
     useState<ReadingGuideMode>("voice-activity");
@@ -468,8 +461,6 @@ export function App() {
   const dubbingMediaUrlRef = useRef<string | null>(null);
   const storedRecordingUrlsRef = useRef<readonly string[]>([]);
   const storedRecordingRefreshEpochRef = useRef(0);
-  const datasetZipUrlRef = useRef<string | null>(null);
-  const datasetExportAbortRef = useRef<AbortController | null>(null);
   const workspaceArchiveUrlRef = useRef<string | null>(null);
   const supportBundleUrlRef = useRef<string | null>(null);
   const lexicalSegmentationUrlRef = useRef<string | null>(null);
@@ -594,6 +585,20 @@ export function App() {
     captureMode === "training"
       ? canonicalCorpus
       : (localCorpus?.corpus ?? null);
+  const {
+    cancel: cancelDatasetExport,
+    download: downloadDatasetPackage,
+    reset: resetDatasetExport,
+    state: datasetExportState,
+    writeToFolder: writeDatasetPackageToFolder,
+  } = useDatasetExport({
+    corpus: activeCorpus ?? canonicalCorpus,
+    language: selectedLanguage,
+    setMessage,
+    speakerId: selectedSpeakerId,
+    speakerProfiles,
+    workspace,
+  });
   const trainingConsentGranted =
     workspace?.rights.consents.some(
       (record) =>
@@ -875,12 +880,10 @@ export function App() {
       revokeObjectUrl(workspaceBackupUrlRef.current);
       revokeObjectUrl(backingTrackUrlRef.current);
       revokeObjectUrl(dubbingMediaUrlRef.current);
-      revokeObjectUrl(datasetZipUrlRef.current);
       revokeObjectUrl(workspaceArchiveUrlRef.current);
       revokeObjectUrl(supportBundleUrlRef.current);
       revokeObjectUrl(lexicalSegmentationUrlRef.current);
       lexicalSegmentationAbortRef.current?.abort();
-      datasetExportAbortRef.current?.abort();
       cancelLoadingWave("lexical-segmentation");
       storedRecordingRefreshEpochRef.current += 1;
       revokeStoredRecordingUrls();
@@ -1386,81 +1389,6 @@ export function App() {
     return nextWorkspace;
   }
 
-  async function downloadDatasetPackage() {
-    if (workspace === null) {
-      return;
-    }
-
-    datasetExportAbortRef.current?.abort();
-    const abortController = new AbortController();
-    datasetExportAbortRef.current = abortController;
-    setDatasetExportState({ status: "preparing" });
-
-    try {
-      const exportCorpus = activeCorpus ?? canonicalCorpus;
-      const [packageModule, zipModule] = await Promise.all([
-        import("../export/prepareVoiceCapturePackage"),
-        import("../export/downloadDatasetPackage"),
-      ]);
-      const plan = await packageModule.prepareVoiceCapturePackage({
-        corpus: exportCorpus,
-        getAudioBlob: getWorkspaceRecording,
-        language: selectedLanguage,
-        signal: abortController.signal,
-        speakerId: selectedSpeakerId,
-        speakerProfiles,
-        workspace,
-      });
-      const zip = await zipModule.createVoiceCapturePackageZip({
-        plan,
-        signal: abortController.signal,
-      });
-
-      revokeObjectUrl(datasetZipUrlRef.current);
-      const url = URL.createObjectURL(zip.blob);
-      datasetZipUrlRef.current = url;
-
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = `voice-capture-package-${plan.manifest.package_id}.zip`;
-      anchor.click();
-
-      setDatasetExportState({
-        status: "done",
-        keeperCount: plan.samples.length,
-        missingAudioFiles: [],
-        forgeReady: plan.forgeCompatibility.ready,
-        blockingReasons: plan.forgeCompatibility.errors,
-      });
-    } catch (error) {
-      if (datasetExportAbortRef.current !== abortController) return;
-      if (isAbortError(error) || abortController.signal.aborted) {
-        setDatasetExportState({ status: "idle" });
-        setMessage("Export annulé. Aucun paquet incomplet n’a été proposé.");
-        return;
-      }
-      setDatasetExportState({
-        status: "error",
-        message:
-          error instanceof Error
-            ? error.message
-            : "Le dataset n'a pas pu être généré.",
-      });
-    } finally {
-      if (datasetExportAbortRef.current === abortController) {
-        datasetExportAbortRef.current = null;
-      }
-    }
-  }
-
-  function cancelDatasetExport() {
-    datasetExportAbortRef.current?.abort(
-      new DOMException("Export annulé.", "AbortError"),
-    );
-    setDatasetExportState({ status: "idle" });
-    setMessage("Export annulé. Aucun paquet incomplet n’a été proposé.");
-  }
-
   async function downloadWorkspaceArchive(): Promise<number> {
     const { createWorkspaceArchive } =
       await import("../storage/workspaceArchive");
@@ -1538,70 +1466,6 @@ export function App() {
     return restored.recordings.length;
   }
 
-  async function writeDatasetPackageToFolder() {
-    if (workspace === null) {
-      return;
-    }
-
-    datasetExportAbortRef.current?.abort();
-    const abortController = new AbortController();
-    datasetExportAbortRef.current = abortController;
-    setDatasetExportState({ status: "preparing" });
-
-    try {
-      const exportCorpus = activeCorpus ?? canonicalCorpus;
-      const packageModule =
-        await import("../export/prepareVoiceCapturePackage");
-      const plan = await packageModule.prepareVoiceCapturePackage({
-        corpus: exportCorpus,
-        getAudioBlob: getWorkspaceRecording,
-        language: selectedLanguage,
-        signal: abortController.signal,
-        speakerId: selectedSpeakerId,
-        speakerProfiles,
-        workspace,
-      });
-      const result = await saveVoiceCapturePackageToWorkspaceFolder({
-        files: plan.files,
-        packageId: plan.manifest.package_id,
-        signal: abortController.signal,
-      });
-
-      if (!result.ok) {
-        setDatasetExportState({ status: "error", message: result.message });
-        return;
-      }
-
-      setDatasetExportState({
-        status: "done",
-        keeperCount: plan.samples.length,
-        missingAudioFiles: [],
-        forgeReady: plan.forgeCompatibility.ready,
-        blockingReasons: plan.forgeCompatibility.errors,
-      });
-    } catch (error) {
-      if (datasetExportAbortRef.current !== abortController) return;
-      if (isAbortError(error) || abortController.signal.aborted) {
-        setDatasetExportState({ status: "idle" });
-        setMessage(
-          "Export annulé. Le marqueur d’export incomplet reste explicite dans le dossier.",
-        );
-        return;
-      }
-      setDatasetExportState({
-        status: "error",
-        message:
-          error instanceof Error
-            ? error.message
-            : "Le dataset n'a pas pu être écrit dans ce dossier.",
-      });
-    } finally {
-      if (datasetExportAbortRef.current === abortController) {
-        datasetExportAbortRef.current = null;
-      }
-    }
-  }
-
   async function updateTrainingConsent(granted: boolean) {
     const currentWorkspace = await ensureWorkspace();
     const now = new Date().toISOString() as IsoDateTime;
@@ -1636,7 +1500,7 @@ export function App() {
     const result = await workspaceRepository.save(nextWorkspace);
     if (!result.ok) throw new Error(result.message);
     applyWorkspaceReceipt(result.value);
-    setDatasetExportState({ status: "idle" });
+    resetDatasetExport();
     setMessage(
       granted ? "Consentement enregistré localement." : "Consentement révoqué.",
     );
@@ -1680,7 +1544,7 @@ export function App() {
     const result = await workspaceRepository.save(nextWorkspace);
     if (!result.ok) throw new Error(result.message);
     applyWorkspaceReceipt(result.value);
-    setDatasetExportState({ status: "idle" });
+    resetDatasetExport();
     setMessage(
       granted
         ? "Droits du corpus attestés localement."

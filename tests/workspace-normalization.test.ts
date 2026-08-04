@@ -6,10 +6,32 @@ import {
   CURRENT_WORKSPACE_SCHEMA_VERSION,
   DEFAULT_CAPTURE_PROFILE,
   UnsupportedWorkspaceSchemaError,
+  migrateWorkspacePayload,
   normalizeWorkspacePayload,
   reconcileWorkspaceProgress,
   type WorkspaceId,
 } from "../src/domains/workspace";
+
+test("workspace schema 1 migrates explicitly to schema 2 without mutating its source", () => {
+  const legacyWorkspace = {
+    schemaVersion: 1,
+    workspaceId: "workspace.legacy",
+    sessions: ["session.legacy"],
+  };
+  const sourceSnapshot = structuredClone(legacyWorkspace);
+  const migrated = migrateWorkspacePayload(legacyWorkspace);
+  const normalized = normalizeWorkspacePayload(legacyWorkspace, {
+    now: new Date("2026-07-09T09:00:00.000Z"),
+  });
+
+  assert.deepEqual(legacyWorkspace, sourceSnapshot);
+  assert.equal(migrated.schemaVersion, 2);
+  assert.deepEqual(migrated.rights, { consents: [], licenses: [] });
+  assert.equal(normalized.schemaVersion, CURRENT_WORKSPACE_SCHEMA_VERSION);
+  assert.equal(normalized.workspaceId, "workspace.legacy");
+  assert.deepEqual(normalized.sessions, ["session.legacy"]);
+  assert.deepEqual(normalized.rights, { consents: [], licenses: [] });
+});
 
 test("workspace normalization repairs missing and invalid browser payload fields", () => {
   const now = new Date("2026-07-09T10:00:00.000Z");

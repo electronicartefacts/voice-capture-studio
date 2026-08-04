@@ -15,6 +15,11 @@ concurrency:
 
 jobs:
   validate:
+    permissions:
+      artifact-metadata: write
+      attestations: write
+      contents: read
+      id-token: write
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -50,6 +55,22 @@ jobs:
           npm sbom --sbom-format cyclonedx > "${RUNNER_TEMP}/voice-capture-studio-${GITHUB_SHA}.cdx.json"
           cd "${RUNNER_TEMP}"
           sha256sum "${artifact}" > "${artifact}.sha256"
+          sha256sum --check "${artifact}.sha256"
+
+      - name: Attest release archive provenance
+        id: attest-provenance
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/attest@v4
+        with:
+          subject-path: ${{ runner.temp }}/voice-capture-studio-${{ github.sha }}.tar.gz
+
+      - name: Attest release archive SBOM
+        id: attest-sbom
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/attest@v4
+        with:
+          subject-path: ${{ runner.temp }}/voice-capture-studio-${{ github.sha }}.tar.gz
+          sbom-path: ${{ runner.temp }}/voice-capture-studio-${{ github.sha }}.cdx.json
 
       - name: Upload immutable release evidence
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -60,6 +81,8 @@ jobs:
             ${{ runner.temp }}/voice-capture-studio-${{ github.sha }}.tar.gz
             ${{ runner.temp }}/voice-capture-studio-${{ github.sha }}.tar.gz.sha256
             ${{ runner.temp }}/voice-capture-studio-${{ github.sha }}.cdx.json
+            ${{ steps.attest-provenance.outputs.bundle-path }}
+            ${{ steps.attest-sbom.outputs.bundle-path }}
           if-no-files-found: error
           retention-days: 30
 

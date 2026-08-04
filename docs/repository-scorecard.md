@@ -27,30 +27,30 @@ dimensions.
 | Responsive behavior           |      4 |     96 |      97 | Mobile, tablet, landscape and desktop profiles, including the lazy technical surface, are verified without horizontal overflow.                        |
 | Browser compatibility         |      4 |     95 |      95 | Chromium, Firefox and WebKit layout checks pass; complete microphone capture remains Chromium-automated.                                               |
 | PWA and offline resilience    |      3 |     90 |      95 | The installed shell proves a complete offline restart and refuses invalid module fallbacks.                                                            |
-| Performance                   |      6 |     91 |      96 | Initial output is 160.1 KiB JS and 14.8 KiB CSS gzip under 170/16 KiB gates; technical UI and export services load on demand.                          |
+| Performance                   |      6 |     91 |      96 | Initial output is 155.7 KiB JS and 14.8 KiB CSS gzip under 170/16 KiB gates; technical UI, models and export services load on demand.                  |
 | Audio capture fidelity        |      7 |     95 |      95 | PCM WAV, adaptive VAD, loudness, clipping, pitch, room tone and provenance are covered; a hardware lab matrix remains.                                 |
 | Local Whisper and VAD         |      4 |     88 |      97 | The full on-device model flow passes locally and is scheduled weekly in CI. More representative speech fixtures remain.                                |
 | Corpus quality                |      3 |     95 |      95 | Stable IDs, bilingual balance, capture gates and local corpus parsing are tested.                                                                      |
 | Dataset and export contracts  |      6 |     97 |      99 | Shared scoped planning, end-to-end cancellation, Forge integrity, rights, checksums, ZIP reopening and missing-audio failure are tested.               |
 | Data integrity and provenance |      5 |     96 |      99 | Keeper projections, immutable hashes, capture provenance, sequential payload reads and independent archive verification are enforced.                  |
-| Persistence and recovery      |      5 |     91 |      99 | Archives restore every WAV collision-safely; direct folder writes are atomic and retain an incomplete marker until the package commits.                |
+| Persistence and recovery      |      5 |     91 |      99 | Schema 1 migrates explicitly to 2; stressed multi-session archives restore every WAV collision-safely, and folder writes remain atomic.                |
 | Privacy                       |      5 |     96 |      98 | Capture/inference stay local and the shareable support profile structurally excludes audio, transcripts, identity, corpus and device labels.           |
 | Application security          |      4 |     82 |      92 | CSP, restricted object/base/form sources, referrer policy and private reporting are present; HTTP response headers require a host with header control. |
-| Supply-chain health           |      3 |     80 |      96 | Zero known npm vulnerabilities, CI audit, lockfile, Dependabot and a retained CycloneDX SBOM are automated; signed provenance remains.                 |
-| Architecture                  |      5 |     88 |      92 | Export orchestration and atomic writing are explicit services, and technical styles are lazy; the central capture orchestrator remains large.          |
+| Supply-chain health           |      3 |     80 |      99 | Zero known npm vulnerabilities, current supported direct dependencies, CycloneDX SBOM, SLSA provenance and signed SBOM attestations are automated.     |
+| Architecture                  |      5 |     88 |      94 | Dataset export owns its lifecycle in a dedicated hook, atomic writing is isolated and technical styles are lazy; capture orchestration remains large.  |
 | Static code quality           |      4 |     92 |      92 | Strict TypeScript, lint and formatting are release gates.                                                                                              |
-| Maintainability               |      4 |     84 |      90 | Global CSS and folder export shrank into stable modules with focused tests; `App.tsx` still needs careful lifecycle extraction.                        |
-| Automated testing             |      6 |     91 |      99 | Cancellation, privacy redaction, large sequential reads, atomic aborts, archive corruption and clear/restore/reload flows are automated.               |
-| CI/CD                         |      4 |     88 |      98 | Multi-engine CI, audit, concurrency, timeouts, failure traces, model inference and SHA-addressed release evidence are configured.                      |
+| Maintainability               |      4 |     84 |      93 | Export state, cancellation and object-URL cleanup left `App.tsx`; remaining capture/session lifecycle extraction still needs care.                     |
+| Automated testing             |      6 |     91 |      99 | 231 unit tests, 62 parallel browser tests and 1 isolated model test cover cancellation, privacy, archives, recovery, PWA and real local inference.     |
+| CI/CD                         |      4 |     88 |      99 | Multi-engine CI, audit, concurrency, timeouts, traces, model inference, checksummed evidence and two signed attestations are configured.               |
 | Diagnostics and operability   |      2 |     85 |      97 | A user-downloadable local profile exposes capabilities and storage health without free-form diagnostic details or private capture content.             |
-| Documentation and onboarding  |      3 |     91 |      96 | Architecture, capture, cancellation, dataset, rights, recovery and release evidence are documented.                                                    |
+| Documentation and onboarding  |      3 |     91 |      97 | Architecture, migration, capture, cancellation, dataset, rights, signed evidence and recovery verification are documented.                             |
 | Licensing and governance      |      2 |     96 |      96 | MIT license, contribution rules, security policy and rights documentation are present.                                                                 |
 | Internationalization          |      2 |     82 |      82 | Corpora cover French and English, while the application shell remains primarily French.                                                                |
-| Discoverability               |      1 |     78 |      90 | Canonical URL, Open Graph URL, robots and sitemap are explicit; structured data and install screenshots remain.                                        |
-| Release engineering           |      2 |     78 |      92 | Each green main build retains a SHA-addressed static archive, checksum and SBOM; tags, signing and a performed rollback drill remain.                  |
+| Discoverability               |      1 |     78 |      98 | Canonical/Open Graph URLs, robots, sitemap, `SoftwareApplication` JSON-LD and real desktop/mobile install screenshots are build-verified.              |
+| Release engineering           |      2 |     78 |      97 | Each green main build retains a SHA-addressed archive, checksum, SBOM and signed SLSA/SBOM attestations; tags and a rollback drill remain.             |
 | Deployment reliability        |      2 |     93 |      94 | Static HTTPS deployment, base-path tests, PWA gates and source-preserving rollback guidance are strong; a production rehearsal remains.                |
 
-**Weighted score: 90.8 → 95.4 / 100.**
+**Weighted score: 90.8 → 95.9 / 100.**
 
 ## Changes made in this audit
 
@@ -72,14 +72,21 @@ dimensions.
   preserving the initial bundle budgets and multi-engine layout matrix.
 - Added immutable release archives, SHA-256 checksums, a CycloneDX SBOM, and a
   source-preserving recovery procedure for every successful `main` build.
+- Added signed SLSA and SBOM attestations, checksum self-verification, and a
+  documented `gh attestation verify` recovery gate.
+- Added an explicit non-mutating workspace schema 1 → 2 transform plus large
+  archive and generated unsafe-path tests.
+- Added production-derived PWA screenshots and structured application metadata.
+- Extracted the dataset export lifecycle from `App.tsx` and upgraded Vite,
+  Lucide and ONNX Runtime with full Whisper/VAD and browser regression evidence.
 
 ## Path to the maximum level
 
 ### Priority 0 — closes correctness and recovery gaps
 
-1. **Archive migrations and recovery drills.** Add explicit transforms when the
-   archive or workspace schemas evolve, then rehearse cross-device recovery and
-   production rollback from retained release evidence.
+1. **Archive-version and recovery drills.** Add the first archive transform when
+   that contract evolves, then rehearse cross-device recovery and production
+   rollback from retained release evidence.
 2. **Real-device audio lab.** Maintain measured fixtures for iPhone Safari,
    Android Chrome, macOS Safari, Windows Edge, USB interfaces, Bluetooth input
    and interrupted/backgrounded captures. Record sample-rate negotiation,
@@ -93,15 +100,14 @@ dimensions.
 1. **Decompose the application shell.** Continue extracting workspace, capture
    and playback lifecycles into explicit hooks/services without splitting the
    atomic capture state machine prematurely.
-2. **Signed release supply chain.** Add tags and signed build
-   provenance/attestations around the existing SHA archive, checksum and SBOM,
-   then perform the documented rollback drill.
+2. **Tagged release and rollback proof.** Signed provenance is automated; add a
+   tagged release policy and perform the documented production rollback drill.
 3. **Host-level security headers.** If the deployment moves to a host with
    header control, emit CSP, Permissions-Policy, X-Content-Type-Options and
    cross-origin policies as HTTP headers and verify them in production.
-4. **Dependency upgrade program.** Evaluate Vite, TypeScript, Lucide and
-   ONNX Runtime major upgrades independently with bundle, model and browser
-   regression baselines.
+4. **Dependency upgrade program.** Vite, Lucide and ONNX Runtime are current;
+   adopt TypeScript 7 only once the lint toolchain supports it, with the same
+   bundle, model and browser regression baselines.
 
 ### Priority 2 — expands reach and evidence
 
@@ -109,10 +115,9 @@ dimensions.
    missing-key and overflow checks.
 2. Add representative speech fixtures for deterministic Whisper/VAD quality
    assertions instead of accepting only successful inference.
-3. Add install screenshots and structured application metadata, then verify
-   install prompts on Android, Windows and macOS.
-4. Add property-based and mutation testing around archive paths, schema
-   migration, malformed imports and export relations.
+3. Verify the now-complete install presentation on Android, Windows and macOS.
+4. Extend the generated archive-path/schema cases with a mutation-testing
+   runner around malformed imports and export relations.
 5. Exercise disaster recovery and rollback during a tagged release, and record
    the evidence in the changelog.
 

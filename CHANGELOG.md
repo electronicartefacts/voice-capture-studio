@@ -12,6 +12,19 @@ This project follows semantic versioning for public releases.
   Whisper word timing, and ZIP export with one WAV per detected word, a JSON
   manifest, a CSV timeline, and the transcript.
 - Direct entry into media processing without requesting microphone access.
+- Installable PWA screenshots and `SoftwareApplication` structured metadata,
+  validated from the production build.
+- Explicit workspace schema 1 → 2 migration plus generated unsafe-path and
+  multi-session archive stress coverage.
+- Signed SLSA provenance and SBOM attestations for every successful `main`
+  release archive.
+
+### Changed
+
+- Dataset download and folder export lifecycles now share a dedicated
+  cancellable React controller outside the central capture orchestrator.
+- Upgraded the build/runtime baseline to Vite 8, React tooling 6, Lucide 1 and
+  stable ONNX Runtime Web 1.27; the full local Whisper/VAD inference gate passes.
 
 ## [0.1.0] - 2026-07-09
 

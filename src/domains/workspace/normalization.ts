@@ -33,14 +33,11 @@ export function normalizeWorkspacePayload(
     readonly workspaceId?: WorkspaceId;
   } = {},
 ): VoiceWorkspace {
-  const workspace = isRecord(payload) ? payload : {};
-  const schemaVersion = normalizeWorkspaceSchemaVersion(
-    workspace.schemaVersion,
-  );
+  const workspace = migrateWorkspacePayload(payload);
   const now = (options.now ?? new Date()).toISOString() as IsoDateTime;
 
   return {
-    schemaVersion,
+    schemaVersion: CURRENT_WORKSPACE_SCHEMA_VERSION,
     workspaceId: coerceString(
       workspace.workspaceId,
       options.workspaceId ?? ("workspace.local.main" as WorkspaceId),
@@ -57,6 +54,55 @@ export function normalizeWorkspacePayload(
     rights: normalizeWorkspaceRights(workspace.rights),
     settings: normalizeWorkspaceSettings(workspace.settings),
   };
+}
+
+export function migrateWorkspacePayload(
+  payload: unknown,
+): Record<string, unknown> {
+  if (!isRecord(payload)) return {};
+
+  const declaredVersion = readWorkspaceSchemaVersion(payload.schemaVersion);
+  if (declaredVersion > CURRENT_WORKSPACE_SCHEMA_VERSION) {
+    throw new UnsupportedWorkspaceSchemaError(
+      declaredVersion,
+      CURRENT_WORKSPACE_SCHEMA_VERSION,
+    );
+  }
+
+  let workspace = { ...payload };
+  let version = declaredVersion;
+
+  while (version < CURRENT_WORKSPACE_SCHEMA_VERSION) {
+    if (version === 1) {
+      workspace = migrateWorkspaceV1ToV2(workspace);
+      version = 2;
+      continue;
+    }
+
+    throw new Error(
+      `Migration de workspace manquante entre les formats ${version} et ${version + 1}.`,
+    );
+  }
+
+  return workspace;
+}
+
+function migrateWorkspaceV1ToV2(
+  workspace: Record<string, unknown>,
+): Record<string, unknown> {
+  return {
+    ...workspace,
+    schemaVersion: 2,
+    rights: isRecord(workspace.rights)
+      ? workspace.rights
+      : { consents: [], licenses: [] },
+  };
+}
+
+function readWorkspaceSchemaVersion(value: unknown): number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 1
+    ? value
+    : 1;
 }
 
 function normalizeWorkspaceRights(value: unknown): VoiceWorkspace["rights"] {
@@ -130,19 +176,6 @@ function normalizeLocalCorpusSnapshot(
     sourceName: isNonEmptyString(value.sourceName) ? value.sourceName : null,
     text: value.text,
   };
-}
-
-function normalizeWorkspaceSchemaVersion(
-  value: unknown,
-): VoiceWorkspace["schemaVersion"] {
-  if (typeof value === "number" && value > CURRENT_WORKSPACE_SCHEMA_VERSION) {
-    throw new UnsupportedWorkspaceSchemaError(
-      value,
-      CURRENT_WORKSPACE_SCHEMA_VERSION,
-    );
-  }
-
-  return CURRENT_WORKSPACE_SCHEMA_VERSION;
 }
 
 function normalizeWorkspaceSettings(settings: unknown): WorkspaceSettings {

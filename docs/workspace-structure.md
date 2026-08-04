@@ -10,7 +10,7 @@ Voice Capture Studio Workspace/
   sessions/
     session_2026-07-08T21-30-00Z.json
   takes/
-    session.2026-07-08T21-30-00Z.webm
+    session.2026-07-08T21-30-00Z.wav
   session.2026-07-08T21-30-00Z/
     session.json
     takes/
@@ -30,7 +30,7 @@ Voice Capture Studio Workspace/
 
 ```json
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "workspaceId": "workspace.local.main",
   "createdAt": "2026-07-08T21:30:00.000Z",
   "updatedAt": "2026-07-08T21:35:00.000Z",
@@ -60,7 +60,7 @@ Voice Capture Studio Workspace/
         {
           "id": "take.2026-07-08T21:30:08.000Z",
           "promptId": "prompt.fr.directed-assistant.001",
-          "fileName": "session.2026-07-08T21-30-00.000Z.webm",
+          "fileName": "session.2026-07-08T21-30-00.000Z.wav",
           "quality": {
             "schemaVersion": "voice.quality.v2",
             "verdict": "pass"
@@ -69,6 +69,10 @@ Voice Capture Studio Workspace/
       ]
     }
   ],
+  "rights": {
+    "consents": [],
+    "licenses": []
+  },
   "settings": {
     "preferredSessionMinutes": 5,
     "storageMode": "file-system-access",
@@ -91,6 +95,10 @@ Workspace rules:
 4. Keep migrations explicit whenever `schemaVersion` changes.
 5. Store complete session metadata locally so a take can be reviewed without reopening the corpus.
 6. Keep capture profile data with the workspace and copy it into Forge session metadata.
+
+Schema 1 workspaces migrate through the explicit `1 → 2` transform, which adds
+the durable rights ledger without mutating the legacy payload. Unknown future
+versions remain blocked until their transform exists.
 
 ## Restorable archive
 

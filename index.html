@@ -55,6 +55,31 @@
     <link rel="manifest" href="%BASE_URL%manifest.webmanifest" />
     <link rel="icon" href="%BASE_URL%icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="%BASE_URL%apple-touch-icon.png" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "Voice Capture Studio",
+        "url": "https://electronicartefacts.github.io/voice-capture-studio/",
+        "description": "Studio local de capture vocale précise, guidée et prête pour les datasets.",
+        "applicationCategory": "MultimediaApplication",
+        "applicationSubCategory": "Audio recording",
+        "operatingSystem": "Tout navigateur moderne",
+        "inLanguage": ["fr", "en"],
+        "isAccessibleForFree": true,
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "EUR"
+        },
+        "featureList": [
+          "Capture PCM WAV locale",
+          "Analyse vocale sur l’appareil",
+          "Progression et archives locales",
+          "Exports dataset vérifiables"
+        ]
+      }
+    </script>
     <title>Voice Capture Studio</title>
   </head>
   <body>

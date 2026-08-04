@@ -11,6 +11,22 @@
   "background_color": "#050506",
   "theme_color": "#0b1110",
   "categories": ["music", "productivity", "utilities"],
+  "screenshots": [
+    {
+      "src": "screenshots/studio-wide.png",
+      "sizes": "1280x720",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Atelier local de découpe lexicale"
+    },
+    {
+      "src": "screenshots/studio-narrow.png",
+      "sizes": "390x844",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Atelier local de découpe lexicale sur mobile"
+    }
+  ],
   "icons": [
     {
       "src": "icon-192.png",

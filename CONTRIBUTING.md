@@ -8,7 +8,7 @@ the repository.
 
 Requirements:
 
-- Node.js 22 or newer
+- Node.js 22.12 or newer
 - npm 11 or newer
 
 Install and validate:
