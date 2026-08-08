@@ -121,6 +121,20 @@ test("voice capture package v1 exports a self-validating Forge contract with exp
   assert.equal(plan.samples[0].audio.digital_gain?.mode, "auto");
   assert.equal(plan.samples[0].audio.digital_gain?.factor, 2);
   assert.equal(plan.samples[0].alignment.status, "estimated_g2p");
+  assert.equal(
+    plan.samples[0].timed_text?.schema_version,
+    "voice.timed_text.v1",
+  );
+  assert.ok(
+    plan.files.some(
+      (file) => file.path === plan.samples[0].timed_text?.lrc_path,
+    ),
+  );
+  assert.ok(
+    plan.files.some(
+      (file) => file.path === plan.samples[0].timed_text?.enhanced_lrc_path,
+    ),
+  );
   assert.equal(plan.samples[0].lifecycle.status, "training_candidate");
   assert.ok(plan.samples[0].lifecycle.review_required);
 
@@ -152,6 +166,50 @@ test("voice capture package v1 exports a self-validating Forge contract with exp
   );
   assert.ok(
     corruptedValidation.errors.includes("Checksum row missing: unexpected.txt"),
+  );
+});
+
+test("voice capture package preserves corpus source timecodes in text provenance", async () => {
+  const fixture = await createFixture({ speakerIndex: 0, language: "fr" });
+  const timedCorpus = {
+    ...canonicalCorpus,
+    scenarios: canonicalCorpus.scenarios.map((scenario) => ({
+      ...scenario,
+      prompts: scenario.prompts.map((prompt) =>
+        prompt.id === fixture.take.promptId
+          ? { ...prompt, sourceTiming: { startMs: 1_200, endMs: 3_800 } }
+          : prompt,
+      ),
+    })),
+  };
+  const plan = await createVoiceCapturePackagePlan({
+    corpus: timedCorpus,
+    getAudioBlob: async (fileName) => fixture.audioByFileName.get(fileName),
+    scope: createScope(fixture.workspace, {
+      speakerId: frSpeaker.id,
+      language: "fr",
+      sessionIds: [fixture.session.id],
+    }),
+    speakerProfiles: initialSpeakers,
+    workspace: fixture.workspace,
+  });
+
+  const textFile = plan.files.find((file) => file.path.startsWith("text/"));
+  assert.ok(textFile);
+  const textRecord = JSON.parse(await textFile.data.text()) as {
+    source_timecodes: { start_ms: number; end_ms: number } | null;
+  };
+  assert.deepEqual(textRecord.source_timecodes, {
+    start_ms: 1_200,
+    end_ms: 3_800,
+  });
+  const provenance = plan.files.find(
+    (file) => file.path === "rights/text-provenance.jsonl",
+  );
+  assert.ok(provenance);
+  assert.match(
+    await provenance.data.text(),
+    /"timecodes":\{"start_ms":1200,"end_ms":3800\}/u,
   );
 });
 
@@ -242,7 +300,14 @@ test("voice capture package includes free and continuous captures as curated sta
           mode: "free",
           speaker: frSpeaker,
           language: "fr",
-          timing: { words: [], phrases: [] },
+          timing: {
+            source: "browser_live_alignment",
+            words: [
+              { word: "Une", startMs: 0, endMs: 35 },
+              { word: "prise", startMs: 40, endMs: 90 },
+            ],
+            phrases: [],
+          },
         },
       },
     ],
@@ -253,6 +318,9 @@ test("voice capture package includes free and continuous captures as curated sta
   assert.ok(plan.files.some((entry) => entry.path === "standalone/index.json"));
   assert.ok(
     plan.files.some((entry) => entry.path.startsWith("standalone/raw/")),
+  );
+  assert.ok(
+    plan.files.some((entry) => entry.path.startsWith("standalone/timed-text/")),
   );
   const standaloneMetadata = plan.files.find((entry) =>
     entry.path.startsWith("standalone/metadata/"),
@@ -730,6 +798,10 @@ test("voice capture package exposes local acoustic evidence without claiming for
   assert.equal(plan.samples[0].alignment.status, "local_acoustic_comparison");
   assert.equal(plan.samples[0].alignment.kind, "acoustic_evidence");
   assert.equal(plan.samples[0].alignment.confidence, 0.96);
+  assert.equal(
+    plan.samples[0].timed_text?.timing_source,
+    "local_acoustic_analysis",
+  );
   assert.ok(
     plan.samples[0].lifecycle.reasons.includes(
       "local_acoustic_alignment_requires_confirmation",
@@ -795,6 +867,32 @@ test("voice capture package v1 validates safe paths and detects broken sample re
   assert.equal(validation.valid, false);
   assert.ok(
     validation.errors.some((error) => error.includes("Unsafe package path")),
+  );
+
+  const timedText = plan.samples[0].timed_text;
+  assert.ok(timedText);
+  const brokenTimedTextReference = {
+    ...plan.samples[0],
+    timed_text: { ...timedText, lrc_path: "timed-text/missing.lrc" },
+  };
+  const brokenPlan = {
+    ...plan,
+    files: plan.files.map((entry) =>
+      entry.path === "samples.jsonl"
+        ? {
+            ...entry,
+            data: new Blob([`${JSON.stringify(brokenTimedTextReference)}\n`], {
+              type: entry.mediaType,
+            }),
+          }
+        : entry,
+    ),
+  };
+  const brokenValidation = await validateVoiceCapturePackagePlan(brokenPlan);
+  assert.ok(
+    brokenValidation.errors.includes(
+      "Sample 0 timed-text path is missing: timed-text/missing.lrc.",
+    ),
   );
 });
 
@@ -890,6 +988,10 @@ test("voice capture package v1 can be Forge-ingestion-ready only when rights are
 
   assert.equal(plan.manifest.rights_status, "resolved");
   assert.equal(plan.forgeCompatibility.ready, true);
+  assert.equal(
+    plan.samples[0].timed_text?.timing_source,
+    "external_forced_alignment",
+  );
   assert.equal(plan.samples[0].alignment.status, "external_forced_alignment");
   assert.equal(plan.samples[0].lifecycle.status, "training_candidate");
 

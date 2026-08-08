@@ -10,7 +10,7 @@ Voice Capture Studio exports.
 3. Verify every manifest artifact path, byte size, and SHA-256.
 4. Stream `samples.jsonl`.
 5. Resolve sample references to audio, text, quality, alignment, session,
-   speaker, corpus, and rights artifacts.
+   speaker, corpus, rights, and optional timed-text artifacts.
 6. Read `reports/forge-compatibility.json`.
 
 ## Readiness meaning

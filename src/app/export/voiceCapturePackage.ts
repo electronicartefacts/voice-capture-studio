@@ -6,6 +6,7 @@ import type {
   TakeQuality,
 } from "@domains/sessions";
 import type { SpeakerProfile } from "@domains/speakers";
+import type { TimedTextDocument } from "../../domains/timedText/index";
 import type { LanguageCode } from "@shared/index";
 import type { VoiceWorkspace } from "@domains/workspace";
 import { sha256Blob, sha256Bytes } from "../storage/sha256";
@@ -14,6 +15,11 @@ import {
   type PcmWavValidation,
 } from "../audio/wavValidation";
 import type { ProcessedVoiceArtifact } from "../analysis/processedVoiceArtifact";
+import {
+  createStandaloneTimedTextDocument,
+  createTakeTimedTextDocument,
+  createTimedTextExportArtifact,
+} from "./timedTextExport";
 
 export const VOICE_CAPTURE_PACKAGE_SCHEMA = "voice.capture.package.v1" as const;
 export const VOICE_CAPTURE_PACKAGE_VERSION = "1.0.0" as const;
@@ -142,6 +148,12 @@ export type VoiceCapturePackageSample = {
     readonly normalized_hash: string;
     readonly provenance_ref: string;
     readonly license_ref: string | null;
+  };
+  readonly timed_text?: {
+    readonly schema_version: "voice.timed_text.v1";
+    readonly timing_source: TimedTextDocument["source"];
+    readonly lrc_path: string;
+    readonly enhanced_lrc_path: string;
   };
   readonly labels: {
     readonly intent_target: unknown;
@@ -464,6 +476,22 @@ export async function createVoiceCapturePackagePlan(input: {
         derivedSha256: processedHash,
       });
     }
+    const timedText = createStandaloneTimedTextDocument({
+      language:
+        typeof capture.metadata.language === "string"
+          ? capture.metadata.language
+          : (scope.languages[0] ?? "und"),
+      metadata: capture.metadata,
+    });
+    const timedTextFiles =
+      timedText === null
+        ? null
+        : addTimedTextFiles(
+            files,
+            `standalone/timed-text/${key}`,
+            key,
+            timedText,
+          );
     standaloneIndex.push({
       fileName: capture.fileName,
       rawPath,
@@ -471,6 +499,7 @@ export async function createVoiceCapturePackagePlan(input: {
       derivedPath,
       processingPath,
       roomTonePath,
+      timedText: timedTextFiles,
     });
     audioBytes += capture.blob.size;
   }
@@ -721,6 +750,26 @@ export async function createVoiceCapturePackagePlan(input: {
     const reviewPath = `reviews/${takeKey}.json`;
     const observationPath = `observations/${takeKey}.json`;
     const evidencePath = `evidence/${takeKey}.json`;
+    const timedText = createTakeTimedTextDocument({
+      language: session.language,
+      take,
+    });
+    const timedTextFiles =
+      timedText === null
+        ? null
+        : addTimedTextFiles(
+            files,
+            `timed-text/${takeKey}`,
+            take.fileName,
+            timedText,
+          );
+    const sourceTimecodes =
+      prompt.sourceTiming === undefined
+        ? null
+        : {
+            start_ms: prompt.sourceTiming.startMs,
+            end_ms: prompt.sourceTiming.endMs,
+          };
     const contextPath = sessionPaths.get(session.id);
     const captureContext = contextBySession.get(session.id);
     if (contextPath === undefined || captureContext === undefined) {
@@ -748,7 +797,8 @@ export async function createVoiceCapturePackagePlan(input: {
       normalized_hash: sha256Bytes(new TextEncoder().encode(normalizedText)),
       provenance_ref: `corpus:${corpus.id}@${corpus.version}#prompt:${take.promptId}`,
       license_ref: license.licenseId,
-      source_timecodes: null,
+      source_timecodes: sourceTimecodes,
+      timed_text_refs: timedTextFiles,
     });
     const alignment = createAlignmentRecord(take, alignmentPath);
     addJsonFile(files, alignmentPath, {
@@ -823,6 +873,16 @@ export async function createVoiceCapturePackagePlan(input: {
         provenance_ref: `corpus:${corpus.id}@${corpus.version}#prompt:${take.promptId}`,
         license_ref: license.licenseId,
       },
+      ...(timedTextFiles === null
+        ? {}
+        : {
+            timed_text: {
+              schema_version: "voice.timed_text.v1" as const,
+              timing_source: timedTextFiles.timingSource,
+              lrc_path: timedTextFiles.lrcPath,
+              enhanced_lrc_path: timedTextFiles.enhancedLrcPath,
+            },
+          }),
       labels: {
         intent_target: take.intent.intent,
         emotion_target: prompt.intention.emotion,
@@ -880,7 +940,7 @@ export async function createVoiceCapturePackagePlan(input: {
       source_ref: sample.text.provenance_ref,
       source_hash: sample.text.source_hash,
       license_ref: license.licenseId,
-      timecodes: null,
+      timecodes: sourceTimecodes,
     });
     if (addedAudio) audioBytes += audioBlob.size;
   }
@@ -1127,6 +1187,14 @@ export async function validateVoiceCapturePackagePlan(
           errors.push(`Sample ${index} alignment path is missing.`);
         if (!byPath.has(sample.capture_context_ref))
           errors.push(`Sample ${index} context path is missing.`);
+        for (const path of [
+          sample.timed_text?.lrc_path,
+          sample.timed_text?.enhanced_lrc_path,
+        ]) {
+          if (path !== undefined && !byPath.has(path)) {
+            errors.push(`Sample ${index} timed-text path is missing: ${path}.`);
+          }
+        }
       } catch {
         errors.push(`samples.jsonl line ${index + 1} is not valid JSON.`);
       }
@@ -1623,6 +1691,13 @@ function createArtifacts(
     owners.set(sample.quality.path, `sample:${sample.sample_id}`);
     if (sample.alignment.path !== null)
       owners.set(sample.alignment.path, `sample:${sample.sample_id}`);
+    if (sample.timed_text !== undefined) {
+      owners.set(sample.timed_text.lrc_path, `sample:${sample.sample_id}`);
+      owners.set(
+        sample.timed_text.enhanced_lrc_path,
+        `sample:${sample.sample_id}`,
+      );
+    }
     owners.set(sample.capture_context_ref, `session:${sample.session_id}`);
     owners.set(
       `text/${pathToken(sample.take_id)}.json`,
@@ -1705,6 +1780,39 @@ function addTextFile(
   text: string,
 ): void {
   files.push(file(path, textBlob(text), "text/plain;charset=utf-8"));
+}
+
+function addTimedTextFiles(
+  files: VoiceCapturePackageFile[],
+  pathStem: string,
+  baseName: string,
+  document: TimedTextDocument,
+): {
+  readonly schemaVersion: "voice.timed_text.v1";
+  readonly timingSource: TimedTextDocument["source"];
+  readonly lrcPath: string;
+  readonly enhancedLrcPath: string;
+} {
+  const lrc = createTimedTextExportArtifact({
+    baseName,
+    document,
+    format: "lrc",
+  });
+  const enhancedLrc = createTimedTextExportArtifact({
+    baseName,
+    document,
+    format: "enhanced-lrc",
+  });
+  const lrcPath = `${pathStem}.lrc`;
+  const enhancedLrcPath = `${pathStem}.enhanced.lrc`;
+  addTextFile(files, lrcPath, lrc.text);
+  addTextFile(files, enhancedLrcPath, enhancedLrc.text);
+  return {
+    schemaVersion: document.schemaVersion,
+    timingSource: document.source,
+    lrcPath,
+    enhancedLrcPath,
+  };
 }
 
 function addAudioFileOnce(
@@ -1812,6 +1920,7 @@ function normalizeText(text: string): string {
 
 function schemaVersionForPath(path: string): string {
   if (path.endsWith(".wav")) return "audio.pcm_s24le.v1";
+  if (path.endsWith(".lrc")) return "voice.timed_text.v1";
   if (path === "samples.jsonl") return "voice.capture.samples.v1";
   if (path.startsWith("rights/")) return "voice.capture.rights.v1";
   if (path.startsWith("reports/")) return "voice.capture.report.v1";
@@ -1820,6 +1929,7 @@ function schemaVersionForPath(path: string): string {
 
 function artifactType(path: string): VoiceCapturePackageArtifact["type"] {
   if (path.endsWith(".wav")) return "audio";
+  if (path.endsWith(".lrc")) return "text";
   if (path.startsWith("reports/")) return "report";
   if (
     path.startsWith("rights/") ||
@@ -1854,6 +1964,8 @@ function createPackageReadme(
     "This package is explicit about scope, immutable raw WAV identity, provenance, quality, lifecycle, rights, and split assignment.",
     "",
     "When present, derived/ contains a timing-preserving voice-first 16 kHz WAV and processing/ records its exact local method and source hash. It is inspection/ASR evidence, not the default replacement for immutable raw audio.",
+    "",
+    "When present, timed-text/ contains standard and word-level LRC projections. Canonical timing and provenance remain in JSON records.",
     "",
     "The manifest describes all payload artifacts. checksums.sha256 also covers manifest.json; checksums.sha256 is intentionally self-excluded to avoid a circular hash.",
     "",

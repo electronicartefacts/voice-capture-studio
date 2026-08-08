@@ -8,6 +8,10 @@ This project follows semantic versioning for public releases.
 
 ### Added
 
+- User-selected result exports for complete WAV/JSON or ZIP artifacts, standard
+  LRC, word-level enhanced LRC, SRT, WebVTT, and analysis CSV.
+- Canonical `voice.timed_text.v1` projections with timing-source provenance in
+  take packages and standalone continuous recordings.
 - Fifth mode, **Découpe lexicale**, for local audio/video import, on-device
   Whisper word timing, and ZIP export with one WAV per detected word, a JSON
   manifest, a CSV timeline, and the transcript.
@@ -21,6 +25,8 @@ This project follows semantic versioning for public releases.
 
 ### Changed
 
+- Lexical segmentation archives now use `voice.word_segmentation.v8` and embed
+  standard and enhanced LRC files beside JSON, CSV, transcript, and word WAVs.
 - Dataset download and folder export lifecycles now share a dedicated
   cancellable React controller outside the central capture orchestrator.
 - Upgraded the build/runtime baseline to Vite 8, React tooling 6, Lucide 1 and

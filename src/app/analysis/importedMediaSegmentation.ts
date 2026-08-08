@@ -1,6 +1,10 @@
 import { encodeWav24 } from "../audio/pcmAudio";
 import { createZipBlobOffThread } from "../export/zipService";
 import type { ZipEntryInput } from "../export/zipWriter";
+import {
+  createTimedTextDocument,
+  serializeLrc,
+} from "../../domains/timedText/index";
 import { detectFocusedVocalActivity } from "./focusedVocalActivity";
 import {
   analyzeDecodedAudio,
@@ -44,7 +48,7 @@ export type ImportedMediaSegmentationResult = {
 };
 
 export type WordSegmentationManifest = {
-  readonly schemaVersion: "voice.word_segmentation.v7";
+  readonly schemaVersion: "voice.word_segmentation.v8";
   readonly createdAt: string;
   readonly source: {
     readonly fileName: string;
@@ -125,6 +129,11 @@ export type WordSegmentationManifest = {
     readonly wordCount: number;
     readonly timingSource: "whisper_attention_timestamp";
     readonly quality: LexicalSegmentationQuality;
+  };
+  readonly timedText: {
+    readonly schemaVersion: "voice.timed_text.v1";
+    readonly source: "local_acoustic_analysis";
+    readonly files: readonly ["lyrics.lrc", "lyrics.enhanced.lrc"];
   };
   readonly words: readonly WordAudioSegment[];
 };
@@ -467,8 +476,22 @@ export async function segmentImportedMedia(input: {
   const words = createWordAudioSegments(acceptedTimings, durationMs);
   const supportedTranscript = words.map((word) => word.word).join(" ");
   const createdAt = (input.now ?? new Date()).toISOString();
+  const timedText = createTimedTextDocument({
+    language: input.language,
+    source: "local_acoustic_analysis",
+    title: input.file.name,
+    words: words.map((word) => ({
+      word: word.word,
+      startMs: word.startMs,
+      endMs: word.endMs,
+      confidence: word.confidence,
+    })),
+  });
+  if (timedText === null) {
+    throw new Error("La timeline reconnue ne peut pas être sérialisée.");
+  }
   const manifest: WordSegmentationManifest = {
-    schemaVersion: "voice.word_segmentation.v7",
+    schemaVersion: "voice.word_segmentation.v8",
     createdAt,
     source: {
       fileName: input.file.name,
@@ -546,6 +569,11 @@ export async function segmentImportedMedia(input: {
       timingSource: "whisper_attention_timestamp",
       quality,
     },
+    timedText: {
+      schemaVersion: "voice.timed_text.v1",
+      source: "local_acoustic_analysis",
+      files: ["lyrics.lrc", "lyrics.enhanced.lrc"],
+    },
     words,
   };
   const entries: ZipEntryInput[] = [
@@ -563,6 +591,18 @@ export async function segmentImportedMedia(input: {
       path: "timeline.csv",
       data: new Blob([createTimelineCsv(words)], {
         type: "text/csv;charset=utf-8",
+      }),
+    },
+    {
+      path: "lyrics.lrc",
+      data: new Blob([serializeLrc(timedText, false)], {
+        type: "text/plain;charset=utf-8",
+      }),
+    },
+    {
+      path: "lyrics.enhanced.lrc",
+      data: new Blob([serializeLrc(timedText, true)], {
+        type: "text/plain;charset=utf-8",
       }),
     },
     ...words.map((word) => ({

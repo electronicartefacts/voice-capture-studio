@@ -3521,6 +3521,12 @@ export function App() {
     });
     const captureProfile = (workspaceRef.current ?? workspace)?.settings
       .captureProfile;
+    const continuousWordTimings = isContinuousCorpusCapture
+      ? createLiveWordTimings(
+          continuousGuideWords,
+          recording.metrics.durationMs,
+        )
+      : [];
     const metadata = {
       schemaVersion: isContinuousCorpusCapture
         ? "voice.continuous_corpus_capture.v1"
@@ -3557,6 +3563,20 @@ export function App() {
             capture: "continuous",
           }
         : null,
+      timing:
+        continuousWordTimings.length === 0
+          ? null
+          : {
+              schemaVersion: "voice.standalone_timing.v1",
+              source: "browser_live_alignment",
+              words: continuousWordTimings,
+              phrases: createAcousticPhraseTimings(
+                continuousCorpusText,
+                continuousWordTimings,
+                recording.metrics.durationMs,
+              ),
+              speechSegments: recording.metrics.speechSegments,
+            },
       transcript: freeCaptureTranscript,
     };
     freeCaptureMetadataRef.current = metadata;
@@ -4255,6 +4275,7 @@ export function App() {
                   }
                 >
                   <DoneScreen
+                    captureMode={captureMode}
                     downloadUrl={downloadUrl}
                     fileName={savedFileName}
                     freeCaptureTranscript={
@@ -4294,6 +4315,7 @@ export function App() {
                             .join(" · ")
                     }
                     take={lastTake}
+                    standaloneMetadata={freeCaptureMetadataRef.current}
                     hasNextPrompt={
                       session !== null &&
                       currentPromptIndex < session.plannedPromptIds.length - 1

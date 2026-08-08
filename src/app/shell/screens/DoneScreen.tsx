@@ -11,7 +11,6 @@ import {
 import {
   AudioLines,
   Database,
-  Download,
   Home,
   Pause,
   Play,
@@ -20,6 +19,10 @@ import {
   StepForward,
 } from "lucide-react";
 import type { RecordedTake } from "@domains/sessions";
+import {
+  createStandaloneTimedTextDocument,
+  createTakeTimedTextDocument,
+} from "../../export/timedTextExport";
 import { computeReviewPlaybackGain } from "../../audio/reviewPlaybackGain";
 import {
   createReviewWordTimings,
@@ -49,6 +52,8 @@ import {
   type WindowWithAudioContext,
 } from "../audioEnvironment";
 import { createTakeCoachNote, formatPercent } from "../helpers";
+import type { CaptureMode } from "../types";
+import { ExportChooser } from "../components/ExportChooser";
 
 export function ListeningReviewSurface(input: {
   readonly audioUrl: string | null;
@@ -793,6 +798,7 @@ async function extractReviewWaveformBars(
 }
 
 export function DoneScreen(input: {
+  readonly captureMode: CaptureMode;
   readonly downloadUrl: string | null;
   readonly fileName: string | null;
   readonly freeCaptureTranscript?: string | null;
@@ -816,9 +822,43 @@ export function DoneScreen(input: {
   readonly language: string;
   readonly progressLabel: string | null;
   readonly take: RecordedTake | null;
+  readonly standaloneMetadata?: Record<string, unknown> | null;
 }) {
   const isKeeper = input.take?.quality.verdict === "pass";
   const integrityHash = input.take?.media?.sha256 ?? null;
+  const timedTextDocument = useMemo(
+    () =>
+      input.take === null
+        ? createStandaloneTimedTextDocument({
+            language: input.language,
+            metadata: input.standaloneMetadata ?? null,
+          })
+        : createTakeTimedTextDocument({
+            language: input.language,
+            take: input.take,
+          }),
+    [input.language, input.standaloneMetadata, input.take],
+  );
+  const completeDownloads = [
+    ...(input.downloadUrl !== null && input.fileName !== null
+      ? [
+          {
+            fileName: input.fileName,
+            href: input.downloadUrl,
+            label: "Télécharger le WAV",
+          },
+        ]
+      : []),
+    ...(input.metadataDownloadUrl !== null
+      ? [
+          {
+            fileName: "voice.capture_session.json",
+            href: input.metadataDownloadUrl,
+            label: "Télécharger le JSON",
+          },
+        ]
+      : []),
+  ];
 
   return (
     <div className="focus-card" aria-live="polite">
@@ -936,32 +976,18 @@ export function DoneScreen(input: {
           </button>
         </div>
         <div className="result-export-actions" aria-label="Téléchargements">
-          {input.downloadUrl !== null && input.fileName !== null && (
-            <a
-              className="download-action"
-              download={input.fileName}
-              href={input.downloadUrl}
-            >
-              <Download aria-hidden="true" size={18} />
-              <span>Télécharger le WAV</span>
-            </a>
-          )}
-          {input.metadataDownloadUrl !== null && (
-            <a
-              className="folder-button"
-              download="voice.capture_session.json"
-              href={input.metadataDownloadUrl}
-            >
-              <Download aria-hidden="true" size={18} />
-              <span>Télécharger le JSON</span>
-            </a>
-          )}
-          {input.downloadUrl === null && input.metadataDownloadUrl === null && (
-            <p className="empty-export-state">
-              Les liens de téléchargement apparaissent ici quand le navigateur
-              ne peut pas écrire directement dans le dossier.
-            </p>
-          )}
+          <ExportChooser
+            baseName={input.fileName ?? "voice-capture"}
+            completeDownloads={completeDownloads}
+            defaultRecipe={
+              input.captureMode === "mastering"
+                ? "enhanced-lrc"
+                : input.captureMode === "dubbing"
+                  ? "srt"
+                  : "complete"
+            }
+            document={timedTextDocument}
+          />
         </div>
       </section>
       {input.take !== null && (

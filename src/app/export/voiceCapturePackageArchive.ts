@@ -175,6 +175,8 @@ async function validateSample(
     sample.capture_context_ref,
     sample.observations?.path,
     sample.observations?.evidence_path,
+    sample.timed_text?.lrc_path,
+    sample.timed_text?.enhanced_lrc_path,
   ]) {
     if (path !== null && path !== undefined && !entries.has(path))
       errors.push(`${prefix} references missing artifact: ${path}`);

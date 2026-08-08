@@ -6,18 +6,20 @@ import {
   type DragEvent,
   type SyntheticEvent,
 } from "react";
-import { AudioLines, Download, FileAudio, Play, Upload, X } from "lucide-react";
+import { AudioLines, FileAudio, Play, Upload, X } from "lucide-react";
 import type {
   ImportedMediaSegmentationResult,
   WordAudioSegment,
 } from "../../analysis/importedMediaSegmentation";
 import { LEXICAL_SEGMENTATION_MAX_DURATION_MS } from "../../analysis/lexicalSegmentationPolicy";
 import type { LocalAnalysisProgress } from "../../analysis/types";
+import { createWordListTimedTextDocument } from "../../export/timedTextExport";
 import {
   formatLanguage,
   supportedLanguages,
   type LanguageCode,
 } from "@shared/index";
+import { ExportChooser } from "../components/ExportChooser";
 import "./lexical-segmentation.css";
 
 const WORD_REVIEW_PAGE_SIZE = 40;
@@ -195,7 +197,7 @@ export function LexicalSegmentationPanel(input: {
               <dt>Découpe produite</dt>
               <dd>
                 {input.state.result.manifest.words.length} WAV mot par mot ·
-                manifeste JSON · timeline CSV ·{" "}
+                manifeste JSON · timeline CSV · LRC simple et mot par mot ·{" "}
                 {formatPasses(input.state.result)}
               </dd>
             </div>
@@ -242,14 +244,11 @@ export function LexicalSegmentationPanel(input: {
               words={input.state.result.manifest.words}
             />
           )}
-          <a
-            className="download-action"
-            download={input.state.result.fileName}
-            href={input.state.downloadUrl}
-          >
-            <Download aria-hidden="true" size={18} />
-            <span>Télécharger l'audio segmenté</span>
-          </a>
+          <LexicalExportChooser
+            downloadUrl={input.state.downloadUrl}
+            language={input.language}
+            result={input.state.result}
+          />
         </>
       )}
 
@@ -262,6 +261,39 @@ export function LexicalSegmentationPanel(input: {
         </p>
       )}
     </section>
+  );
+}
+
+function LexicalExportChooser(input: {
+  readonly downloadUrl: string;
+  readonly language: LanguageCode;
+  readonly result: ImportedMediaSegmentationResult;
+}) {
+  const document = createWordListTimedTextDocument({
+    language: input.language,
+    title: input.result.fileName,
+    words: input.result.manifest.words.map((word) => ({
+      word: word.word,
+      startMs: word.startMs,
+      endMs: word.endMs,
+      confidence: word.confidence,
+    })),
+  });
+
+  return (
+    <ExportChooser
+      baseName={input.result.fileName.replace(/\.decoupe-lexicale\.zip$/u, "")}
+      completeDownloads={[
+        {
+          fileName: input.result.fileName,
+          href: input.downloadUrl,
+          label: "Télécharger l'archive complète",
+        },
+      ]}
+      completeLabel="Archive complète — ZIP"
+      defaultRecipe="enhanced-lrc"
+      document={document}
+    />
   );
 }
 

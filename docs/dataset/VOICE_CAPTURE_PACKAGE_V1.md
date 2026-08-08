@@ -16,6 +16,8 @@ voice-capture-package/
   sessions/<session_id>.json
   corpora/<corpus_id>/<corpus_version>.json
   text/<take_id>.json
+  timed-text/<take_id>.lrc
+  timed-text/<take_id>.enhanced.lrc
   alignment/<take_id>.json
   quality/<take_id>.json
   observations/<take_id>.json
@@ -71,6 +73,13 @@ silently. When the capture declares a room-tone SHA-256, export rejects retained
 audio that no longer matches it. The package copy also redacts
 `speaker.displayName` while preserving the stable speaker id and records that
 redaction beside the standalone metadata.
+
+When word timing is available, each selected take also references standard and
+enhanced LRC projections under `timed-text/`. Standalone captures expose the
+same pair under `standalone/timed-text/`. These `voice.timed_text.v1` artifacts
+are checksummed convenience views; JSON timing and its declared source remain
+canonical. Corpus prompt source timecodes, when present, are also retained in
+the take text record and `rights/text-provenance.jsonl` instead of being dropped.
 
 ## Integrity rules
 

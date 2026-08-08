@@ -222,6 +222,17 @@ test("a guided take flows from launch to the review screen", async ({
   ).toBeVisible();
   await expect(page.getByText("Moniteur de prise")).toBeVisible();
   await expect(page.getByLabel("Temps de lecture")).toBeVisible();
+  const exportFormat = page.getByLabel("Format de sortie");
+  await expect(exportFormat).toHaveValue("complete");
+  await expect(exportFormat.locator("option")).toHaveCount(6);
+  await exportFormat.selectOption("enhanced-lrc");
+  const timedTextDownload = page.waitForEvent("download");
+  await page
+    .getByRole("button", { name: "Télécharger Karaoké mot par mot" })
+    .click();
+  await expect((await timedTextDownload).suggestedFilename()).toMatch(
+    /\.enhanced\.lrc$/u,
+  );
   const playbackButton = page.getByRole("button", { name: "Écouter" });
   const restartButton = page.getByRole("button", {
     name: "Recommencer la lecture",
@@ -354,6 +365,10 @@ test("free capture removes unavailable controls and can replay the finished reco
   await expect(
     page.getByLabel("Transcription de la capture libre"),
   ).toBeVisible();
+  await expect(page.getByLabel("Format de sortie")).toHaveValue("complete");
+  await expect(
+    page.getByLabel("Format de sortie").locator('option[value="lrc"]'),
+  ).toHaveAttribute("disabled", "");
 });
 
 test("dubbing connects a YouTube scene to the scripted recording surface", async ({

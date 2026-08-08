@@ -27,7 +27,10 @@ open-source foundation for privacy-preserving voice capture workflows.
 - Multi-hypothesis music analysis that can compare the original, a centered vocal focus, spectral
   separation, speech/singing activity, and temporally aligned consensus without altering exports.
 - Paginated word-by-word review on the untouched local media, with exact timecodes and evidence,
-  before downloading a lexical segmentation archive.
+  before downloading a lexical segmentation archive containing JSON, CSV, standard LRC, enhanced
+  word-level LRC, and the WAV clips.
+- User-selected result export: complete WAV/JSON or ZIP artifacts remain the canonical delivery,
+  while LRC, enhanced LRC, SRT, WebVTT, and word-level CSV are generated as timed-text projections.
 - Transcript, timing, intent, prosody, and quality metadata for each take.
 - Browser-estimated word-to-phoneme alignment for every new take, with explicit forced-alignment
   handoff metadata.
@@ -85,8 +88,9 @@ Because the app is configured for GitHub Pages, the production build is served u
 3. Confirm browser runtime diagnostics and microphone access.
 4. Capture room tone before recording keeper material.
 5. Record prompted takes and review the quality verdict.
-6. Download WAV and JSON exports, or save to a chosen folder where the browser supports the File
-   System Access API.
+6. Choose the useful output: complete WAV/JSON or ZIP, synchronized LRC, word-level enhanced LRC,
+   SRT, WebVTT, or analysis CSV. Dataset packages can also be saved to a chosen folder where the
+   browser supports the File System Access API.
 
 Chrome and Edge currently provide the strongest browser support for the full local workspace flow.
 Android Chrome can record and download exports, but folder selection is typically unavailable.
@@ -177,7 +181,7 @@ HTTPS, which GitHub Pages provides.
 - Future archive-version transforms and cross-device recovery drills.
 - Corpus tombstone support for long-lived compatibility.
 - Stronger File System Access first-run flow where supported.
-- More export targets once the `voice.capture_session` contract stabilizes.
+- Import and correction workflows for externally edited timed-text files.
 - Tagged releases and a documented deployment rollback rehearsal.
 
 ## Contributing

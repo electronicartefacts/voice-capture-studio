@@ -19,6 +19,8 @@ takes/<take_id>/intent.json
 takes/<take_id>/quality.json
 takes/<take_id>/observation.json
 takes/<take_id>/evidence.json
+timed-text/<take_id>.lrc
+timed-text/<take_id>.enhanced.lrc
 reports/report.audio_quality.json
 reports/report.transcript_alignment.json
 reports/report.phonetic_coverage.json
@@ -65,6 +67,29 @@ capture-integrity gate and cannot become a keeper.
 `manifest.json` is generated after files are written and includes SHA-256 checksums for every
 artifact written by the browser export path.
 
+## Timed-text projections and user choice
+
+The review screen and lexical segmentation screen let the user choose the output that matches the
+next tool:
+
+- complete capture: WAV + JSON for a take, or the verified ZIP for lexical segmentation;
+- standard LRC: one centisecond timestamp per readable line;
+- enhanced LRC: one line timestamp plus a centisecond timestamp for every word;
+- SRT and WebVTT: explicit cue start/end intervals;
+- CSV: one row per word with start, end, confidence, and timing source.
+
+All synchronized formats are deterministic projections of `voice.timed_text.v1`. They never become
+a parallel source of truth: the workspace timing JSON, acoustic evidence, confidence, and source
+provenance remain canonical. The projection records whether timing came from external forced
+alignment, local acoustic analysis, live browser alignment, an imported source, or a text-derived
+estimate that still needs review.
+
+The complete `voice.capture.package.v1` archive includes standard and enhanced LRC beside each take
+with usable words. Standalone recordings receive the same files when their metadata contains word
+timing. Lexical segmentation archives use `voice.word_segmentation.v8` and always include
+`lyrics.lrc` and `lyrics.enhanced.lrc` alongside the manifest, timeline CSV, and untouched-source
+word clips.
+
 Forge pipeline stages:
 
 ```text
@@ -92,6 +117,8 @@ Export rules:
    text-derived and marked `forcedAlignmentRequired` until an external alignment is imported;
    the import path preserves acoustic provenance, but Forge should still validate phoneme-level
    coverage for final acceptance.
+8. Timed-text files are convenience projections. Editing an exported LRC does not mutate the
+   workspace or silently override acoustic evidence.
 
 Audio resolution for dataset exports is local-first: the browser cache is checked first, then the
 connected File System Access folder. If neither source contains a keeper WAV, the export completes

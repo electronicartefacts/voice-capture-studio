@@ -4633,6 +4633,67 @@ body,
   justify-content: flex-end;
 }
 
+.export-chooser {
+  display: grid;
+  gap: 8px;
+  min-width: min(100%, 300px);
+}
+
+.export-chooser > label {
+  display: grid;
+  gap: 6px;
+}
+
+.export-chooser > label > span {
+  color: var(--soft);
+  font-size: 10px;
+  font-weight: 820;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.export-chooser select {
+  appearance: none;
+  background: color-mix(in srgb, var(--panel-solid) 14%, transparent);
+  border: 1px solid var(--review-hairline-strong);
+  border-radius: 14px;
+  color: var(--text);
+  font: inherit;
+  font-weight: 760;
+  min-height: 46px;
+  padding: 10px 36px 10px 12px;
+  width: 100%;
+}
+
+.export-chooser select:focus-visible {
+  border-color: color-mix(in srgb, var(--accent-a) 64%, var(--line));
+  outline: 2px solid color-mix(in srgb, var(--accent-a) 34%, transparent);
+  outline-offset: 2px;
+}
+
+.export-choice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.export-choice-actions > * {
+  flex: 1 1 180px;
+}
+
+.export-choice-actions p,
+.export-unavailable-note {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 680;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.result-export-actions .export-chooser {
+  justify-items: end;
+}
+
 @media (max-width: 720px) {
   .review-waveform-svg {
     bottom: 25px;
@@ -4665,6 +4726,12 @@ body,
   .result-command-panel
     :is(.launch-button, .folder-button, .quiet-button, .download-action) {
     justify-content: center;
+    width: 100%;
+  }
+
+  .result-export-actions .export-chooser,
+  .export-chooser {
+    justify-items: stretch;
     width: 100%;
   }
 }

@@ -48,6 +48,8 @@ documentation, and deployment configuration. User voice data belongs outside the
     projection from workspace history.
 13. `createCaptureSessionExportBundle` derives Forge-shaped metadata and reports, then the shell
     writes them to the chosen folder or exposes a JSON download.
+14. Result surfaces project canonical word timing through `voice.timed_text.v1`; users choose the
+    complete artifact, LRC, enhanced LRC, SRT, WebVTT, or CSV without changing workspace truth.
 
 ## Projections
 
