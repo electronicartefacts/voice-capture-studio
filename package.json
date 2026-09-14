@@ -43,7 +43,7 @@
     "lucide-react": "^1.28.0",
     "onnxruntime-web": "^1.27.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.3.0"
   },
   "overrides": {
     "adm-zip": "0.6.0",
@@ -54,7 +54,7 @@
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.61.1",
     "@types/react": "^19.0.1",
-    "@types/react-dom": "^19.0.2",
+    "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.0.5",
     "eslint": "^10.6.0",
     "eslint-plugin-react-hooks": "^7.1.1",
